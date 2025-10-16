@@ -33,7 +33,7 @@ jobs:
         uv sync --group dev
     - name: Lint with flake8
       run: |
-        uv run flake8 energnn --count --show-source --max-complexity=10 --max-line-length=127 --statistics
+        uv run flake8 src/energnn --count --show-source --max-complexity=10 --max-line-length=127 --statistics
     - name: Test with pytest
       run: |
         uv run pytest tests
