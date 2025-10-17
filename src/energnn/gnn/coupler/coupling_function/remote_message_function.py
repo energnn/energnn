@@ -5,13 +5,11 @@
 # SPDX-License-Identifier: MPL-2.0
 #
 from abc import ABC, abstractmethod
-from typing import Callable
 
 import flax.linen as nn
 import jax.numpy as jnp
 import jax.random
 
-from energnn.gnn.utils import MLP
 from energnn.graph.jax import JaxGraph
 
 MAX_INTEGER = 2147483647
@@ -96,4 +94,3 @@ class IdentityRemoteMessageFunction(nn.Module, RemoteMessageFunction):
     @nn.compact
     def __call__(self, *, context: JaxGraph, coordinates: jax.Array, get_info: bool = False) -> tuple[jax.Array, dict]:
         return coordinates, {}
-

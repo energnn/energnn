@@ -178,4 +178,3 @@ class SumLocalMessageFunction(nn.Module, LocalMessageFunction):
         )
 
         return self.final_activation(neighbour_message), {}
-
