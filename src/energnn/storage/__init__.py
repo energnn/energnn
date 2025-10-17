@@ -5,8 +5,6 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
 from .dummy import DummyStorage
-from .s3 import S3Storage
 from .storage import Storage
-from .local import LocalStorage
 
-__all__ = ["Storage", "S3Storage", "DummyStorage", "LocalStorage"]
+__all__ = ["Storage", "DummyStorage"]
