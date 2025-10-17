@@ -9,15 +9,12 @@ from .local_message_function import (
     LocalMessageFunction,
     EmptyLocalMessageFunction,
     IdentityLocalMessageFunction,
-    AttentionLocalMessageFunction,
-    # GATv2LocalMessageFunction,
     SumLocalMessageFunction,
 )
 from .remote_message_function import (
     RemoteMessageFunction,
     EmptyRemoteMessageFunction,
     IdentityRemoteMessageFunction,
-    LinearAttentionRemoteMessageFunction,
 )
 from .self_message_function import (
     SelfMessageFunction,
@@ -31,7 +28,6 @@ __all__ = [
     "LocalMessageFunction",
     "EmptyLocalMessageFunction",
     "IdentityLocalMessageFunction",
-    "AttentionLocalMessageFunction",
     # "GATv2LocalMessageFunction",
     "SumLocalMessageFunction",
     "SelfMessageFunction",
@@ -41,5 +37,4 @@ __all__ = [
     "RemoteMessageFunction",
     "EmptyRemoteMessageFunction",
     "IdentityRemoteMessageFunction",
-    "LinearAttentionRemoteMessageFunction",
 ]

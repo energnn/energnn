@@ -11,14 +11,12 @@ import jax.numpy as jnp
 import numpy as np
 
 from energnn.gnn.coupler.coupling_function import (
-    AttentionLocalMessageFunction,
     EmptyLocalMessageFunction,
     EmptyRemoteMessageFunction,
     EmptySelfMessageFunction,
     IdentityLocalMessageFunction,
     IdentityRemoteMessageFunction,
     IdentitySelfMessageFunction,
-    LinearAttentionRemoteMessageFunction,
     LocalMessageFunction,
     MLPSelfMessageFunction,
     RemoteMessageFunction,
@@ -153,23 +151,6 @@ def test_sum_local_message_function():
     output, infos = assert_batch(params=params, function=function, context=jax_context_batch, coordinates=coordinates_batch)
 
 
-def test_attention_local_message_function():
-    function = AttentionLocalMessageFunction(
-        out_size=16,
-        n_heads=2,
-        value_hidden_size=[16],
-        value_activation=nn.relu,
-        value_out_size=8,
-        score_hidden_size=[16],
-        score_activation=nn.relu,
-        psi_hidden_size=[16],
-        psi_activation=nn.relu,
-    )
-    params, output, infos = assert_single(
-        function=function, out_structure=out_structure, seed=0, context=jax_context, coordinates=coordinates
-    )
-    output, infos = assert_batch(params=params, function=function, context=jax_context_batch, coordinates=coordinates_batch)
-
 
 def test_empty_remote_message_function():
     function = EmptyRemoteMessageFunction()
@@ -181,28 +162,6 @@ def test_empty_remote_message_function():
 
 def test_identity_remote_message_function():
     function = IdentityRemoteMessageFunction()
-    params, output, infos = assert_single(
-        function=function, out_structure=out_structure, seed=0, context=jax_context, coordinates=coordinates
-    )
-    output, infos = assert_batch(params=params, function=function, context=jax_context_batch, coordinates=coordinates_batch)
-
-
-def test_linear_attention_remote_message_function():
-    function = LinearAttentionRemoteMessageFunction(
-        out_size=16,
-        n_heads=4,
-        qk_size=4,
-        q_hidden_size=[16],
-        q_activation=nn.relu,
-        k_hidden_size=[16],
-        k_activation=nn.relu,
-        v_hidden_size=[16],
-        v_activation=nn.relu,
-        v_out_size=8,
-        psi_hidden_size=[16],
-        psi_activation=nn.relu,
-        kernel_name="elu",
-    )
     params, output, infos = assert_single(
         function=function, out_structure=out_structure, seed=0, context=jax_context, coordinates=coordinates
     )
