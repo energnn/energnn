@@ -5,7 +5,7 @@ Tracker
 .. currentmodule:: energnn.tracker
 
 
-A typical ARGO project involves multiple training runs, and various datasets.
+A typical EnerGNN project involves multiple training runs, and various datasets.
 A :class:`Tracker` aims at versionning datasets and models, monitoring training runs,
 and finding the best model.
 

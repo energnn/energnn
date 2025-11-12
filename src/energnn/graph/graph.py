@@ -46,7 +46,7 @@ class Graph(dict):
     @classmethod
     def from_dict(cls, *, edge_dict: dict[str, Edge], registry: np.ndarray | None = None) -> Graph:
         """
-        Builds a graph from a dictionary of :class:`argo.graph.Edge` and a registry.
+        Builds a graph from a dictionary of :class:`energnn.graph.Edge` and a registry.
 
         :param edge_dict: Dictionary of edges contained in the graph.
         :param registry: Contains all unique address identifiers that appear in edges.

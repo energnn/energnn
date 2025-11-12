@@ -26,14 +26,14 @@ logger = logging.getLogger(__name__)
 class FeatureStoreClient:
     r"""
 
-    Client interface for interacting with an Argo Feature Store server.
+    Client interface for interacting with an EnerGNN Feature Store server.
 
     This client allows registering, retrieving, and downloading configuration files,
-    problem instances, and datasets related to an ARGO project. It manages metadata
+    problem instances, and datasets related to an EnerGNN project. It manages metadata
     and data storage through HTTP requests to a remote feature store and a storage backend.
 
     :param storage: Where the bulk of the data is stored.
-    :param project_name: Identifies the ARGO project, for HTTP requests to the feature store and storage location.
+    :param project_name: Identifies the EnerGNN project, for HTTP requests to the feature store and storage location.
     :param feature_store_url: Where to send the requests to.
     """
 

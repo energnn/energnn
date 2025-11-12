@@ -20,7 +20,7 @@ class Problem(ABC):
     and provide problem metadata.
 
     Notes:
-        - All returned Graph objects must adhere to the argo.graph.Graph API.
+        - All returned Graph objects must adhere to the energnn.graph.Graph API.
         - Methods returning tuples will return additional information in the dict when
           `get_info=True` for tracking purpose.
     """

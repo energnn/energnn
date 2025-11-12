@@ -134,7 +134,7 @@ def test_cdf_function():
 
 def test_load_file_path():
 
-    path = "tmp/argo/normalizer"
+    path = "tmp/energnn/normalizer"
     shutil.rmtree(path, ignore_errors=True)
     os.makedirs(path, exist_ok=True)
 
