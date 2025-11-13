@@ -1,2 +1,10 @@
 /.venv
-/.idea
+
+# IntelliJ
+.idea
+*.iml
+
+# VSCode
+.vscode
+
+*__pycache__/
