@@ -49,6 +49,6 @@ jobs:
       run: uv build
 
     - name: Release on PyPi
-      if: ${{ github.event_name == 'release' }}
+      if: ${{ github.event_name == 'release' && matrix.python-version == '3.10' }}
       shell: bash
       run: uv publish
