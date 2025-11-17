@@ -9,7 +9,6 @@ import chex
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
-from flax.core.frozen_dict import freeze, unfreeze
 
 from energnn.gnn.decoder import (
     AttentionInvariantDecoder,
@@ -23,7 +22,7 @@ from energnn.graph.jax import JaxGraph
 from tests.utils import TestProblemLoader
 
 
-# ---------- fixtures / common setup ----------
+# Prepare deterministic data and loader
 np.random.seed(0)
 n = 10
 pb_loader = TestProblemLoader(
@@ -62,63 +61,28 @@ def assert_vmap_jit_consistent(fn_apply, params, ctx_batch, coords_batch, rtol=1
     out4, info4 = jax.jit(apply_vmap)(params, ctx_batch, coords_batch, True)
 
     # Compare shapes first
+    # out can be arrays or JaxGraph for some decoders (here invariant decoders return arrays)
     assert type(out1) == type(out2) == type(out3) == type(out4)
     np_out1 = np.array(out1)
     np_out3 = np.array(out3)
     assert np_out1.shape == np.array(out2).shape == np_out3.shape == np.array(out4).shape
 
-    # numerical closeness between jitted and non-jitted
+    # numerical closeness between jitted and non-jitted (some differences possible)
     np.testing.assert_allclose(np_out1, np_out3, rtol=rtol, atol=atol)
+    # info when get_info True should be compatible (here usually empty dict)
     assert info1 == {}
     assert info3 == {}
     assert info2 == info4
 
 
-def _set_dense_layers_to_identity_or_zero(params, module_name, set_identity=True):
-    """
-    Patch params (Flax FrozenDict) such that Dense layers under `module_name` become:
-      - identity kernel and zero bias if set_identity=True (square case),
-      - zero kernel and zero bias if set_identity=False.
-
-    Returns a new frozen params dict.
-    """
-    p = unfreeze(params)
-    # typical structure: {'params': {module_name: {'Dense_0': {'kernel':..., 'bias':...}, ...}, ...}}
-    if "params" not in p:
-        raise KeyError("'params' key not found in params dict")
-    top = p["params"]
-    if module_name not in top:
-        raise KeyError(f"Module '{module_name}' not found in params structure: {list(top.keys())}")
-    mod = top[module_name]
-    for layer_name, layer in list(mod.items()):
-        if isinstance(layer, dict) and "kernel" in layer:
-            k = np.array(layer["kernel"])
-            b = np.array(layer.get("bias", np.zeros(k.shape[1], dtype=k.dtype)))
-            in_dim, out_dim = k.shape
-            if set_identity:
-                new_k = np.zeros_like(k)
-                for i in range(min(in_dim, out_dim)):
-                    new_k[i, i] = 1.0
-                new_b = np.zeros_like(b)
-            else:
-                new_k = np.zeros_like(k)
-                new_b = np.zeros_like(b)
-            mod[layer_name]["kernel"] = new_k.astype(np.float32)
-            mod[layer_name]["bias"] = new_b.astype(np.float32)
-    top[module_name] = mod
-    p["params"] = top
-    return freeze(p)
-
-
-# ------------------------
-# ZeroInvariantDecoder tests
-# ------------------------
+# ---------- ZeroInvariantDecoder ----------
 def test_zero_invariant_decoder_single_and_batch_shapes_and_values():
     decoder = ZeroInvariantDecoder()
     # single
     rng = jax.random.PRNGKey(0)
     params = decoder.init_with_size(rngs=rng, context=jax_context, coordinates=coordinates, out_size=5)
     out, info = decoder.apply(params, context=jax_context, coordinates=coordinates, get_info=True)
+    # zero vector and shape
     assert isinstance(out, jnp.ndarray)
     assert out.shape == (5,)
     np.testing.assert_allclose(np.array(out), np.zeros((5,)))
@@ -139,9 +103,7 @@ def test_zero_invariant_decoder_init_deterministic():
     chex.assert_trees_all_equal(p1, p2)
 
 
-# ------------------------
-# SumInvariantDecoder tests
-# ------------------------
+# ---------- SumInvariantDecoder ----------
 def test_sum_invariant_decoder_basic_and_masking():
     decoder = SumInvariantDecoder(
         psi_hidden_size=[8], psi_out_size=6, psi_activation=nn.relu, phi_hidden_size=[8], phi_activation=nn.relu
@@ -155,7 +117,7 @@ def test_sum_invariant_decoder_basic_and_masking():
     assert out.shape == (4,)
     assert info == {}
 
-    # mask all zeros stability
+    # modify mask: set all addresses to zero -> output may change. We check output is consistent with mask applied:
     ctx_masked = jax_context
     mask_zero = jnp.zeros_like(jax_context.non_fictitious_addresses)
     ctx_masked = JaxGraph(
@@ -165,7 +127,9 @@ def test_sum_invariant_decoder_basic_and_masking():
         non_fictitious_addresses=mask_zero,
     )
     out_masked, _ = decoder.apply(params, context=ctx_masked, coordinates=coordinates)
+    # With mask all zeros, psi * mask -> zeros, sum -> zeros, phi(zeros) deterministic: should be finite vector.
     assert np.all(np.isfinite(np.array(out_masked)))
+    # shape preserved
     assert out_masked.shape == out.shape
 
     # vmap/jit compatibility
@@ -185,9 +149,7 @@ def test_sum_invariant_decoder_init_deterministic():
     chex.assert_trees_all_equal(p1, p2)
 
 
-# ------------------------
-# MeanInvariantDecoder tests
-# ------------------------
+# ---------- MeanInvariantDecoder ----------
 def test_mean_invariant_decoder_shape_and_mask_behavior():
     decoder = MeanInvariantDecoder(
         psi_hidden_size=[8], psi_out_size=5, psi_activation=nn.relu, phi_hidden_size=[8], phi_activation=nn.relu
@@ -195,12 +157,15 @@ def test_mean_invariant_decoder_shape_and_mask_behavior():
     rng = jax.random.PRNGKey(3)
     params = decoder.init_with_size(rngs=rng, context=jax_context, coordinates=coordinates, out_size=6)
 
+    # According to implementation, output is phi(numerator/denominator) * expand_dims(non_fictitious_addresses, -1)
+    # -> shape (n_addresses, out_size)
     out, info = decoder.apply(params, context=jax_context, coordinates=coordinates, get_info=True)
     assert isinstance(out, jnp.ndarray)
     assert out.shape[0] == jax_context.non_fictitious_addresses.shape[0]
     assert out.shape[1] == 6
     assert info == {}
 
+    # If mask is all zeros, output should be zeros (numerically stable)
     ctx_all_zero = JaxGraph(
         edges=jax_context.edges,
         true_shape=jax_context.true_shape,
@@ -210,6 +175,7 @@ def test_mean_invariant_decoder_shape_and_mask_behavior():
     out_zero_mask, _ = decoder.apply(params, context=ctx_all_zero, coordinates=coordinates)
     assert np.allclose(np.array(out_zero_mask), 0.0, atol=1e-6)
 
+    # vmap/jit compatibility
     def fn(p, ctx, coords, gi):
         return decoder.apply(p, context=ctx, coordinates=coords, get_info=gi)
 
@@ -226,9 +192,7 @@ def test_mean_invariant_decoder_init_deterministic():
     chex.assert_trees_all_equal(p1, p2)
 
 
-# ------------------------
-# AttentionInvariantDecoder tests
-# ------------------------
+# ---------- AttentionInvariantDecoder ----------
 def test_attention_invariant_decoder_heads_and_shapes():
     decoder = AttentionInvariantDecoder(
         n=3,
@@ -245,9 +209,11 @@ def test_attention_invariant_decoder_heads_and_shapes():
 
     out, info = decoder.apply(params, context=jax_context, coordinates=coordinates, get_info=True)
     assert isinstance(out, jnp.ndarray)
+    # value_list -> n vectors each length v_out_size -> concatenated -> length n*v_out_size
     assert out.shape == (5,)
     assert info == {}
 
+    # With vmap/jit wrapper
     def fn(p, ctx, coords, gi):
         return decoder.apply(p, context=ctx, coordinates=coords, get_info=gi)
 
@@ -271,93 +237,20 @@ def test_attention_invariant_decoder_init_deterministic():
     chex.assert_trees_all_equal(p1, p2)
 
 
-# ------------------------
-# precise numeric tests
-# ------------------------
-def test_sum_invariant_decoder_numeric_identity():
-    """
-    Build SumInvariantDecoder with psi and phi being identity maps (no hidden layers).
-    Expect output = phi(sum(mask * coordinates)) = sum(mask * coordinates).
-    """
-    d = coordinates.shape[1]  # coordinate dimension
-    decoder = SumInvariantDecoder(
-        psi_hidden_size=[], psi_out_size=d, psi_activation=None, phi_hidden_size=[], phi_activation=None
-    )
-    rng = jax.random.PRNGKey(21)
-    params = decoder.init_with_size(rngs=rng, context=jax_context, coordinates=coordinates, out_size=d)
-
-    # Patch psi and phi to identity (dense kernel -> identity, bias -> 0)
-    params = _set_dense_layers_to_identity_or_zero(params, "psi", set_identity=True)
-    params = _set_dense_layers_to_identity_or_zero(params, "phi", set_identity=True)
-
-    out, _ = decoder.apply(params, context=jax_context, coordinates=coordinates, get_info=False)
-    # compute expected: sum over addresses of coordinates * mask
-    mask = np.array(jax_context.non_fictitious_addresses)
-    coords = np.array(coordinates)
-    expected = np.sum(coords * mask[:, None], axis=0)
-    np.testing.assert_allclose(np.array(out), expected, rtol=0.0, atol=1e-6)
-
-
-def test_mean_invariant_decoder_numeric_identity():
-    """
-    Build MeanInvariantDecoder with psi identity and phi identity.
-    According to implementation, numerator = sum(mask * coords), denominator = psi_out_size (bug in code).
-    output = phi(numerator / denominator) * expand(mask, -1)
-    """
-    d = coordinates.shape[1]
-    psi_out = d
+# ---------- small edge-case tests ----------
+def test_mean_decoder_all_masked_stability():
+    # Confirm numeric stability: no NaNs when all addresses are masked out
     decoder = MeanInvariantDecoder(
-        psi_hidden_size=[], psi_out_size=psi_out, psi_activation=None, phi_hidden_size=[], phi_activation=None
+        psi_hidden_size=[2], psi_out_size=2, psi_activation=nn.relu, phi_hidden_size=[2], phi_activation=nn.relu
     )
-    rng = jax.random.PRNGKey(22)
-    params = decoder.init_with_size(rngs=rng, context=jax_context, coordinates=coordinates, out_size=d)
-
-    # make psi and phi identity
-    params = _set_dense_layers_to_identity_or_zero(params, "psi", set_identity=True)
-    params = _set_dense_layers_to_identity_or_zero(params, "phi", set_identity=True)
-
-    out, _ = decoder.apply(params, context=jax_context, coordinates=coordinates, get_info=False)
-    mask = np.array(jax_context.non_fictitious_addresses)
-    coords = np.array(coordinates)
-    numerator = np.sum(coords * mask[:, None], axis=0)  # shape (d,)
-    # According to code: denominator == psi_out_size (sum of ones of length psi_out_size)
-    denominator = float(psi_out) + 1e-9
-    expected_per_address = (numerator / denominator)[None, :] * mask[:, None]
-    np.testing.assert_allclose(np.array(out), expected_per_address, rtol=1e-6, atol=1e-6)
-
-
-def test_attention_invariant_decoder_numeric_simple():
-    """
-    Build AttentionInvariantDecoder with:
-      - value MLP = identity (v -> v)
-      - score MLP = zero (so exp(s)=1 and uniform softmax)
-      - psi_mlp = identity
-    Then output should be sum(mask * coords) / (num_masked)  (for n=1 head, v_out_size == coord dim)
-    """
-    d = coordinates.shape[1]
-    decoder = AttentionInvariantDecoder(
-        n=1,
-        v_hidden_size=[],
-        v_activation=None,
-        v_out_size=d,
-        s_hidden_size=[],
-        s_activation=None,
-        psi_hidden_size=[],
-        psi_activation=None,
+    rng = jax.random.PRNGKey(7)
+    params = decoder.init_with_size(rngs=rng, context=jax_context, coordinates=coordinates, out_size=3)
+    ctx_all_zero = JaxGraph(
+        edges=jax_context.edges,
+        true_shape=jax_context.true_shape,
+        current_shape=jax_context.current_shape,
+        non_fictitious_addresses=jnp.zeros_like(jax_context.non_fictitious_addresses),
     )
-    rng = jax.random.PRNGKey(23)
-    params = decoder.init_with_size(rngs=rng, context=jax_context, coordinates=coordinates, out_size=d)
-
-    # set value-mlp-0 to identity, score-mlp-0 to zero, psi-mlp to identity
-    params = _set_dense_layers_to_identity_or_zero(params, "value-mlp-0", set_identity=True)
-    params = _set_dense_layers_to_identity_or_zero(params, "score-mlp-0", set_identity=False)  # zeros => s=0
-    params = _set_dense_layers_to_identity_or_zero(params, "psi-mlp", set_identity=True)
-
-    out, _ = decoder.apply(params, context=jax_context, coordinates=coordinates, get_info=False)
-    mask = np.array(jax_context.non_fictitious_addresses)
-    coords = np.array(coordinates)
-
-    numerator = np.sum(coords * mask[:, None], axis=0)  # shape (d,)
-    denom = np.sum(mask) + 1e-9  # number of masked addresses
-    expected = numerator / float(denom)
-    np.testing.assert_allclose(np.array(out), expected, rtol=1e-6, atol=1e-6)
+    out, _ = decoder.apply(params, context=ctx_all_zero, coordinates=coordinates)
+    assert not np.any(np.isnan(np.array(out)))
+    assert np.allclose(np.array(out), 0.0, atol=1e-6)

@@ -16,30 +16,7 @@ from energnn.graph.jax.utils import np_to_jnp, jnp_to_np
 from energnn.graph.jax.edge import JaxEdge
 from energnn.graph.jax.shape import JaxGraphShape
 from energnn.graph.shape import GraphShape
-from tests.graph.utils import make_graph_with_registry
-
-
-def assert_graphs_equal(np_g: Graph, np_g2: Graph):
-    """Simple comparator for Graph <-> Graph roundtrip checks (addresses lengths, edge arrays)."""
-    assert set(np_g.edges.keys()) == set(np_g2.edges.keys())
-    for k in np_g.edges:
-        e1 = np_g.edges[k]
-        e2 = np_g2.edges[k]
-        # compare feature arrays
-        if e1.feature_array is None:
-            assert e2.feature_array is None
-        else:
-            np.testing.assert_allclose(e1.feature_array, e2.feature_array)
-        # compare address arrays
-        if e1.address_dict is None:
-            assert e2.address_dict is None
-        else:
-            for ak in e1.address_dict:
-                np.testing.assert_allclose(e1.address_dict[ak], e2.address_dict[ak])
-    # shapes
-    for k in np_g.true_shape.edges:
-        np.testing.assert_allclose(np.array(np_g.true_shape.edges[k]), np.array(np_g2.true_shape.edges[k]))
-    np.testing.assert_allclose(np.array(np_g.true_shape.addresses), np.array(np_g2.true_shape.addresses))
+from tests.graph.utils import make_graph_with_registry, assert_graphs_equal
 
 
 def test_from_numpy_and_to_numpy_roundtrip():

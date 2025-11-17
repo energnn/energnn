@@ -1,0 +1,2 @@
+[run]
+omit = tests/*, tests_old/*, *__init__*
