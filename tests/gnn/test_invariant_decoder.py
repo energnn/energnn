@@ -21,6 +21,7 @@ from energnn.gnn.decoder import (
 from energnn.graph import separate_graphs
 from energnn.graph.jax import JaxGraph
 from tests.utils import TestProblemLoader
+from tests.gnn.utils import set_dense_layers_to_identity_or_zero
 
 
 # ---------- fixtures / common setup ----------
@@ -49,7 +50,6 @@ coordinates = jnp.array(np.random.uniform(size=(10, 7)))
 coordinates_batch = jnp.array(np.random.uniform(size=(4, 10, 7)))
 
 
-# ---------- util helpers ----------
 def assert_vmap_jit_consistent(fn_apply, params, ctx_batch, coords_batch, rtol=1e-3, atol=1e-3):
     """
     Check that vmapped and vmapped+jit versions produce consistent shapes/values (within tolerance).
@@ -73,49 +73,11 @@ def assert_vmap_jit_consistent(fn_apply, params, ctx_batch, coords_batch, rtol=1
     assert info3 == {}
     assert info2 == info4
 
-
-def _set_dense_layers_to_identity_or_zero(params, module_name, set_identity=True):
-    """
-    Patch params (Flax FrozenDict) such that Dense layers under `module_name` become:
-      - identity kernel and zero bias if set_identity=True (square case),
-      - zero kernel and zero bias if set_identity=False.
-
-    Returns a new frozen params dict.
-    """
-    p = unfreeze(params)
-    # typical structure: {'params': {module_name: {'Dense_0': {'kernel':..., 'bias':...}, ...}, ...}}
-    if "params" not in p:
-        raise KeyError("'params' key not found in params dict")
-    top = p["params"]
-    if module_name not in top:
-        raise KeyError(f"Module '{module_name}' not found in params structure: {list(top.keys())}")
-    mod = top[module_name]
-    for layer_name, layer in list(mod.items()):
-        if isinstance(layer, dict) and "kernel" in layer:
-            k = np.array(layer["kernel"])
-            b = np.array(layer.get("bias", np.zeros(k.shape[1], dtype=k.dtype)))
-            in_dim, out_dim = k.shape
-            if set_identity:
-                new_k = np.zeros_like(k)
-                for i in range(min(in_dim, out_dim)):
-                    new_k[i, i] = 1.0
-                new_b = np.zeros_like(b)
-            else:
-                new_k = np.zeros_like(k)
-                new_b = np.zeros_like(b)
-            mod[layer_name]["kernel"] = new_k.astype(np.float32)
-            mod[layer_name]["bias"] = new_b.astype(np.float32)
-    top[module_name] = mod
-    p["params"] = top
-    return freeze(p)
-
-
 # ------------------------
 # ZeroInvariantDecoder tests
 # ------------------------
-def test_zero_invariant_decoder_single_and_batch_shapes_and_values():
+def test_zero_invariant_decoder_output_shapes_and_values():
     decoder = ZeroInvariantDecoder()
-    # single
     rng = jax.random.PRNGKey(0)
     params = decoder.init_with_size(rngs=rng, context=jax_context, coordinates=coordinates, out_size=5)
     out, info = decoder.apply(params, context=jax_context, coordinates=coordinates, get_info=True)
@@ -287,8 +249,8 @@ def test_sum_invariant_decoder_numeric_identity():
     params = decoder.init_with_size(rngs=rng, context=jax_context, coordinates=coordinates, out_size=d)
 
     # Patch psi and phi to identity (dense kernel -> identity, bias -> 0)
-    params = _set_dense_layers_to_identity_or_zero(params, "psi", set_identity=True)
-    params = _set_dense_layers_to_identity_or_zero(params, "phi", set_identity=True)
+    params = set_dense_layers_to_identity_or_zero(params, "psi", set_identity=True)
+    params = set_dense_layers_to_identity_or_zero(params, "phi", set_identity=True)
 
     out, _ = decoder.apply(params, context=jax_context, coordinates=coordinates, get_info=False)
     # compute expected: sum over addresses of coordinates * mask
@@ -313,8 +275,8 @@ def test_mean_invariant_decoder_numeric_identity():
     params = decoder.init_with_size(rngs=rng, context=jax_context, coordinates=coordinates, out_size=d)
 
     # make psi and phi identity
-    params = _set_dense_layers_to_identity_or_zero(params, "psi", set_identity=True)
-    params = _set_dense_layers_to_identity_or_zero(params, "phi", set_identity=True)
+    params = set_dense_layers_to_identity_or_zero(params, "psi", set_identity=True)
+    params = set_dense_layers_to_identity_or_zero(params, "phi", set_identity=True)
 
     out, _ = decoder.apply(params, context=jax_context, coordinates=coordinates, get_info=False)
     mask = np.array(jax_context.non_fictitious_addresses)
@@ -349,9 +311,9 @@ def test_attention_invariant_decoder_numeric_simple():
     params = decoder.init_with_size(rngs=rng, context=jax_context, coordinates=coordinates, out_size=d)
 
     # set value-mlp-0 to identity, score-mlp-0 to zero, psi-mlp to identity
-    params = _set_dense_layers_to_identity_or_zero(params, "value-mlp-0", set_identity=True)
-    params = _set_dense_layers_to_identity_or_zero(params, "score-mlp-0", set_identity=False)  # zeros => s=0
-    params = _set_dense_layers_to_identity_or_zero(params, "psi-mlp", set_identity=True)
+    params = set_dense_layers_to_identity_or_zero(params, "value-mlp-0", set_identity=True)
+    params = set_dense_layers_to_identity_or_zero(params, "score-mlp-0", set_identity=False)  # zeros => s=0
+    params = set_dense_layers_to_identity_or_zero(params, "psi-mlp", set_identity=True)
 
     out, _ = decoder.apply(params, context=jax_context, coordinates=coordinates, get_info=False)
     mask = np.array(jax_context.non_fictitious_addresses)

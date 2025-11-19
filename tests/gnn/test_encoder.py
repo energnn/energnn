@@ -1,20 +1,16 @@
-#
-# Copyright (c) 2025, RTE (http://www.rte-france.com)
-# This Source Code Form is subject to the terms of the Mozilla Public
-# License, v. 2.0. If a copy of the MPL was not distributed with this
-# file, You can obtain one at http://mozilla.org/MPL/2.0/.
-#
 import chex
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
+from flax.core.frozen_dict import freeze, unfreeze
 
 from energnn.gnn import Encoder, IdentityEncoder, MLPEncoder
 from energnn.graph import Graph, separate_graphs, collate_graphs
 from energnn.graph.jax import JaxGraph, JaxEdge
 from tests.utils import TestProblemLoader, compare_batched_graphs
+from tests.gnn.utils import set_dense_layers_to_identity_or_zero
 
 # make deterministic
 np.random.seed(0)
@@ -88,6 +84,24 @@ def _maybe_apply(encoder, params, context, get_info=False):
         infos = {}
     return output, infos
 
+def assert_encoder_vmap_jit_output(*, params: dict, encoder: Encoder, context: JaxGraph):
+    def apply(params, context, get_info):
+        return encoder.apply(params, context=context, get_info=get_info)
+
+    apply_vmap = jax.vmap(apply, in_axes=[None, 0, None], out_axes=0)
+    output_batch_1, infos_1 = apply_vmap(params, context, False)
+    output_batch_2, infos_2 = apply_vmap(params, context, True)
+
+    apply_vmap_jit = jax.jit(apply_vmap)
+    output_batch_3, infos_3 = apply_vmap_jit(params, context, False)
+    output_batch_4, infos_4 = apply_vmap_jit(params, context, True)
+
+    chex.assert_trees_all_equal(output_batch_1, output_batch_2, output_batch_3, output_batch_4)
+    chex.assert_trees_all_equal(infos_2, infos_4)
+    assert infos_1 == {}
+    assert infos_3 == {}
+    assert infos_2 == infos_4
+
 
 # -------------------------
 # Tests for IdentityEncoder
@@ -118,26 +132,7 @@ def test_identity_encoder_batch_vmap_jit_consistency():
     encoder = IdentityEncoder()
     rngs = jax.random.PRNGKey(7)
     params = encoder.init(rngs=rngs, context=jax_context)
-
-    # define apply wrapper and vmap/jit it
-    def apply_fn(params, ctx, get_info):
-        return encoder.apply(params, context=ctx, get_info=get_info)
-
-    apply_vmap = jax.vmap(apply_fn, in_axes=[None, 0, None], out_axes=0)
-    # run without jitting
-    out1, info1 = apply_vmap(params, jax_context_batch, False)
-    out2, info2 = apply_vmap(params, jax_context_batch, True)
-    # run with jitting
-    apply_vmap_jit = jax.jit(apply_vmap)
-    out3, info3 = apply_vmap_jit(params, jax_context_batch, False)
-    out4, info4 = apply_vmap_jit(params, jax_context_batch, True)
-
-    chex.assert_trees_all_equal(out1, out2, out3, out4)
-    # infos for get_info True should match (both jitted and not)
-    chex.assert_trees_all_equal(info2, info4)
-    # infos for get_info False are empty
-    assert info1 == {}
-    assert info3 == {}
+    assert_encoder_vmap_jit_output(params=params, encoder=encoder, context=jax_context_batch)
 
 
 # -------------------------
@@ -284,3 +279,85 @@ def test_mlp_encoder_multiple_edge_types_independent_processing():
     expected_keys = {f"lat_{i}" for i in range(5)}
     assert set(out.edges["A"].feature_names.keys()) == expected_keys
     assert set(out.edges["B"].feature_names.keys()) == expected_keys
+
+
+# -------------------------
+# Precise numeric tests for MLPEncoder
+# -------------------------
+def test_mlp_encoder_numeric_identity_single_edge():
+    """
+    Build a graph whose 'node' features dimension equals the encoder out_size.
+    Patch the MLP corresponding to 'node' so it becomes an identity mapping.
+    Expect output feature_array for 'node' == input feature_array.
+    """
+    # Build a simple graph where node features dimension equals out_size=4
+    node_edge = jax_context.edges["node"]
+    n_obj_node = int(node_edge.feature_array.shape[0])
+    d = 4  # choose d == out_size
+    e_node = JaxEdge(
+        address_dict=node_edge.address_dict,
+        feature_array=jnp.linspace(0.0, 1.0, num=n_obj_node * d, dtype=jnp.float32).reshape((n_obj_node, d)),
+        feature_names={f"f{i}": jnp.array(i) for i in range(d)},
+        non_fictitious=node_edge.non_fictitious,
+    )
+    custom_graph = JaxGraph(
+        edges={"node": e_node, "edge": jax_context.edges["edge"]},
+        non_fictitious_addresses=jax_context.non_fictitious_addresses,
+        true_shape=jax_context.true_shape,
+        current_shape=jax_context.current_shape,
+    )
+
+    encoder = MLPEncoder(hidden_size=[], out_size=d, activation=None)
+    rng = jax.random.PRNGKey(123)
+    params = encoder.init(rng, context=custom_graph)
+
+    # Patch node module to identity
+    params = set_dense_layers_to_identity_or_zero(params, "node", set_identity=True)
+
+    out, _ = encoder.apply(params, context=custom_graph, get_info=False)
+    np.testing.assert_allclose(np.array(out.edges["node"].feature_array), np.array(e_node.feature_array), rtol=0.0, atol=1e-6)
+
+
+def test_mlp_encoder_numeric_identity_multiple_edges():
+    """
+    Build graph with two edges 'A' and 'B', each feature dim == out_size.
+    Patch both MLPs to identity and check outputs equal inputs.
+    """
+    node_edge = jax_context.edges["node"]
+    edge_edge = jax_context.edges["edge"]
+
+    n_obj_node = int(node_edge.feature_array.shape[0])
+    n_obj_edge = int(edge_edge.feature_array.shape[0])
+    d = 3  # out_size
+
+    eA = JaxEdge(
+        address_dict=node_edge.address_dict,
+        feature_array=jnp.arange(n_obj_node * d, dtype=jnp.float32).reshape((n_obj_node, d)) * 0.1,
+        feature_names={f"fa{i}": jnp.array(i) for i in range(d)},
+        non_fictitious=node_edge.non_fictitious,
+    )
+    eB = JaxEdge(
+        address_dict=edge_edge.address_dict,
+        feature_array=jnp.arange(n_obj_edge * d, dtype=jnp.float32).reshape((n_obj_edge, d)) * 0.2,
+        feature_names={f"fb{i}": jnp.array(i) for i in range(d)},
+        non_fictitious=edge_edge.non_fictitious,
+    )
+
+    custom_graph = JaxGraph(
+        edges={"A": eA, "B": eB},
+        non_fictitious_addresses=jax_context.non_fictitious_addresses,
+        true_shape=jax_context.true_shape,
+        current_shape=jax_context.current_shape,
+    )
+
+    encoder = MLPEncoder(hidden_size=[], out_size=d, activation=None)
+    rng = jax.random.PRNGKey(124)
+    params = encoder.init(rng, context=custom_graph)
+
+    # Patch modules to identity
+    params = set_dense_layers_to_identity_or_zero(params, "A", set_identity=True)
+    params = set_dense_layers_to_identity_or_zero(params, "B", set_identity=True)
+
+    out, _ = encoder.apply(params, context=custom_graph, get_info=False)
+    np.testing.assert_allclose(np.array(out.edges["A"].feature_array), np.array(eA.feature_array), rtol=0.0, atol=1e-6)
+    np.testing.assert_allclose(np.array(out.edges["B"].feature_array), np.array(eB.feature_array), rtol=0.0, atol=1e-6)

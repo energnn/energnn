@@ -15,7 +15,8 @@ import pytest
 from energnn.gnn.decoder import EquivariantDecoder, MLPEquivariantDecoder, ZeroEquivariantDecoder
 from energnn.graph import separate_graphs
 from energnn.graph.jax import JaxGraph, JaxEdge
-from tests.utils import TestProblemLoader, compare_batched_graphs
+from tests.utils import TestProblemLoader
+from tests.gnn.utils import set_dense_layers_to_identity_or_zero
 
 # Prepare deterministic data and loader
 np.random.seed(0)
@@ -63,49 +64,6 @@ def assert_decoder_vmap_jit_output(*, params: dict, decoder: EquivariantDecoder,
     assert infos_1 == {}
     assert infos_3 == {}
     assert infos_2 == infos_4
-
-
-def _set_dense_layers_to_identity_or_zero(params, module_name, set_identity=True):
-    """
-    Patch params (Flax FrozenDict) such that Dense layers under `module_name` become:
-      - identity kernel and zero bias if set_identity=True (square case),
-      - zero kernel and zero bias if set_identity=False.
-
-    Returns a new frozen params dict.
-    """
-    p = unfreeze(params)
-    if "params" not in p:
-        raise KeyError("'params' key not found in params dict")
-    top = p["params"]
-    if module_name not in top:
-        # If module is nested because of naming, try to find a key that endswith module_name
-        candidates = [k for k in top.keys() if k.endswith(module_name)]
-        if candidates:
-            module_key = candidates[0]
-        else:
-            raise KeyError(f"Module '{module_name}' not found in params structure: {list(top.keys())}")
-    else:
-        module_key = module_name
-    mod = top[module_key]
-    # iterate sublayers
-    for layer_name, layer in list(mod.items()):
-        if isinstance(layer, dict) and "kernel" in layer:
-            k = np.array(layer["kernel"])
-            b = np.array(layer.get("bias", np.zeros(k.shape[1], dtype=k.dtype)))
-            in_dim, out_dim = k.shape
-            if set_identity:
-                new_k = np.zeros_like(k)
-                for i in range(min(in_dim, out_dim)):
-                    new_k[i, i] = 1.0
-                new_b = np.zeros_like(b)
-            else:
-                new_k = np.zeros_like(k)
-                new_b = np.zeros_like(b)
-            mod[layer_name]["kernel"] = new_k.astype(np.float32)
-            mod[layer_name]["bias"] = new_b.astype(np.float32)
-    top[module_key] = mod
-    p["params"] = top
-    return freeze(p)
 
 
 # ------------------------
@@ -267,7 +225,7 @@ def test_mlp_equivariant_decoder_numeric_identity_node():
     params = decoder.init_with_structure(rngs=rng, context=jax_context, coordinates=coordinates, out_structure=out_struct_node)
 
     # Patch node module to act like identity
-    params = _set_dense_layers_to_identity_or_zero(params, "node", set_identity=True)
+    params = set_dense_layers_to_identity_or_zero(params, "node", set_identity=True)
 
     out_graph, _ = decoder.apply(params, context=jax_context, coordinates=coordinates, get_info=False)
     node_out = out_graph.edges["node"].feature_array  # shape (n_obj, d)
@@ -295,7 +253,7 @@ def test_mlp_equivariant_decoder_numeric_identity_edge():
     params = decoder.init_with_structure(rngs=rng, context=jax_context, coordinates=coordinates, out_structure=out_struct_edge)
 
     # Patch edge module to identity
-    params = _set_dense_layers_to_identity_or_zero(params, "edge", set_identity=True)
+    params = set_dense_layers_to_identity_or_zero(params, "edge", set_identity=True)
 
     out_graph, _ = decoder.apply(params, context=jax_context, coordinates=coordinates, get_info=False)
     edge_out = out_graph.edges["edge"].feature_array  # shape (n_obj, input_dim)
