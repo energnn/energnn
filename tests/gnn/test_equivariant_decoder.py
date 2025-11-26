@@ -63,7 +63,6 @@ def assert_decoder_vmap_jit_output(*, params: dict, decoder: EquivariantDecoder,
     chex.assert_trees_all_equal(infos_2, infos_4)
     assert infos_1 == {}
     assert infos_3 == {}
-    assert infos_2 == infos_4
 
 
 # ------------------------
@@ -209,9 +208,6 @@ def test_mlp_equivariant_decoder_batch_vmap_jit():
     assert_decoder_vmap_jit_output(params=params, decoder=decoder, context=jax_context_batch, coordinates=coordinates_batch)
 
 
-# -----------------------
-# Numeric precise tests
-# -----------------------
 def test_mlp_equivariant_decoder_numeric_identity_node():
     """
     Make the node-MLP an identity mapping on the gathered coordinates.

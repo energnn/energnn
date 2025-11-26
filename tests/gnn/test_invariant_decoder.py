@@ -24,7 +24,6 @@ from tests.utils import TestProblemLoader
 from tests.gnn.utils import set_dense_layers_to_identity_or_zero
 
 
-# ---------- fixtures / common setup ----------
 np.random.seed(0)
 n = 10
 pb_loader = TestProblemLoader(
@@ -146,6 +145,29 @@ def test_sum_invariant_decoder_init_deterministic():
     p2 = decoder.init_with_size(rngs=rng, context=jax_context, coordinates=coordinates, out_size=2)
     chex.assert_trees_all_equal(p1, p2)
 
+def test_sum_invariant_decoder_numeric_identity():
+    """
+    Build SumInvariantDecoder with psi and phi being identity maps (no hidden layers).
+    Expect output = phi(sum(mask * coordinates)) = sum(mask * coordinates).
+    """
+    d = coordinates.shape[1]  # coordinate dimension
+    decoder = SumInvariantDecoder(
+        psi_hidden_size=[], psi_out_size=d, psi_activation=None, phi_hidden_size=[], phi_activation=None
+    )
+    rng = jax.random.PRNGKey(21)
+    params = decoder.init_with_size(rngs=rng, context=jax_context, coordinates=coordinates, out_size=d)
+
+    # Patch psi and phi to identity (dense kernel -> identity, bias -> 0)
+    params = set_dense_layers_to_identity_or_zero(params, "psi", set_identity=True)
+    params = set_dense_layers_to_identity_or_zero(params, "phi", set_identity=True)
+
+    out, _ = decoder.apply(params, context=jax_context, coordinates=coordinates, get_info=False)
+    # compute expected: sum over addresses of coordinates * mask
+    mask = np.array(jax_context.non_fictitious_addresses)
+    coords = np.array(coordinates)
+    expected = np.sum(coords * mask[:, None], axis=0)
+    np.testing.assert_allclose(np.array(out), expected, rtol=0.0, atol=1e-6)
+
 
 # ------------------------
 # MeanInvariantDecoder tests
@@ -186,6 +208,34 @@ def test_mean_invariant_decoder_init_deterministic():
     p1 = decoder.init_with_size(rngs=rng, context=jax_context, coordinates=coordinates, out_size=2)
     p2 = decoder.init_with_size(rngs=rng, context=jax_context, coordinates=coordinates, out_size=2)
     chex.assert_trees_all_equal(p1, p2)
+
+
+def test_mean_invariant_decoder_numeric_identity():
+    """
+    Build MeanInvariantDecoder with psi identity and phi identity.
+    According to implementation, numerator = sum(mask * coords), denominator = psi_out_size (bug in code).
+    output = phi(numerator / denominator) * expand(mask, -1)
+    """
+    d = coordinates.shape[1]
+    psi_out = d
+    decoder = MeanInvariantDecoder(
+        psi_hidden_size=[], psi_out_size=psi_out, psi_activation=None, phi_hidden_size=[], phi_activation=None
+    )
+    rng = jax.random.PRNGKey(22)
+    params = decoder.init_with_size(rngs=rng, context=jax_context, coordinates=coordinates, out_size=d)
+
+    # make psi and phi identity
+    params = set_dense_layers_to_identity_or_zero(params, "psi", set_identity=True)
+    params = set_dense_layers_to_identity_or_zero(params, "phi", set_identity=True)
+
+    out, _ = decoder.apply(params, context=jax_context, coordinates=coordinates, get_info=False)
+    mask = np.array(jax_context.non_fictitious_addresses)
+    coords = np.array(coordinates)
+    numerator = np.sum(coords * mask[:, None], axis=0)  # shape (d,)
+    # According to code: denominator == psi_out_size (sum of ones of length psi_out_size)
+    denominator = float(psi_out) + 1e-9
+    expected_per_address = (numerator / denominator)[None, :] * mask[:, None]
+    np.testing.assert_allclose(np.array(out), expected_per_address, rtol=1e-6, atol=1e-6)
 
 
 # ------------------------
@@ -231,62 +281,6 @@ def test_attention_invariant_decoder_init_deterministic():
     p1 = decoder.init_with_size(rngs=rng, context=jax_context, coordinates=coordinates, out_size=2)
     p2 = decoder.init_with_size(rngs=rng, context=jax_context, coordinates=coordinates, out_size=2)
     chex.assert_trees_all_equal(p1, p2)
-
-
-# ------------------------
-# precise numeric tests
-# ------------------------
-def test_sum_invariant_decoder_numeric_identity():
-    """
-    Build SumInvariantDecoder with psi and phi being identity maps (no hidden layers).
-    Expect output = phi(sum(mask * coordinates)) = sum(mask * coordinates).
-    """
-    d = coordinates.shape[1]  # coordinate dimension
-    decoder = SumInvariantDecoder(
-        psi_hidden_size=[], psi_out_size=d, psi_activation=None, phi_hidden_size=[], phi_activation=None
-    )
-    rng = jax.random.PRNGKey(21)
-    params = decoder.init_with_size(rngs=rng, context=jax_context, coordinates=coordinates, out_size=d)
-
-    # Patch psi and phi to identity (dense kernel -> identity, bias -> 0)
-    params = set_dense_layers_to_identity_or_zero(params, "psi", set_identity=True)
-    params = set_dense_layers_to_identity_or_zero(params, "phi", set_identity=True)
-
-    out, _ = decoder.apply(params, context=jax_context, coordinates=coordinates, get_info=False)
-    # compute expected: sum over addresses of coordinates * mask
-    mask = np.array(jax_context.non_fictitious_addresses)
-    coords = np.array(coordinates)
-    expected = np.sum(coords * mask[:, None], axis=0)
-    np.testing.assert_allclose(np.array(out), expected, rtol=0.0, atol=1e-6)
-
-
-def test_mean_invariant_decoder_numeric_identity():
-    """
-    Build MeanInvariantDecoder with psi identity and phi identity.
-    According to implementation, numerator = sum(mask * coords), denominator = psi_out_size (bug in code).
-    output = phi(numerator / denominator) * expand(mask, -1)
-    """
-    d = coordinates.shape[1]
-    psi_out = d
-    decoder = MeanInvariantDecoder(
-        psi_hidden_size=[], psi_out_size=psi_out, psi_activation=None, phi_hidden_size=[], phi_activation=None
-    )
-    rng = jax.random.PRNGKey(22)
-    params = decoder.init_with_size(rngs=rng, context=jax_context, coordinates=coordinates, out_size=d)
-
-    # make psi and phi identity
-    params = set_dense_layers_to_identity_or_zero(params, "psi", set_identity=True)
-    params = set_dense_layers_to_identity_or_zero(params, "phi", set_identity=True)
-
-    out, _ = decoder.apply(params, context=jax_context, coordinates=coordinates, get_info=False)
-    mask = np.array(jax_context.non_fictitious_addresses)
-    coords = np.array(coordinates)
-    numerator = np.sum(coords * mask[:, None], axis=0)  # shape (d,)
-    # According to code: denominator == psi_out_size (sum of ones of length psi_out_size)
-    denominator = float(psi_out) + 1e-9
-    expected_per_address = (numerator / denominator)[None, :] * mask[:, None]
-    np.testing.assert_allclose(np.array(out), expected_per_address, rtol=1e-6, atol=1e-6)
-
 
 def test_attention_invariant_decoder_numeric_simple():
     """

@@ -12,10 +12,7 @@ import pytest
 from energnn.graph.edge import Edge
 from energnn.graph.jax.edge import JaxEdge
 from energnn.graph.jax.utils import np_to_jnp, jnp_to_np
-from tests.graph.utils import(
-    get_fixed_edge,
-    assert_edges_equal
-)
+from tests.graph.utils import get_fixed_edge, assert_edges_equal
 
 
 def test_from_numpy_edge_and_to_numpy_edge_roundtrip():
