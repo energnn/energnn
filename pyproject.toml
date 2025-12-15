@@ -1,6 +1,6 @@
 [project]
 name = "energnn"
-version = "0.1.0"
+version = "0.2.0"
 description = "A Graph Neural Network library for real-life energy networks."
 authors = [
     { name = "Balthazar DONON", email = "balthazar.donon@rte-france.com" },
