@@ -72,9 +72,6 @@ def build_simple_coupler(latent_dim: int):
     return Coupler(coupling_function=coupling_function, solving_method=solving_method)
 
 
-# -------------------------
-# Tests
-# -------------------------
 def test_init_returns_expected_keys_equivariant():
     """init() should return a params dict with encoder, coupler and decoder keys."""
     latent_dim = 7

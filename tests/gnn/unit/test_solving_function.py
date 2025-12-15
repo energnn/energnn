@@ -40,9 +40,7 @@ context_single = separate_graphs(context_batch)[0]
 jax_context = JaxGraph.from_numpy_graph(context_single)
 
 
-# -------------------------
 # Fake CouplingFunction
-# -------------------------
 class ConstantFunction:
     """
     Minimal object mimicking the `apply(params=..., context=..., coordinates=...)` API.
@@ -68,9 +66,7 @@ class ConstantFunction:
         return out, {}
 
 
-# -------------------------
 # Tests for ZeroSolvingMethod
-# -------------------------
 def test_zero_solver_initialize_coordinates_shape_and_dtype():
     latent_dim = 3
     solver = ZeroSolvingMethod(latent_dimension=latent_dim)
@@ -110,9 +106,7 @@ def test_zero_solver_with_zero_addresses():
     assert coords0.shape == (0, latent_dim)
 
 
-# -------------------------
 # Tests for NeuralODESolvingMethod
-# -------------------------
 def make_neuralode(latent_dim=2, dt=0.1, max_steps=500, rtol=1e-6, atol=1e-6):
     """
     Small helper returning a NeuralODESolvingMethod with Tsit5 + PID controller and checkpoint adjoint.

@@ -34,9 +34,7 @@ pb_loader = TestProblemLoader(
 )
 
 
-# -------------------------
 # Negative tests: not fitted -> raises
-# -------------------------
 def test_preprocessor_raises_if_not_fitted():
     pre = Preprocessor(f=IdentityFunction())
     empty_jax_graph = JaxGraph(edges={}, non_fictitious_addresses=jnp.array([]), true_shape=None, current_shape=None)
@@ -67,10 +65,7 @@ def test_postprocessor_raises_if_not_fitted():
         post.precondition_gradient_batch(empty_jax_graph, empty_jax_graph)
 
 
-
-# -------------------------
 # Pickle roundtrip tests
-# -------------------------
 def test_preprocessor_and_postprocessor_pickle_roundtrip(tmp_path):
     pre = Preprocessor(f=CenterReduceFunction())
     pre._fitted = True
@@ -93,9 +88,7 @@ def test_preprocessor_and_postprocessor_pickle_roundtrip(tmp_path):
     assert "node" in loaded2.params
 
 
-# -------------------------
-# Integration-ish tests: identity (no-op) pre/post processing roundtrip
-# -------------------------
+# Identity (no-op) pre/post processing roundtrip
 def test_identity_function_roundtrip_and_batch_consistency():
     # Fit preprocessors/postprocessors with IdentityFunction using the TestProblemLoader
     pre = Preprocessor(f=IdentityFunction())
@@ -130,9 +123,7 @@ def test_identity_function_roundtrip_and_batch_consistency():
         assert gradient is not None
 
 
-# -------------------------
 # CenterReduce: invertibility + numeric check on mean/std and gradient preconditioning
-# -------------------------
 def test_center_reduce_preprocess_inverse_and_statistics():
     # Build "a" dataset used to compute params (2 samples, 2 features)
     a = jnp.array([[0.0, 0.0], [2.0, 2.0]])
@@ -140,7 +131,7 @@ def test_center_reduce_preprocess_inverse_and_statistics():
     cr = CenterReduceFunction(epsilon=1e-8)
     params = cr.compute_params(None, aux)  # params[0]=mean, params[1]=std
 
-    # 1) Check that normalizing the SAME data 'a' yields mean ~0 and std ~1
+    # Check that normalizing the SAME data 'a' yields mean ~0 and std ~1
     mask_a = jnp.array([1.0, 1.0])[:, None]  # shape (2,1) to avoid broadcasting issues
     normalized_a = cr.apply(params, a, mask_a)
     # Only keep valid rows (mask == 1)
@@ -150,7 +141,7 @@ def test_center_reduce_preprocess_inverse_and_statistics():
     np.testing.assert_allclose(means_a, np.zeros(a.shape[1]), rtol=1e-6, atol=1e-6)
     np.testing.assert_allclose(stds_a, np.ones(a.shape[1]), rtol=1e-6, atol=1e-6)
 
-    # 2) Now prepare a larger array (contains the previous a plus another sample).
+    # Prepare a larger array (contains the previous a plus another sample).
     array = jnp.array([[0.0, 0.0], [2.0, 2.0], [1.0, 1.0]])
     mask = jnp.array([1.0, 1.0, 1.0])[:, None]  # shape (3,1)
 
@@ -159,7 +150,7 @@ def test_center_reduce_preprocess_inverse_and_statistics():
     denorm = cr.apply_inverse(params, normalized, mask)
     np.testing.assert_allclose(np.array(denorm), np.array(array), rtol=1e-6, atol=1e-6)
 
-    # 3) Check gradient_inverse: should be equal to std + epsilon on valid rows
+    # Check gradient_inverse: should be equal to std + epsilon on valid rows
     grad_inv = cr.gradient_inverse(params, normalized, mask)
     std = np.array(params[1])  # per-feature std
     expected_grad_row = std + cr.epsilon
@@ -251,9 +242,7 @@ def test_postprocessor_center_reduce_preconditioning_numeric():
     np.testing.assert_allclose(prec_b, expected_b, rtol=1e-6, atol=1e-6)
 
 
-# -------------------------
 # CDFPWLinearFunction basic invertibility test and batch handling
-# -------------------------
 def test_cdfpw_linear_invertibility_small():
     device = jax.devices("cpu")[0]
 
@@ -273,9 +262,7 @@ def test_cdfpw_linear_invertibility_small():
     np.testing.assert_allclose(np.array(recovered_batch.to_numpy_graph().feature_flat_array), np.array(context_batch.feature_flat_array), rtol=1e-5)
 
 
-# -------------------------
 # Cleanup test: ensure temp dirs created during tests are removed
-# -------------------------
 def test_save_and_load_to_temp_folder():
     path = "tmp_path/energnn/normalizer"
     shutil.rmtree(path, ignore_errors=True)
@@ -301,4 +288,4 @@ def test_save_and_load_to_temp_folder():
     assert isinstance(loaded_post, Postprocessor)
     assert loaded_pre._fitted
     assert loaded_post._fitted
-    shutil.rmtree("tmp", ignore_errors=True)
+    shutil.rmtree("tmp_path", ignore_errors=True)

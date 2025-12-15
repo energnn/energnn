@@ -128,9 +128,6 @@ def assert_batch(*, params: dict, function: CouplingFunction, context: JaxGraph,
     return output_batch_1, infos_1
 
 
-# -------------------------
-# Tests
-# -------------------------
 def test_phi_out_size_and_param_keys_set_on_init():
     """phi.out_size should be set to coordinates width and init returns expected keys"""
     d = coordinates.shape[1]

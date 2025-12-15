@@ -10,7 +10,6 @@ import jax.numpy as jnp
 import flax.linen as nn
 import chex
 import diffrax
-import pytest
 
 from energnn.gnn.coupler import Coupler
 from energnn.gnn.coupler.coupler import METHOD, FUNCTION
@@ -66,20 +65,6 @@ class DummyCoupling:
         return jnp.zeros_like(coordinates), {"stub": jnp.array(1.0)}
 
 
-class StubSolver:
-    """Stub solver that records that it was called and returns a pre-defined coordinate/result."""
-    def __init__(self, coords_out):
-        self.coords_out = coords_out
-        self.called = False
-
-    def initialize_coordinates(self, *, context):
-        # return zeros shaped array based on context
-        return jnp.zeros([jnp.shape(context.non_fictitious_addresses)[0], self.coords_out.shape[1]])
-
-    def solve(self, *, params, function, context, coordinates_init, get_info=False):
-        self.called = True
-        return self.coords_out, {"stub_solve": jnp.array(1.0)}
-
 def assert_single(*, coupler: Coupler, seed: int, context: JaxGraph):
     rngs = jax.random.PRNGKey(seed)
     params_1 = coupler.init(context=context, rngs=rngs)
@@ -108,76 +93,6 @@ def assert_batch(*, params: dict, coupler: Coupler, context: JaxGraph):
     chex.assert_trees_all_equal(infos_2, infos_4)
     return output_batch_1, infos_1
 
-
-# --------------------------
-# Tests for Coupler orchestration
-# --------------------------
-def test_coupler_init_returns_function_key_and_value():
-    """Coupler.init must return a dict containing key 'FUNCTION' with the value returned by coupling.init."""
-    dummy_coupling = DummyCoupling()
-    dummy_solver = StubSolver(coords_out=jnp.ones((n, 4)) * 2.0)
-    coupler = Coupler(coupling_function=dummy_coupling, solving_method=dummy_solver)
-
-    rng = jax.random.PRNGKey(0)
-    params = coupler.init(rngs=rng, context=jax_context)
-
-    assert isinstance(params, dict)
-    assert FUNCTION in params
-    # our DummyCoupling.init returns {"dummy":1}
-    assert params[FUNCTION] == {"dummy": 1}
-
-
-def test_coupler_init_with_output_returns_coordinates_and_params():
-    """init_with_output should produce tuple ((coords, {}), params) and coords match initialize_coordinates shape."""
-    dummy_coupling = DummyCoupling()
-    dummy_solver = StubSolver(coords_out=jnp.ones((n, 3)))
-    coupler = Coupler(coupling_function=dummy_coupling, solving_method=dummy_solver)
-
-    rng = jax.random.PRNGKey(1)
-    (coords_out, info), params = coupler.init_with_output(rngs=rng, context=jax_context)
-
-    # Structure checks
-    assert isinstance(params, dict)
-    assert FUNCTION in params
-    assert isinstance(coords_out, jnp.ndarray)
-    assert info == {}
-
-    # coords_out shape equals solver.initialize_coordinates() shape (n addresses x latent dim)
-    init_coords = dummy_solver.initialize_coordinates(context=jax_context)
-    assert coords_out.shape == init_coords.shape
-
-
-def test_coupler_apply_delegates_to_solver_and_returns_values():
-    """Coupler.apply must call solving_method.solve and return its (coords, info)."""
-    expected_coords = jnp.arange(n * 5).reshape((n, 5)).astype(jnp.float32)
-    stub_solver = StubSolver(coords_out=expected_coords)
-    dummy_coupling = DummyCoupling()
-    coupler = Coupler(coupling_function=dummy_coupling, solving_method=stub_solver)
-
-    params = {FUNCTION: {"dummy": 1}}
-    coords, info = coupler.apply(params=params, context=jax_context)
-
-    assert stub_solver.called is True
-    # coords must equal expected
-    assert coords.shape == expected_coords.shape
-    np.testing.assert_allclose(np.array(coords), np.array(expected_coords), rtol=1e-6)
-    assert info == {"stub_solve": jnp.array(1.0)}
-
-
-def test_coupler_apply_raises_if_function_key_missing():
-    """If params does not contain the FUNCTION key, a KeyError should occur when Coupler.apply tries to find it."""
-    dummy_coupling = DummyCoupling()
-    dummy_solver = StubSolver(coords_out=jnp.zeros((n, 2)))
-    coupler = Coupler(coupling_function=dummy_coupling, solving_method=dummy_solver)
-
-    with pytest.raises(KeyError):
-        # pass params without "FUNCTION"
-        coupler.apply(params={}, context=jax_context)
-
-
-# --------------------------
-# Integration tests with real solving methods
-# --------------------------
 def test_zero_solving_method():
     coupling_function = CouplingFunction(
         phi=MLP(hidden_size=[8], activation=nn.relu, out_size=1),

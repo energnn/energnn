@@ -5,7 +5,6 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
 import chex
-import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -28,7 +27,7 @@ from energnn.gnn.utils import gather, scatter_add
 from energnn.graph import separate_graphs
 from energnn.graph.jax import JaxGraph, JaxEdge
 from tests.utils import TestProblemLoader
-from tests.gnn.utils import set_dense_layers_to_identity_or_zero
+from tests.gnn.unit.utils import set_dense_layers_to_identity_or_zero
 
 # deterministic
 np.random.seed(0)
@@ -87,9 +86,6 @@ def assert_function_vmap_jit_output(*, params: dict, function, context: JaxGraph
     return out1, info1
 
 
-# -------------------------
-# Basic smoke tests (kept small)
-# -------------------------
 def test_empty_self_message_function():
     fn = EmptySelfMessageFunction()
     params, out, infos = assert_function_output(function=fn, seed=0, context=jax_context, coordinates=coordinates)
@@ -135,7 +131,7 @@ def test_identity_remote_message_function():
     chex.assert_trees_all_equal(out_b, coordinates_batch)
 
 
-def test_mlpselfmessage_numeric_identity_and_masking():
+def test_mlp_self_message_numeric_identity_and_masking():
     """
     Make the self_mlp act as identity, and verify output == coordinates * mask
     """

@@ -16,7 +16,7 @@ from energnn.gnn import Encoder, IdentityEncoder, MLPEncoder
 from energnn.graph import Graph, separate_graphs, collate_graphs
 from energnn.graph.jax import JaxGraph, JaxEdge
 from tests.utils import TestProblemLoader, compare_batched_graphs
-from tests.gnn.utils import set_dense_layers_to_identity_or_zero
+from tests.gnn.unit.utils import set_dense_layers_to_identity_or_zero
 
 # make deterministic
 np.random.seed(0)
@@ -106,9 +106,7 @@ def assert_encoder_vmap_jit_output(*, params: dict, encoder: Encoder, context: J
     assert infos_2 == infos_4
 
 
-# -------------------------
 # Tests for IdentityEncoder
-# -------------------------
 def test_identity_encoder_single_init_apply_roundtrip():
     encoder = IdentityEncoder()
     rngs = jax.random.PRNGKey(42)
@@ -138,9 +136,7 @@ def test_identity_encoder_batch_vmap_jit_consistency():
     assert_encoder_vmap_jit_output(params=params, encoder=encoder, context=jax_context_batch)
 
 
-# -------------------------
 # Tests for MLPEncoder
-# -------------------------
 @pytest.fixture(scope="module")
 def mlp_encoder():
     return MLPEncoder(hidden_size=[8], out_size=4, activation=nn.relu)

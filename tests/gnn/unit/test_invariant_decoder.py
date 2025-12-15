@@ -21,7 +21,7 @@ from energnn.gnn.decoder import (
 from energnn.graph import separate_graphs
 from energnn.graph.jax import JaxGraph
 from tests.utils import TestProblemLoader
-from tests.gnn.utils import set_dense_layers_to_identity_or_zero
+from tests.gnn.unit.utils import set_dense_layers_to_identity_or_zero
 
 
 np.random.seed(0)
@@ -72,9 +72,7 @@ def assert_vmap_jit_consistent(fn_apply, params, ctx_batch, coords_batch, rtol=1
     assert info3 == {}
     assert info2 == info4
 
-# ------------------------
 # ZeroInvariantDecoder tests
-# ------------------------
 def test_zero_invariant_decoder_output_shapes_and_values():
     decoder = ZeroInvariantDecoder()
     rng = jax.random.PRNGKey(0)
@@ -100,9 +98,7 @@ def test_zero_invariant_decoder_init_deterministic():
     chex.assert_trees_all_equal(p1, p2)
 
 
-# ------------------------
 # SumInvariantDecoder tests
-# ------------------------
 def test_sum_invariant_decoder_basic_and_masking():
     decoder = SumInvariantDecoder(
         psi_hidden_size=[8], psi_out_size=6, psi_activation=nn.relu, phi_hidden_size=[8], phi_activation=nn.relu
@@ -169,9 +165,7 @@ def test_sum_invariant_decoder_numeric_identity():
     np.testing.assert_allclose(np.array(out), expected, rtol=0.0, atol=1e-6)
 
 
-# ------------------------
 # MeanInvariantDecoder tests
-# ------------------------
 def test_mean_invariant_decoder_shape_and_mask_behavior():
     decoder = MeanInvariantDecoder(
         psi_hidden_size=[8], psi_out_size=5, psi_activation=nn.relu, phi_hidden_size=[8], phi_activation=nn.relu
@@ -238,9 +232,7 @@ def test_mean_invariant_decoder_numeric_identity():
     np.testing.assert_allclose(np.array(out), expected_per_address, rtol=1e-6, atol=1e-6)
 
 
-# ------------------------
 # AttentionInvariantDecoder tests
-# ------------------------
 def test_attention_invariant_decoder_heads_and_shapes():
     decoder = AttentionInvariantDecoder(
         n=3,

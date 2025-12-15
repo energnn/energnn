@@ -62,7 +62,6 @@ def test_apply_broadcasting_mask_variants():
     assert out3.shape == array.shape
 
 
-
 def test_apply_with_integer_input_upcasts_and_values_preserved():
     fn = IdentityFunction()
     array_int = jnp.array([[1, 2], [3, 4]], dtype=jnp.int32)
@@ -123,7 +122,6 @@ def test_vmap_compatibility_apply_batching():
     ])
 
     # vectorize apply across batch dimension
-    # note: in_axes corresponds to positional args (params, array, non_fictitious)
     batched_apply = jax.vmap(fn.apply, in_axes=(None, 0, 0))
 
     # call with positional arguments (not keywords) to match in_axes

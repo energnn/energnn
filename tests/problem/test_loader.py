@@ -124,9 +124,6 @@ def make_dataset(n_instances: int) -> ProblemDataset:
     return ds
 
 
-# -------------------------
-# Tests
-# -------------------------
 def test_len_matches_ceil_of_dataset_over_batchsize():
     N = 10
     B = 3

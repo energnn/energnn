@@ -5,14 +5,11 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
 import hashlib
-import json
 import os
-import pickle
 import shutil
 import tempfile
 from datetime import datetime
 from pathlib import Path
-from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -27,7 +24,6 @@ from energnn.problem.metadata import ProblemMetadata
 from energnn.problem.dataset import ProblemDataset
 
 
-# --- Helpers -----------------------------------------------------------------
 class DummyResponse:
     def __init__(self, status_code=200, json_obj=None):
         self.status_code = status_code
@@ -68,7 +64,6 @@ class FakeProblem:
         self._saved_path = str(path)
 
 
-# --- Tests for storage_almost_full -------------------------------------------
 def test_storage_almost_full_true_and_false(monkeypatch):
     # True when used/total > 0.9
     SD = shutil.disk_usage
@@ -82,7 +77,6 @@ def test_storage_almost_full_true_and_false(monkeypatch):
     assert storage_almost_full("any") is False
 
 
-# --- Tests for config register/check/get/remove ------------------------------
 @patch("uuid.uuid4")
 def test_register_config_new_success(mock_uuid):
     tmpf = tempfile.NamedTemporaryFile(delete=False)
@@ -223,7 +217,6 @@ def test_remove_config_paths(monkeypatch):
         assert storage.delete.call_count >= 1
 
 
-# --- Tests for instance register/download/remove ----------------------------
 @patch("uuid.uuid4")
 def test_register_instance_success_and_http_fail(mock_uuid, tmp_path):
     mock_uuid.return_value = "INST-UUID"
@@ -343,7 +336,7 @@ def test_remove_instance_present_and_absent(monkeypatch):
 
 
 
-# --- Tests for dataset register/download/remove -----------------------------
+# Tests for dataset register/download/remove
 @patch("uuid.uuid4")
 def test_register_dataset_success_and_fail(mock_uuid, tmp_path):
     mock_uuid.return_value = "DATA-UUID"
@@ -449,8 +442,6 @@ def test_download_dataset_downloads_instances_and_handles_space(monkeypatch, tmp
         # case 2: storage almost full -> dataset.remove_instance should be called instead of download
         fake_dataset.get_locally_missing_instances.return_value = ["inst3"]
 
-        # IMPORTANT: simulate that the dataset file is already present locally so client
-        # does NOT attempt to download it (otherwise storage.download would be invoked and raise).
         local_path = output_dir / metadata["storage_path"]
         local_path.parent.mkdir(parents=True, exist_ok=True)
         local_path.write_text("already downloaded")
@@ -477,6 +468,3 @@ def test_remove_dataset_paths(monkeypatch):
     with patch("requests.get", return_value=DummyResponse(status_code=200)):
         ok = client.remove_dataset("n", "s", 1)
         assert ok is True
-
-
-# End of file

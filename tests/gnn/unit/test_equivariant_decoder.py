@@ -16,7 +16,7 @@ from energnn.gnn.decoder import EquivariantDecoder, MLPEquivariantDecoder, ZeroE
 from energnn.graph import separate_graphs
 from energnn.graph.jax import JaxGraph, JaxEdge
 from tests.utils import TestProblemLoader
-from tests.gnn.utils import set_dense_layers_to_identity_or_zero
+from tests.gnn.unit.utils import set_dense_layers_to_identity_or_zero
 
 # Prepare deterministic data and loader
 np.random.seed(0)
@@ -65,9 +65,7 @@ def assert_decoder_vmap_jit_output(*, params: dict, decoder: EquivariantDecoder,
     assert infos_3 == {}
 
 
-# ------------------------
 # ZeroEquivariantDecoder tests
-# ------------------------
 def test_zero_equivariant_decoder_single_basic():
     decoder = ZeroEquivariantDecoder()
     rng = jax.random.PRNGKey(0)
@@ -128,9 +126,7 @@ def test_zero_equivariant_decoder_requires_feature_array():
         _ = decoder.init_with_structure(rngs=rng, context=custom_graph, coordinates=coordinates, out_structure=default_out_structure)
 
 
-# ------------------------
 # MLPEquivariantDecoder tests
-# ------------------------
 def test_mlp_equivariant_decoder_init_deterministic():
     decoder = MLPEquivariantDecoder(activation=nn.relu, hidden_size=[8], final_kernel_zero_init=False, out_structure=default_out_structure)
     rng = jax.random.PRNGKey(3)

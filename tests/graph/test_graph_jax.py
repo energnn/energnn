@@ -7,7 +7,6 @@
 import numpy as np
 import jax
 import jax.numpy as jnp
-import pytest
 
 from energnn.graph.edge import Edge
 from energnn.graph.graph import Graph
