@@ -5,8 +5,7 @@
 # SPDX-License-Identifier: MPL-2.0
 #
 from .dummy import DummyTracker
-from .neptune import NeptuneTracker
 from .tracker import Tracker
-from .neptune_scale import NeptuneScaleTracker
+from .mlflow import MlflowTracker
 
-__all__ = ["Tracker", "NeptuneTracker", "DummyTracker", "NeptuneScaleTracker"]
+__all__ = ["Tracker", "DummyTracker", "MlflowTracker"]
