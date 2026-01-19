@@ -5,6 +5,7 @@
 # SPDX-License-Identifier: MPL-2.0
 #
 import json
+from datetime import datetime
 from tempfile import TemporaryDirectory
 
 import flatdict
@@ -13,6 +14,7 @@ import numpy as np
 from omegaconf import DictConfig, OmegaConf
 
 from src.energnn.tracker import Tracker
+
 
 class MlflowTracker(Tracker):
 
@@ -48,6 +50,7 @@ class MlflowTracker(Tracker):
                 flat_infos.pop(k)
         metrics = {k: np.nanmean(v) for k, v in flat_infos.items()}
         mlflow.log_metrics(metrics, step=step)
+
 
 def stringify_unsupported(d, parent_key="", sep="/") -> dict:
     """
