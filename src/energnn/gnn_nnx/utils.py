@@ -36,15 +36,8 @@ class LazyLinear(nnx.Module):
     :return: An NNX Module that creates its internal Linear on first call.
     """
 
-    def __init__(
-            self,
-            out_features: int,
-            *,
-            use_bias: bool = True,
-            kernel_init: Initializer = initializers.lecun_normal(),
-            bias_init: Initializer = initializers.zeros_init(),
-            rngs: nnx.Rngs | int | None = None,
-    ) -> None:
+    def __init__(self, out_features: int, *, use_bias: bool = True, kernel_init: Initializer = initializers.lecun_normal(),
+            bias_init: Initializer = initializers.zeros_init(), rngs: nnx.Rngs | int | None = None) -> None:
         if rngs is None:
             raise ValueError("LazyLinear expects an `nnx.Rngs` or int seed for rngs")
         if isinstance(rngs, int):
@@ -56,7 +49,7 @@ class LazyLinear(nnx.Module):
         self.bias_init = bias_init
         self.rngs = rngs
 
-        # placeholder for the inner layer; created at first call
+        # placeholder for the inner layer
         self._linear = None
 
     def create_inner(self, in_features: int) -> None:
@@ -74,7 +67,7 @@ class LazyLinear(nnx.Module):
             rngs=self.rngs,
         )
 
-    def initialize(self, sample: jax.Array) -> None:
+    def build_from_sample(self, sample: jax.Array) -> None:
         """
         Create the inner ``nnx.Linear`` using a sample data.
 
@@ -92,7 +85,7 @@ class LazyLinear(nnx.Module):
         :returns: Projected array with last axis ``out_features``.
         """
         if self._linear is None:
-            self.initialize(inputs)
+            self.build_from_sample(inputs)
 
         return self._linear(inputs)
 
@@ -118,18 +111,13 @@ class MLP(nnx.Module):
     :return: Flax NNX module representing the MLP.
     """
 
-    def __init__(
-            self,
-            hidden_size: list[int],
-            *,
-            activation: Activation | None = jax.nn.relu,
-            out_size: int = 1,
-            rngs: nnx.Rngs | int = nnx.Rngs(0),
-            final_kernel_zero_init: bool = False,
-            final_activation: Activation | None = None,
-            name: str | None = None
-    ) -> None:
-        if isinstance(rngs, int):
+    def __init__(self, hidden_size: list[int], *, activation: Activation | None = jax.nn.relu, out_size: int = 1,
+            rngs: nnx.Rngs | int | None = None, final_kernel_zero_init: bool = False, final_activation: Activation | None = None,
+            name: str | None = None ) -> None:
+
+        if rngs is None:
+            rngs = nnx.Rngs(0)
+        elif isinstance(rngs, int):
             rngs = nnx.Rngs(rngs)
 
         self.hidden_size = [int(h) for h in hidden_size]
@@ -140,7 +128,7 @@ class MLP(nnx.Module):
         self.final_activation = final_activation
         self.name = name
 
-        layers = []
+        layers: list = []
         if self.activation is not None:
             for d in self.hidden_size:
                 layers.extend([LazyLinear(d, rngs=self.rngs), self.activation])
@@ -149,7 +137,7 @@ class MLP(nnx.Module):
                 layers.append(LazyLinear(d, rngs=self.rngs))
 
         final_kernel_init = (
-            initializers.zeros_init() if self.final_kernel_zero_init else initializers.lecun_normal()
+            initializers.zeros_init() if final_kernel_zero_init else initializers.lecun_normal()
         )
         layers.append(
             LazyLinear(
@@ -162,18 +150,23 @@ class MLP(nnx.Module):
         if self.final_activation is not None:
             layers.append(self.final_activation)
 
-        self.layers = nnx.Sequential(*layers)
+        self.sequential = nnx.Sequential(*layers)
 
-    def initialize(self, sample: jax.Array):
+    def build_from_sample(self, sample: jax.Array) -> None:
 
         if sample.ndim == 0:
             raise ValueError("Input to MLP must have at least one axis")
 
         in_features = int(sample.shape[-1])
-        for layer in self.layers.layers:
+        for i in range(len(self.sequential.layers)):
+            layer = self.sequential.layers[i]
             if isinstance(layer, LazyLinear):
                 layer.create_inner(in_features)
+                # update in_features to the output size of the created layer
                 in_features = layer.out_features
+            else:
+                # static callable (activation) — no in_features change
+                continue
 
     def __call__(self, inputs: jax.Array) -> jax.Array:
         """Forward pass through the MLP.
@@ -184,7 +177,7 @@ class MLP(nnx.Module):
         :returns: Output array with last axis equal to ``out_size``.
         """
 
-        return self.layers(inputs)
+        return self.sequential(inputs)
 
 
 def gather(*, coordinates: jax.Array, addresses: jax.Array) -> jax.Array:

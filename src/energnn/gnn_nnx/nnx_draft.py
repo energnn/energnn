@@ -1,9 +1,3 @@
-# Copyright (c) 2025, RTE (http://www.rte-france.com)
-# This Source Code Form is subject to the terms of the Mozilla Public
-# License, v. 2.0. If a copy of the MPL was not distributed with this
-# file, You can obtain one at http://mozilla.org/MPL/2.0/.
-# SPDX-License-Identifier: MPL-2.0
-#
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Callable
@@ -20,7 +14,6 @@ from energnn.graph.jax import JaxEdge, JaxGraph
 
 MAX_INTEGER = 2147483647
 Activation = Callable[[Array], Array]
-
 
 class Encoder(ABC):
     r"""
@@ -79,42 +72,6 @@ class Encoder(ABC):
         :raises NotImplementedError: if subclass does not override this constructor.
         """
         raise NotImplementedError
-
-
-class IdentityEncoder(Encoder):
-    r"""
-    Identity encoder that returns the input graph unchanged.
-
-    .. math::
-        \tilde{x} = x
-    """
-
-    def __init__(self):
-        pass
-
-    def init(self, *, rngs: jax.Array, context: JaxGraph) -> dict:
-        """Return empty parameters (no learnable weights)."""
-        return {}
-
-    def init_with_output(self, *, rngs: jax.Array, context: JaxGraph) -> tuple[tuple[JaxGraph, dict], dict]:
-        """
-        Initialize the encoder and returns the output graph (unmodified graph) and empty parameter dicts.
-
-        :param rngs: JAX Pseudo-Random Number Generator (PRNG) array.
-        :param context: Input graph.
-        :return: ((input graph, empty dict), empty dict)
-        """
-        return (context, {}), {}
-
-    def apply(self, params: dict, context: JaxGraph, get_info: bool = False) -> tuple[JaxGraph, dict]:
-        """Apply the identity encoder and return the input graph without changes.
-
-        :param params: Parameters.
-        :param context: Input graph to encode.
-        :param get_info: If True, returns additional info for tracking purpose.
-        :return: Input graph and empty info dict.
-        """
-        return context, {}
 
 
 class MLPEncoder(nnx.Module, Encoder):
@@ -219,7 +176,7 @@ class MLPEncoder(nnx.Module, Encoder):
             apply_mlp,
             context.edges,
             plain_mlps,
-            is_leaf=(lambda x: isinstance(x, JaxEdge)),
+            is_leaf=lambda x: isinstance(x, JaxEdge),
         )
 
         encoded_context = JaxGraph(
