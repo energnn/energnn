@@ -16,7 +16,7 @@ from energnn.gnn import Encoder, IdentityEncoder, MLPEncoder
 from energnn.graph import Graph, separate_graphs, collate_graphs
 from energnn.graph.jax import JaxGraph, JaxEdge
 from tests.utils import TestProblemLoader, compare_batched_graphs
-from tests.gnn.unit.utils import set_dense_layers_to_identity_or_zero
+from tests.gnn.utils import set_dense_layers_to_identity_or_zero
 
 # make deterministic
 np.random.seed(0)

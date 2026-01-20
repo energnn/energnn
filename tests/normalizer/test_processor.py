@@ -263,8 +263,8 @@ def test_cdfpw_linear_invertibility_small():
 
 
 # Cleanup test: ensure temp dirs created during tests are removed
-def test_save_and_load_to_temp_folder():
-    path = "tmp_path/energnn/normalizer"
+def test_save_and_load_to_temp_folder(tmp_path):
+    path = tmp_path / "energnn" / "normalizer"
     shutil.rmtree(path, ignore_errors=True)
     os.makedirs(path, exist_ok=True)
 
@@ -288,4 +288,3 @@ def test_save_and_load_to_temp_folder():
     assert isinstance(loaded_post, Postprocessor)
     assert loaded_pre._fitted
     assert loaded_post._fitted
-    shutil.rmtree("tmp_path", ignore_errors=True)

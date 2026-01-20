@@ -21,7 +21,7 @@ from energnn.gnn.decoder import (
 from energnn.graph import separate_graphs
 from energnn.graph.jax import JaxGraph
 from tests.utils import TestProblemLoader
-from tests.gnn.unit.utils import set_dense_layers_to_identity_or_zero
+from tests.gnn.utils import set_dense_layers_to_identity_or_zero
 
 
 np.random.seed(0)

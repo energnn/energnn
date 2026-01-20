@@ -108,7 +108,6 @@ def test_count_connected_components_simple():
 
 def test_offset_addresses_affects_edges_but_not_registry():
     g1 = make_graph_with_registry(n_addresses=4, n_obj=2)
-    g2 = make_graph_with_registry(n_addresses=3, n_obj=2)
     orig_a = copy.deepcopy(g1.edges["etype"].address_dict)
     g1.offset_addresses(10)
     for k in orig_a:

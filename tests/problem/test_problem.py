@@ -9,26 +9,26 @@ import tempfile
 
 import numpy as np
 import jax.numpy as jnp
+from unittest.mock import MagicMock
 import pytest
 
+from energnn.graph.edge import Edge
+from energnn.graph.graph import Graph
 from energnn.problem.problem import Problem
 
 
 # Minimal Graph/Edge
-class DummyEdge:
-    def __init__(self, feature_names, feature_array=None):
-        """
-        feature_names: a mapping-like object (dict) or None
-        feature_array: arbitrary array (for gradient/shape tests)
-        """
-        self.feature_names = feature_names
-        self.feature_array = feature_array
+def make_dummy_edge_mock(feature_names, feature_array=None):
+    m = MagicMock(spec=Edge)
+    m.feature_names = feature_names
+    m.feature_array = feature_array
+    return m
 
 
-class DummyGraph:
-    def __init__(self, edges: dict):
-        # edges: mapping from edge_key -> DummyEdge
-        self.edges = edges
+def make_dummy_graph_mock(edges: dict):
+    m = MagicMock(spec=Graph)
+    m.edges = edges
+    return m
 
 
 def test_problem_is_abstract():
@@ -44,17 +44,17 @@ def test_get_decision_structure_returns_ints():
             pass
 
         def get_context(self, get_info=False):
-            return DummyGraph(edges={}), {}
+            return make_dummy_graph_mock(edges={}), {}
 
         def get_zero_decision(self, get_info=False):
             # feature_names values are integers
-            edge = DummyEdge(feature_names={"a": 0, "b": 1})
-            return DummyGraph(edges={"node": edge}), {}
+            edge = make_dummy_edge_mock(feature_names={"a": 0, "b": 1})
+            return make_dummy_graph_mock(edges={"node": edge}), {}
 
         def get_gradient(self, *, decision, get_info=False, cfg=None):
             # return a gradient graph (not used here)
-            grad_edge = DummyEdge(feature_names={"a": 0, "b": 1}, feature_array=None)
-            return DummyGraph(edges={"node": grad_edge}), {}
+            grad_edge = make_dummy_edge_mock(feature_names={"a": 0, "b": 1}, feature_array=None)
+            return make_dummy_graph_mock(edges={"node": grad_edge}), {}
 
         def get_metrics(self, *, decision, get_info=False, cfg=None):
             return 0.0, {}
@@ -80,14 +80,14 @@ def test_get_decision_structure_with_jax_numpy_values():
             pass
 
         def get_context(self, get_info=False):
-            return DummyGraph(edges={}), {}
+            return make_dummy_graph_mock(edges={}), {}
 
         def get_zero_decision(self, get_info=False):
-            edge = DummyEdge(feature_names={"a": jnp.array(0), "b": np.int64(2)})
-            return DummyGraph(edges={"node": edge}), {}
+            edge = make_dummy_edge_mock(feature_names={"a": jnp.array(0), "b": np.int64(2)})
+            return make_dummy_graph_mock(edges={"node": edge}), {}
 
         def get_gradient(self, *, decision, get_info=False, cfg=None):
-            return DummyGraph(edges={"node": DummyEdge(feature_names={"a": 0})}), {}
+            return make_dummy_graph_mock(edges={"node": make_dummy_edge_mock(feature_names={"a": 0})}), {}
 
         def get_metrics(self, *, decision, get_info=False, cfg=None):
             return 0.0, {}
@@ -111,14 +111,14 @@ def test_get_decision_structure_invalid_feature_value_raises():
             pass
 
         def get_context(self, get_info=False):
-            return DummyGraph(edges={}), {}
+            return make_dummy_graph_mock(edges={}), {}
 
         def get_zero_decision(self, get_info=False):
-            edge = DummyEdge(feature_names={"bad": "not-an-int"})
-            return DummyGraph(edges={"node": edge}), {}
+            edge = make_dummy_edge_mock(feature_names={"bad": "not-an-int"})
+            return make_dummy_graph_mock(edges={"node": edge}), {}
 
         def get_gradient(self, *, decision, get_info=False, cfg=None):
-            return DummyGraph(edges={"node": DummyEdge(feature_names={"bad": 0})}), {}
+            return make_dummy_graph_mock(edges={"node": make_dummy_edge_mock(feature_names={"bad": 0})}), {}
 
         def get_metrics(self, *, decision, get_info=False, cfg=None):
             return 0.0, {}
@@ -141,14 +141,14 @@ def test_get_decision_structure_missing_feature_names_raises():
             pass
 
         def get_context(self, get_info=False):
-            return DummyGraph(edges={}), {}
+            return make_dummy_graph_mock(edges={}), {}
 
         def get_zero_decision(self, get_info=False):
-            edge = DummyEdge(feature_names=None)
-            return DummyGraph(edges={"node": edge}), {}
+            edge = make_dummy_edge_mock(feature_names=None)
+            return make_dummy_graph_mock(edges={"node": edge}), {}
 
         def get_gradient(self, *, decision, get_info=False, cfg=None):
-            return DummyGraph(edges={"node": DummyEdge(feature_names=None)}), {}
+            return make_dummy_graph_mock(edges={"node": make_dummy_edge_mock(feature_names=None)}), {}
 
         def get_metrics(self, *, decision, get_info=False, cfg=None):
             return 0.0, {}
@@ -171,19 +171,19 @@ def test_get_methods_return_tuple_and_info():
             pass
 
         def get_context(self, get_info=False):
-            g = DummyGraph(edges={"c": DummyEdge(feature_names={"x": 0})})
+            g = make_dummy_graph_mock(edges={"c": make_dummy_edge_mock(feature_names={"x": 0})})
             info = {"cinfo": True} if get_info else {}
             return g, info
 
         def get_zero_decision(self, get_info=False):
-            g = DummyGraph(edges={"d": DummyEdge(feature_names={"y": 0})})
+            g = make_dummy_graph_mock(edges={"d": make_dummy_edge_mock(feature_names={"y": 0})})
             info = {"dinfo": 1} if get_info else {}
             return g, info
 
         def get_gradient(self, *, decision, get_info=False, cfg=None):
             # return same shape graph and info
             keys = list(decision.edges.keys())
-            g = DummyGraph({k: DummyEdge(feature_names=decision.edges[k].feature_names) for k in keys})
+            g = make_dummy_graph_mock({k: make_dummy_edge_mock(feature_names=decision.edges[k].feature_names) for k in keys})
             info = {"ginfo": "ok"} if get_info else {}
             return g, info
 
@@ -201,18 +201,18 @@ def test_get_methods_return_tuple_and_info():
 
     p = P()
     ctx, info0 = p.get_context(get_info=False)
-    assert isinstance(ctx, DummyGraph)
+    assert isinstance(ctx, Graph)
     assert info0 == {}
 
     ctx2, info1 = p.get_context(get_info=True)
     assert info1 == {"cinfo": True}
 
     zd, zd_info = p.get_zero_decision(get_info=False)
-    assert isinstance(zd, DummyGraph)
+    assert isinstance(zd, Graph)
     assert zd_info == {}
 
     grad, g_info = p.get_gradient(decision=zd, get_info=True)
-    assert isinstance(grad, DummyGraph)
+    assert isinstance(grad, Graph)
     assert g_info == {"ginfo": "ok"}
 
     metric, m_info = p.get_metrics(decision=zd, get_info=True)
@@ -227,19 +227,19 @@ def test_get_gradient_structure_matches_decision():
             pass
 
         def get_context(self, get_info=False):
-            return DummyGraph(edges={}), {}
+            return make_dummy_graph_mock(edges={}), {}
 
         def get_zero_decision(self, get_info=False):
             # decision features shaped (2,3)
-            d_edge = DummyEdge(feature_names={"a": 0, "b": 1}, feature_array=jnp.zeros((2, 3)))
-            return DummyGraph(edges={"node": d_edge}), {}
+            d_edge = make_dummy_edge_mock(feature_names={"a": 0, "b": 1}, feature_array=jnp.zeros((2, 3)))
+            return make_dummy_graph_mock(edges={"node": d_edge}), {}
 
         def get_gradient(self, *, decision, get_info=False, cfg=None):
             # return gradient with same keys and shape as decision.feature_array
             ke = list(decision.edges.keys())[0]
             shape = decision.edges[ke].feature_array.shape
-            g_edge = DummyEdge(feature_names=decision.edges[ke].feature_names, feature_array=jnp.ones(shape))
-            return DummyGraph(edges={ke: g_edge}), {}
+            g_edge = make_dummy_edge_mock(feature_names=decision.edges[ke].feature_names, feature_array=jnp.ones(shape))
+            return make_dummy_graph_mock(edges={ke: g_edge}), {}
 
         def get_metrics(self, *, decision, get_info=False, cfg=None):
             return 0.0, {}
@@ -265,13 +265,13 @@ def test_save_writes_file_and_cleanup():
             pass
 
         def get_context(self, get_info=False):
-            return DummyGraph(edges={}), {}
+            return make_dummy_graph_mock(edges={}), {}
 
         def get_zero_decision(self, get_info=False):
-            return DummyGraph(edges={}), {}
+            return make_dummy_graph_mock(edges={}), {}
 
         def get_gradient(self, *, decision, get_info=False, cfg=None):
-            return DummyGraph(edges={}), {}
+            return make_dummy_graph_mock(edges={}), {}
 
         def get_metrics(self, *, decision, get_info=False, cfg=None):
             return 0.0, {}
@@ -305,20 +305,20 @@ def test_integration_minimal_pipeline():
 
         def get_context(self, get_info=False):
             # trivial context
-            edge = DummyEdge(feature_names={"x": 0}, feature_array=jnp.array([[1.0, 2.0]]))
-            return DummyGraph(edges={"c": edge}), {}
+            edge = make_dummy_edge_mock(feature_names={"x": 0}, feature_array=jnp.array([[1.0, 2.0]]))
+            return make_dummy_graph_mock(edges={"c": edge}), {}
 
         def get_zero_decision(self, get_info=False):
             # decision with two objects and one feature column
-            d_edge = DummyEdge(feature_names={"f0": 1}, feature_array=jnp.array([[1.0], [2.0]]))
-            return DummyGraph(edges={"node": d_edge}), {}
+            d_edge = make_dummy_edge_mock(feature_names={"f0": 1}, feature_array=jnp.array([[1.0], [2.0]]))
+            return make_dummy_graph_mock(edges={"node": d_edge}), {}
 
         def get_gradient(self, *, decision, get_info=False, cfg=None):
             # gradient = 2 * decision.feature_array
             g = {}
             for k, e in decision.edges.items():
-                g[k] = DummyEdge(feature_names=e.feature_names, feature_array=2.0 * e.feature_array)
-            return DummyGraph(edges=g), {}
+                g[k] = make_dummy_edge_mock(feature_names=e.feature_names, feature_array=2.0 * e.feature_array)
+            return make_dummy_graph_mock(edges=g), {}
 
         def get_metrics(self, *, decision, get_info=False, cfg=None):
             # metric: sum of squares of all decision features -> numeric check

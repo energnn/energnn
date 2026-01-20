@@ -162,7 +162,7 @@ def test_dict2array_and_sorting():
 def test_check_dict_or_none_and_nan_and_valid_addresses():
     # non-dict non-None raises
     with pytest.raises(ValueError):
-        check_dict_or_none([1, 2, 3])
+        check_dict_or_none(np.array([1, 2, 3]))
     # NaN detection in address
     with pytest.raises(ValueError):
         check_no_nan(address_dict={"a": np.array([0.0, np.nan], dtype=np.float32)}, feature_dict=None)

@@ -126,7 +126,6 @@ def test_max_shape_and_sum_shapes_list_ops_and_errors():
 
 def test_array_values_and_ordering_consistency():
     # Ensure that array stacks edges in whatever dict insertion order is used (we rely on .values())
-    e = get_fixed_edge()
     gs = GraphShape(edges={"first": np.array(1), "second": np.array(2)}, addresses=np.array(0))
     arr = gs.array
     # array should contain both values and length == number of edge classes

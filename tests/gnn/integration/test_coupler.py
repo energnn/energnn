@@ -24,6 +24,7 @@ from energnn.gnn.utils import MLP
 from energnn.graph import separate_graphs
 from energnn.graph.jax import JaxGraph
 from tests.utils import TestProblemLoader
+from tests.gnn.utils import make_dummy_coupling_mock, assert_single, assert_batch
 
 
 np.random.seed(0)
@@ -48,50 +49,6 @@ context_batch, _ = pb_batch.get_context()
 jax_context_batch = JaxGraph.from_numpy_graph(context_batch)
 context = separate_graphs(context_batch)[0]
 jax_context = JaxGraph.from_numpy_graph(context)
-
-
-class DummyCoupling:
-    """Simple coupling stub that returns a fixed param on init and whose apply returns zeros of matching shape."""
-    def init(self, *, rngs, context, coordinates):
-        return {"dummy": 1}
-
-    def init_with_output(self, *, rngs, context, coordinates):
-        # return ((output, info), params)
-        zeros = jnp.zeros_like(coordinates)
-        return ((zeros, {}), {"dummy": 1})
-
-    def apply(self, params, context, coordinates, get_info=False):
-        # returns zero update (same shape as coordinates) and info
-        return jnp.zeros_like(coordinates), {"stub": jnp.array(1.0)}
-
-
-def assert_single(*, coupler: Coupler, seed: int, context: JaxGraph):
-    rngs = jax.random.PRNGKey(seed)
-    params_1 = coupler.init(context=context, rngs=rngs)
-    output_3, infos_3 = coupler.apply(params_1, context=context)
-    output_4, infos_4 = coupler.apply(params_1, context=context, get_info=True)
-
-    chex.assert_trees_all_equal(output_3, output_4)
-
-    return params_1, output_4, infos_4
-
-
-def assert_batch(*, params: dict, coupler: Coupler, context: JaxGraph):
-
-    def apply(params, context, get_info):
-        return coupler.apply(params, context=context, get_info=get_info)
-
-    apply_vmap = jax.vmap(apply, in_axes=[None, 0, None], out_axes=0)
-    output_batch_1, infos_1 = apply_vmap(params, context, False)
-    output_batch_2, infos_2 = apply_vmap(params, context, True)
-
-    apply_vmap_jit = jax.jit(apply_vmap)
-    output_batch_3, infos_3 = apply_vmap_jit(params, context, False)
-    output_batch_4, infos_4 = apply_vmap_jit(params, context, True)
-
-    chex.assert_trees_all_close(output_batch_1, output_batch_2, output_batch_3, output_batch_4, rtol=1e-4)
-    chex.assert_trees_all_equal(infos_2, infos_4)
-    return output_batch_1, infos_1
 
 def test_zero_solving_method():
     coupling_function = CouplingFunction(
@@ -129,7 +86,7 @@ def test_node_solving_method():
 
 def test_zero_solving_method_end_to_end_returns_initial_zeros_when_used_in_coupler():
     """Integration test: ZeroSolvingMethod should initialize zeros and solve returns the same zeros."""
-    coupling_function = DummyCoupling()
+    coupling_function = make_dummy_coupling_mock()
     solving_method = ZeroSolvingMethod(latent_dimension=4)
     coupler = Coupler(coupling_function=coupling_function, solving_method=solving_method)
 

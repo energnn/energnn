@@ -27,7 +27,7 @@ from energnn.gnn.utils import gather, scatter_add
 from energnn.graph import separate_graphs
 from energnn.graph.jax import JaxGraph, JaxEdge
 from tests.utils import TestProblemLoader
-from tests.gnn.unit.utils import set_dense_layers_to_identity_or_zero
+from tests.gnn.utils import set_dense_layers_to_identity_or_zero
 
 # deterministic
 np.random.seed(0)

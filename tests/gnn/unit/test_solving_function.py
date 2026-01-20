@@ -9,12 +9,13 @@ import jax
 import jax.numpy as jnp
 import pytest
 import diffrax
+from unittest.mock import MagicMock
 
 from energnn.gnn.coupler.solving_method import ZeroSolvingMethod, NeuralODESolvingMethod
 from energnn.graph import separate_graphs
 from energnn.graph.jax import JaxGraph
 from tests.utils import TestProblemLoader
-
+from energnn.gnn.coupler.coupling_function import CouplingFunction
 
 # deterministic RNG for reproducibility in tests
 np.random.seed(0)
@@ -40,30 +41,30 @@ context_single = separate_graphs(context_batch)[0]
 jax_context = JaxGraph.from_numpy_graph(context_single)
 
 
-# Fake CouplingFunction
-class ConstantFunction:
+def make_constant_coupling_mock(C):
     """
-    Minimal object mimicking the `apply(params=..., context=..., coordinates=...)` API.
+    Return a MagicMock that mimics a CouplingFunction with an `apply` method.
     Always returns a constant field `C` broadcast to the shape of `coordinates`.
     """
+    C_jnp = jnp.array(C).astype(jnp.float32)
 
-    def __init__(self, C):
-        # C may be scalar, 1D (per-dim), or full matrix; convert to jnp.array
-        self.C = jnp.array(C).astype(jnp.float32)
-
-    def apply(self, params, context, coordinates, get_info=False):
+    def apply_fn(params, context, coordinates, get_info=False):
         # Broadcast C to coordinates shape if possible
         target_shape = coordinates.shape
-        # If self.C is scalar -> broadcast
-        if self.C.ndim == 0:
-            out = jnp.ones(target_shape, dtype=jnp.float32) * self.C
-        elif self.C.ndim == 1 and self.C.shape[0] == target_shape[1]:
+        # If C_jnp is scalar -> broadcast
+        if C_jnp.ndim == 0:
+            out = jnp.ones(target_shape, dtype=jnp.float32) * C_jnp
+        elif C_jnp.ndim == 1 and C_jnp.shape[0] == target_shape[1]:
             # broadcast across addresses
-            out = jnp.tile(self.C[None, :], (target_shape[0], 1))
+            out = jnp.tile(C_jnp[None, :], (target_shape[0], 1))
         else:
             # attempt broadcast directly
-            out = jnp.broadcast_to(self.C, target_shape)
+            out = jnp.broadcast_to(C_jnp, target_shape)
         return out, {}
+
+    m = MagicMock(spec=CouplingFunction)
+    m.apply = apply_fn
+    return m
 
 
 # Tests for ZeroSolvingMethod
@@ -144,7 +145,7 @@ def test_neuralode_solve_constant_field_returns_h0_plus_c():
 
     # constant vector C (per-dimension)
     C = jnp.array([0.5, -0.3], dtype=jnp.float32)
-    const_f = ConstantFunction(C)
+    const_f = make_constant_coupling_mock(C)
 
     # initial coordinates h0 (non-zero)
     h0 = jnp.ones((n_addr, latent_dim), dtype=jnp.float32) * 2.0
@@ -164,7 +165,7 @@ def test_neuralode_solve_with_zero_initial_and_constant_field():
     method = make_neuralode(latent_dim=latent_dim, dt=0.05, max_steps=1000)
     n_addr = int(np.array(jax_context.non_fictitious_addresses).shape[0])
     C = 0.25  # scalar -> broadcast
-    const_f = ConstantFunction(C)
+    const_f = make_constant_coupling_mock(C)
 
     h0 = jnp.zeros((n_addr, latent_dim), dtype=jnp.float32)
     final, _ = method.solve(params={}, function=const_f, coordinates_init=h0, context=jax_context, get_info=False)
@@ -181,7 +182,7 @@ def test_neuralode_get_info_returns_ode_info():
     method = make_neuralode(latent_dim=latent_dim, dt=0.2, max_steps=500)
     n_addr = int(np.array(jax_context.non_fictitious_addresses).shape[0])
     C = jnp.array([0.1, 0.2], dtype=jnp.float32)
-    const_f = ConstantFunction(C)
+    const_f = make_constant_coupling_mock(C)
     h0 = jnp.zeros((n_addr, latent_dim), dtype=jnp.float32)
 
     final, info = method.solve(params={}, function=const_f, coordinates_init=h0, context=jax_context, get_info=True)
@@ -201,7 +202,7 @@ def test_neuralode_respects_max_steps_raises_on_tight_max_steps():
     # choose dt large and max_steps small to provoke failure
     method = make_neuralode(latent_dim=latent_dim, dt=1.0, max_steps=0)
     n_addr = int(np.array(jax_context.non_fictitious_addresses).shape[0])
-    const_f = ConstantFunction(0.1)
+    const_f = make_constant_coupling_mock(0.1)
     h0 = jnp.zeros((n_addr, latent_dim), dtype=jnp.float32)
 
     with pytest.raises(Exception):
@@ -216,7 +217,7 @@ def test_neuralode_with_different_solvers_consistency():
     latent_dim = 2
     n_addr = int(np.array(jax_context.non_fictitious_addresses).shape[0])
     C = jnp.array([0.3, -0.2], dtype=jnp.float32)
-    const_f = ConstantFunction(C)
+    const_f = make_constant_coupling_mock(C)
     h0 = jnp.zeros((n_addr, latent_dim), dtype=jnp.float32)
 
     # Tsit5 with PID controller
