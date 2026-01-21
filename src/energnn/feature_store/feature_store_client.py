@@ -116,7 +116,7 @@ class FeatureStoreClient:
         return True
 
     def download_config(self, config_id: str):
-        #TODO
+        # TODO
         return None
 
     def register_instance(self, instance: Problem) -> bool:
@@ -355,11 +355,13 @@ def storage_almost_full(path: str):
     else:
         return False
 
+
 def zip_files_to_send(source_path: str):
     if os.path.isdir(source_path):
         shutil.make_archive(source_path, "zip", source_path)
     else:
         zipfile.ZipFile(source_path + ".zip", mode="w").write(source_path, os.path.basename(source_path))
+
 
 class MissingDatasetError(Exception):
     """
