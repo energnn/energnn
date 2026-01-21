@@ -10,6 +10,7 @@ import numpy as np
 from omegaconf import DictConfig
 
 from energnn.graph import Edge, Graph, GraphShape, collate_graphs
+from energnn.graph.jax import JaxGraph
 from energnn.problem import Problem, ProblemBatch, ProblemLoader, ProblemMetadata
 
 
@@ -218,3 +219,94 @@ class TestProblemLoader(ProblemLoader):
 
     def __len__(self):
         return max(self.dataset_size // self.n_batch, 1)
+
+
+def compare_single_graphs(a: JaxGraph, b: JaxGraph, rtol=1e-5, atol=1e-6):
+    """
+    Compare two single (non-batched) JaxGraph objects component-wise.
+    """
+    assert set(a.edges.keys()) == set(b.edges.keys()), f"Edge keys differ: {set(a.edges.keys())} vs {set(b.edges.keys())}"
+    for k in a.edges:
+        ae = a.edges[k]
+        be = b.edges[k]
+        # feature arrays
+        if (ae.feature_array is None) != (be.feature_array is None):
+            raise AssertionError(f"Feature presence mismatch for edge {k}")
+        if ae.feature_array is not None:
+            np.testing.assert_allclose(np.array(ae.feature_array), np.array(be.feature_array), rtol=rtol, atol=atol)
+        # address_dict keys
+        a_keys = set(ae.address_dict.keys()) if ae.address_dict is not None else set()
+        b_keys = set(be.address_dict.keys()) if be.address_dict is not None else set()
+        assert a_keys == b_keys
+        for ak in a_keys:
+            np.testing.assert_allclose(np.array(ae.address_dict[ak]), np.array(be.address_dict[ak]), rtol=rtol, atol=atol)
+        # non_fictitious mask
+        if ae.non_fictitious is None or be.non_fictitious is None:
+            assert ae.non_fictitious is be.non_fictitious
+        else:
+            np.testing.assert_allclose(np.array(ae.non_fictitious), np.array(be.non_fictitious), rtol=rtol, atol=atol)
+
+
+def compare_batched_graphs(*graphs, rtol=1e-6, atol=1e-6):
+    """
+    Compare a list of batched JaxGraph outputs.
+
+    - Ensures same edge keys.
+    - For each edge, ensures corresponding arrays have same shapes and are numerically close.
+    - Also checks address_dict arrays and non_fictitious shapes.
+    """
+
+    if len(graphs) < 2:
+        return
+
+    # check keys
+    keys0 = set(graphs[0].edges.keys())
+    for g in graphs[1:]:
+        if set(g.edges.keys()) != keys0:
+            raise AssertionError(f"Edge keys differ: {keys0} vs {set(g.edges.keys())}")
+
+    # for each edge key, compare feature_array, address_dict, non_fictitious
+    for key in keys0:
+        base = graphs[0].edges[key]
+        # FEATURE ARRAYS (may be None)
+        base_feat = base.feature_array
+        base_np = None if base_feat is None else np.array(base_feat)
+        for g in graphs[1:]:
+            feat = g.edges[key].feature_array
+            feat_np = None if feat is None else np.array(feat)
+            # both None -> ok
+            if base_np is None and feat_np is None:
+                continue
+            # shape must match
+            if base_np is None or feat_np is None:
+                raise AssertionError(f"Feature-array presence mismatch for edge '{key}': {base_np is None} vs {feat_np is None}")
+            if base_np.shape != feat_np.shape:
+                raise AssertionError(f"Feature-array shapes differ for edge '{key}': {base_np.shape} vs {feat_np.shape}")
+            # numeric compare
+            np.testing.assert_allclose(base_np, feat_np, rtol=rtol, atol=atol)
+
+        # ADDRESS DICTS: keys must match, arrays comparable (possibly batched)
+        base_addr_keys = set(base.address_dict.keys()) if base.address_dict is not None else set()
+        for g in graphs[1:]:
+            other_addr_keys = set(g.edges[key].address_dict.keys()) if g.edges[key].address_dict is not None else set()
+            if base_addr_keys != other_addr_keys:
+                raise AssertionError(f"Address dict keys differ for edge '{key}': {base_addr_keys} vs {other_addr_keys}")
+
+        for ak in base_addr_keys:
+            base_addr_np = np.array(base.address_dict[ak])
+            for g in graphs[1:]:
+                other_addr_np = np.array(g.edges[key].address_dict[ak])
+                if base_addr_np.shape != other_addr_np.shape:
+                    raise AssertionError(f"Address array shapes differ for edge '{key}' addr '{ak}': {base_addr_np.shape} vs {other_addr_np.shape}")
+                np.testing.assert_allclose(base_addr_np, other_addr_np, rtol=rtol, atol=atol)
+
+        # non_fictitious masks
+        base_nf = np.array(base.non_fictitious) if base.non_fictitious is not None else None
+        for g in graphs[1:]:
+            other_nf = np.array(g.edges[key].non_fictitious) if g.edges[key].non_fictitious is not None else None
+            if (base_nf is None) != (other_nf is None):
+                raise AssertionError(f"Non-fictitious presence mismatch for edge '{key}'")
+            if base_nf is not None:
+                if base_nf.shape != other_nf.shape:
+                    raise AssertionError(f"Non-fictitious shapes differ for edge '{key}': {base_nf.shape} vs {other_nf.shape}")
+                np.testing.assert_allclose(base_nf, other_nf, rtol=rtol, atol=atol)
