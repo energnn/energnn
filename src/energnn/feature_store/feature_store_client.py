@@ -5,9 +5,12 @@
 # SPDX-License-Identifier: MPL-2.0
 #
 import hashlib
+import json
 import logging
+import os
 import shutil
 import uuid
+import zipfile
 from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -18,7 +21,6 @@ from energnn.feature_store.config_info import ProblemGenerationConfigInfo
 from energnn.problem import Problem
 from energnn.problem import ProblemDataset
 from energnn.problem.metadata import ProblemMetadata
-from energnn.storage import Storage
 
 logger = logging.getLogger(__name__)
 
@@ -30,22 +32,19 @@ class FeatureStoreClient:
 
     This client allows registering, retrieving, and downloading configuration files,
     problem instances, and datasets related to an EnerGNN project. It manages metadata
-    and data storage through HTTP requests to a remote feature store and a storage backend.
+    and data storage through HTTP requests to a remote feature store
 
-    :param storage: Where the bulk of the data is stored.
     :param project_name: Identifies the EnerGNN project, for HTTP requests to the feature store and storage location.
     :param feature_store_url: Where to send the requests to.
     """
 
-    storage: Storage
     project_name: str
     feature_store_url: str
     config_url: str
     instance_url: str
     dataset_url: str
 
-    def __init__(self, *, storage: Storage, project_name: str, feature_store_url: str):
-        self.storage = storage
+    def __init__(self, *, project_name: str, feature_store_url: str):
         self.project_name = project_name
         self.feature_store_url = feature_store_url
         self.config_url = self.feature_store_url + "/config"
@@ -62,47 +61,24 @@ class FeatureStoreClient:
         :param config_id: Identifier to reference the configuration.
         :return: True if the configuration is registered successfully, False otherwise.
         """
-        # Check identity of the config to store
-        hash_func = hashlib.new("md5")
 
         with open(config_path, "rb") as file:
+            hash_func = hashlib.new("md5")
             hash_func.update(file.read())
             local_hash: str = hash_func.hexdigest()
-        already_stored = self._check_config_identity(config_id, local_hash)
+        storage_uuid = uuid.uuid4()
+        register_info = {"config_id": config_id, "hash": local_hash, "tags": {}, "storage_path": str(storage_uuid)}
 
-        if not already_stored:
-            # Send the config to the storage (with UUID name)
-            storage_uuid = uuid.uuid4()
-            target_path = self.project_name + "/config/" + str(storage_uuid)
-            self.storage.upload(source_path=config_path, target_path=target_path)
-
-            # Reference the config in the database
-            register_info = {"config_id": config_id, "hash": local_hash, "tags": {}, "storage_path": str(storage_uuid)}
-            response = requests.post(url=self.config_url, params={"project_name": self.project_name}, json=register_info)
-            if response.status_code != 200:
-                logger.error(response.json())
-                return False
-        return True
-
-    def _check_config_identity(self, config_id: str, local_hash: str) -> bool:
-        """
-        Checks whether a given configuration hash matches the stored one.
-
-        :param config_id: Configuration identifier.
-        :param local_hash: Hash of the local configuration.
-        :return: True if hashes match or no previous config exists; False if config not found.
-        :raises RuntimeError: If the hash does not match the stored configuration.
-        """
-        stored_config: ProblemGenerationConfigInfo | None = self.get_config_metadata(config_id)
-        if stored_config is None:
+        zip_files_to_send(config_path)
+        with open(config_path + ".zip", "rb") as file:
+            response = requests.post(url=self.config_url,
+                                     params={"project_name": self.project_name},
+                                     files={"config_file": file,
+                                            "config": (None, json.dumps(register_info), "application/json")})
+        if response.status_code != 200:
+            logger.error(response.json())
             return False
-        else:
-            expected_hash = stored_config["hash"]
-            if local_hash != expected_hash:
-                raise RuntimeError(
-                    "Configuration file does not match the stored one for this config id,"
-                    + " change the id if real changes have been made to the file."
-                )
+        os.remove(config_path + ".zip")
         return True
 
     def get_configs_metadata(self) -> list[ProblemGenerationConfigInfo]:
@@ -133,15 +109,15 @@ class FeatureStoreClient:
         :param config_id: Configuration identifier.
         :return: True if the configuration has been removed, False instead.
         """
-        stored_config: ProblemGenerationConfigInfo | None = self.get_config_metadata(config_id)
-        if stored_config is None:
-            return False
         response = requests.delete(url=self.config_url, params={"project_name": self.project_name, "config_id": config_id})
         if response.status_code != 200:
             logger.error(response.json())
             return False
-        self.storage.delete(self.project_name + "/config/" + str(stored_config["storage_path"]))
         return True
+
+    def download_config(self, config_id: str):
+        #TODO
+        return None
 
     def register_instance(self, instance: Problem) -> bool:
         """
@@ -157,15 +133,15 @@ class FeatureStoreClient:
             tmp_dir_path = Path(tmp_dir_name)
             instance_path = tmp_dir_path / instance_infos.name
             instance.save(path=instance_path)
-            self.storage.upload(
-                source_path=str(instance_path), target_path=self.project_name + "/instances/" + distant_storage_name
-            )
-            response = requests.post(url=self.instance_url, json=instance_infos, params={"project_name": self.project_name})
+            zip_files_to_send(instance_path)
+            with open(instance_path + ".zip", "rb") as file:
+                response = requests.post(url=self.instance_url,
+                                         params={"project_name": self.project_name},
+                                         files={"instance_file": file,
+                                                "instance": (None, json.dumps(instance_infos), "application/json")})
             if response.status_code != 200:
                 logger.error(response.json())
-                self.storage.delete(target_path=self.project_name + "/instances/" + distant_storage_name)
                 return False
-
         return True
 
     def get_instances_metadata(
@@ -245,10 +221,6 @@ class FeatureStoreClient:
         :param code_version: Code version of the problem to retrieve.
         :return: True if the instance was cleanly removed, False otherwise.
         """
-        metadata: ProblemMetadata = self.get_instance_metadata(name, config_id, code_version)
-        if metadata is None:
-            return False
-        self.storage.delete(target_path=self.project_name + "/instances/" + metadata["storage_path"])
         instance_key = {"project_name": self.project_name, "name": name, "config_id": config_id, "code_version": code_version}
         response = requests.delete(url=self.instance_url, params=instance_key)
         if response.status_code != 200:
@@ -270,19 +242,19 @@ class FeatureStoreClient:
         storage_path = str(uuid.uuid4())
         dataset_infos = dataset.get_infos_for_feature_store()
         dataset_infos["storage_path"] = storage_path
-        response = requests.post(url=self.dataset_url, json=dataset_infos, params={"project_name": self.project_name})
-        if response.status_code != 200:
-            logger.error(response.json())
-            return False
-
         with TemporaryDirectory() as tmp_dir_name:
             tmp_dir_path = Path(tmp_dir_name)
             dataset_file_path = tmp_dir_path / dataset_file_name
             dataset.to_pickle(str(dataset_file_path))
-            self.storage.upload(
-                source_path=str(dataset_file_path), target_path=self.project_name + "/datasets/" + storage_path
-            )
-
+            zip_files_to_send(str(dataset_file_path))
+            with open(str(dataset_file_path) + ".zip", "rb") as file:
+                response = requests.post(url=self.dataset_url,
+                                         params={"project_name": self.project_name},
+                                         files={"dataset_file": file,
+                                                "dataset": (None, json.dumps(dataset_infos), "application/json")})
+            if response.status_code != 200:
+                logger.error(response.json())
+                return False
         return True
 
     def get_datasets_metadata(self):
@@ -368,11 +340,6 @@ class FeatureStoreClient:
     def remove_dataset(self, name: str, split: str, version: int) -> bool:
         str_key = f"{name}_{split}_{version}"
         dataset_key = {"project_name": self.project_name, "name": name, "split": split, "version": version}
-        metadata = self.get_dataset_metadata(name, split, version)
-        if metadata is None:
-            logger.error(f"Dataset {str_key} does not exist")
-            return False
-        self.storage.delete(target_path=f"{self.project_name}/instances/{metadata['storage_path']}")
         response = requests.get(url=self.dataset_url, params=dataset_key)
         if response.status_code != 200:
             logger.error(response.json())
@@ -388,6 +355,11 @@ def storage_almost_full(path: str):
     else:
         return False
 
+def zip_files_to_send(source_path: str):
+    if os.path.isdir(source_path):
+        shutil.make_archive(source_path, "zip", source_path)
+    else:
+        zipfile.ZipFile(source_path + ".zip", mode="w").write(source_path, os.path.basename(source_path))
 
 class MissingDatasetError(Exception):
     """
