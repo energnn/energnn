@@ -29,7 +29,7 @@ class Tracker(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def init_run(self, *, name: str, tags: list[str], cfg: DictConfig):
+    def init_run(self, *, name: str, tags: dict[str, str], cfg: DictConfig):
         """Should initialize a training run, associate it with tags and log its config.
 
         :param name: Name for the run.
