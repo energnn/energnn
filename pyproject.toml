@@ -58,3 +58,8 @@ extend-ignore = ["E203", "E701"]
 [[tool.mypy.overrides]]
 module = "cloudpickle,optax,flatdict"
 ignore_missing_imports = true
+
+[tool.pytest]
+testpaths = [
+    "tests"
+]

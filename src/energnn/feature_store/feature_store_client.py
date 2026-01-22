@@ -133,8 +133,8 @@ class FeatureStoreClient:
             tmp_dir_path = Path(tmp_dir_name)
             instance_path = tmp_dir_path / instance_infos.name
             instance.save(path=instance_path)
-            zip_files_to_send(instance_path)
-            with open(instance_path + ".zip", "rb") as file:
+            zip_files_to_send(str(instance_path))
+            with open(str(instance_path) + ".zip", "rb") as file:
                 response = requests.post(url=self.instance_url,
                                          params={"project_name": self.project_name},
                                          files={"instance_file": file,
@@ -340,7 +340,7 @@ class FeatureStoreClient:
     def remove_dataset(self, name: str, split: str, version: int) -> bool:
         str_key = f"{name}_{split}_{version}"
         dataset_key = {"project_name": self.project_name, "name": name, "split": split, "version": version}
-        response = requests.get(url=self.dataset_url, params=dataset_key)
+        response = requests.delete(url=self.dataset_url, params=dataset_key)
         if response.status_code != 200:
             logger.error(response.json())
             return False
