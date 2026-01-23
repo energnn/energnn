@@ -386,7 +386,7 @@ class SimpleAmortizer:
         and preconditioned gradient features, averaged over batch.
 
         :param params: Parameters dictionary
-        param opt_state: Current optimizer state.
+        :param opt_state: Current optimizer state.
         :param context: Batch of context graphs.
         :param gradient: Batch of raw gradient graphs.
         :param get_info: If True, return diagnostic info on grads and updates.
