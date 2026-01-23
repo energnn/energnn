@@ -54,7 +54,7 @@ jobs:
 
     - name: Build doc
       working-directory: ./docs
-      run: make html doctest SPHINXOPTS="-W"
+      run: uv run make html doctest SPHINXOPTS="-W"
 
     - name: Release on PyPi
       if: ${{ github.event_name == 'release' && matrix.python-version == '3.10' }}
