@@ -60,9 +60,9 @@ class Edge(dict):
         are set to None and only `non_fictitious` of length zero is created.
 
         :param address_dict: Dictionary of addresses, each key correspond to a port name and the values are the
-        corresponding addresses for each object stored into an array.
+                             corresponding addresses for each object stored into an array.
         :param feature_dict: Dictionary of features, each key correspond to a feature name and the values are the
-        corresponding features for each object stored into an array.
+                             corresponding features for each object stored into an array.
         :returns: A properly structured `Edge` instance.
         :raises ValueError: If addresses or features contain NaNs or if shapes mismatch.
         """

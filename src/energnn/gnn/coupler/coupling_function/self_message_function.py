@@ -101,6 +101,7 @@ class MLPSelfMessageFunction(nn.Module, SelfMessageFunction):
 
     This module applies a trainable multi-layer perceptron :math:`\psi_\theta` to each node's feature vector.
     The operation is defined as:
+
     .. math::
         h^\circlearrowleft_a = \psi_\theta(h_a),
 

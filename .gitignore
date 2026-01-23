@@ -1,16 +1,15 @@
 /.venv
 
 # IntelliJ
-.idea/
+.idea
 *.iml
 
 # VSCode
 .vscode
 
-# Documentation
-/docs/_build
-
-# Documentation generated files (autosummary)
-docs/reference/api/
-
 *__pycache__/
+.coverage
+
+# Doc
+/docs/_build
+/docs/**/_autosummary/

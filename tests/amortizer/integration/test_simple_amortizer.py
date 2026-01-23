@@ -62,7 +62,7 @@ storage = DummyStorage()
 tracker = DummyTracker()
 
 
-def test_create():
+def test_create(tmp_path):
     preprocessor = Preprocessor(f=CenterReduceFunction())
     postprocessor = Postprocessor(f=CenterReduceFunction())
     gnn = EquivariantGNN(
@@ -92,11 +92,6 @@ def test_create():
     optimizer = optax.adam(1e-3)
     amortizer = SimpleAmortizer(preprocessor=preprocessor, postprocessor=postprocessor, gnn=gnn, optimizer=optimizer)
 
-    out_dir = "tmp"
-    if os.path.exists(out_dir):
-        shutil.rmtree(out_dir)
-    os.makedirs(out_dir)
-
     problem_cfg = DictConfig({})
     amortizer.init(rngs=PRNGKey(0), loader=train_loader, problem_cfg=problem_cfg)
 
@@ -105,25 +100,24 @@ def test_create():
         val_loader=val_loader,
         problem_cfg=problem_cfg,
         n_epochs=1,
-        out_dir=out_dir,
+        out_dir=tmp_path,
         last_id="last",
         best_id="best",
         storage=storage,
         tracker=tracker,
     )
 
-    new_amortizer = SimpleAmortizer.load("tmp/last")
+    path_amortizer = tmp_path / "last"
+    new_amortizer = SimpleAmortizer.load(path_amortizer)
 
     _ = new_amortizer.train(
         train_loader=train_loader,
         val_loader=val_loader,
         problem_cfg=DictConfig({}),
         n_epochs=1,
-        out_dir=out_dir,
+        out_dir=tmp_path,
         last_id="last",
         best_id="best",
         storage=storage,
         tracker=tracker,
     )
-
-    shutil.rmtree(out_dir)
