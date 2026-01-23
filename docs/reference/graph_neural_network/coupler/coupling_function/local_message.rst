@@ -44,13 +44,3 @@ Implementations
 .. autoclass:: SumLocalMessageFunction
    :no-members:
    :show-inheritance:
-
-.. autoclass:: AttentionLocalMessageFunction
-   :no-members:
-   :show-inheritance:
-
-..
-    Legacy
-    ======
-
-    .. autoclass:: GATv2LocalMessageFunction()
