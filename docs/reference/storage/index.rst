@@ -29,27 +29,3 @@ Implementation
 .. autoclass:: DummyStorage
    :no-members:
    :show-inheritance:
-
-
-.. autoclass:: S3Storage
-   :no-members:
-   :show-inheritance:
-
-.. autosummary::
-   :toctree: _autosummary
-   :nosignatures:
-
-    S3Storage.upload
-    S3Storage.download
-
-
-.. autoclass:: LocalStorage
-   :no-members:
-   :show-inheritance:
-
-.. autosummary::
-   :toctree: _autosummary
-   :nosignatures:
-
-    LocalStorage.upload
-    LocalStorage.download

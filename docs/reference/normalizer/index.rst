@@ -108,7 +108,7 @@ Center and Reduce
     CenterReduceFunction.compute_params
     CenterReduceFunction.apply
     CenterReduceFunction.apply_inverse
-    NormalizationFunction.gradient_inverse
+    CenterReduceFunction.gradient_inverse
 
 Piecewise Linear Approximation of the Empirical CDF
 ---------------------------------------------------

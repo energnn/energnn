@@ -39,14 +39,3 @@ _______________
 .. autoclass:: IdentityRemoteMessageFunction
    :no-members:
    :show-inheritance:
-   
-.. autoclass:: LinearAttentionRemoteMessageFunction
-   :no-members:
-   :show-inheritance:
-   
-.. autosummary::
-   :toctree: _autosummary
-   :nosignatures:
-   
-    LinearAttentionRemoteMessageFunction.elu_kernel
-    LinearAttentionRemoteMessageFunction.kernel
