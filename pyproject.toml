@@ -36,6 +36,8 @@ docs = [
 [dependency-groups]
 dev = [
     "pytest>=8.0.0",
+    "coverage>=7.11.3",
+    "pytest-cov>=2.19.2",
     "flake8>=7.0.0",
     "Flake8-pyproject==1.2.3",
     "black==24.8.0",

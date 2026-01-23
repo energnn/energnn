@@ -1,4 +1,15 @@
 /.venv
-/.idea
+
+# IntelliJ
+.idea
+*.iml
+
+# VSCode
+.vscode
+
+*__pycache__/
+.coverage
+
+# Doc
 /docs/_build
 /docs/**/_autosummary/
