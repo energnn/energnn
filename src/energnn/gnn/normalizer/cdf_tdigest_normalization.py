@@ -141,7 +141,8 @@ class MultiFeatureTDigestNorm(nnx.Module):
       - On the first calls the TDigest objects will be created and updated.
     """
 
-    def __init__(self, features: int, update_limit: int, n_breakpoints: int = 20, digest_base_key: int = 1000, max_centroids: int = 1000, use_running_average: bool = False):
+    def __init__(self, features: int, update_limit: int, n_breakpoints: int = 20, digest_base_key: int = 1000,
+                 max_centroids: int = 1000, use_running_average: bool = False):
         """
         Initialize the MultiFeatureTDigestNorm module.
 
@@ -188,7 +189,6 @@ class MultiFeatureTDigestNorm(nnx.Module):
         for k in self.digest_keys.tolist():
             _ensure_digest(int(k), self.max_centroids)
 
-
     def _sync_state_from_registry(self):
         """
         Synchronize device-side BatchStat fields from host-side TDigest registry.
@@ -229,7 +229,6 @@ class MultiFeatureTDigestNorm(nnx.Module):
         self.centroids_m.value = jnp.array(m_arr, dtype=jnp.float32)
         self.centroids_c.value = jnp.array(c_arr, dtype=jnp.float32)
         self.digest_max_centroids.value = jnp.array(self.max_centroids, dtype=jnp.int32)
-
 
     def _reconstruct_digests_from_state(self):
         """
@@ -296,7 +295,7 @@ class MultiFeatureTDigestNorm(nnx.Module):
         assert F == self.features
 
         if (self.updates < self.update_limit) or (not self.use_running_average):
-            self.updates+= 1
+            self.updates += 1
 
             B = x_batch.shape[0]
             n_items = x_batch.shape[1]
@@ -336,7 +335,9 @@ class MultiFeatureTDigestNorm(nnx.Module):
             )
             return interp_term + left_term + right_term
 
-        per_graph_fn = lambda graph_x: jax.vmap(forward_local, in_axes=(1, 1, 1), out_axes=1)(graph_x, self.xp.value, self.fp.value)
+        def per_graph_fn(graph_x):
+            return jax.vmap(forward_local, in_axes=(1, 1, 1), out_axes=1)(graph_x, self.xp.value, self.fp.value)
+
         out_batch = jax.vmap(per_graph_fn)(x_batch)  # shape (B, n_items, F)
 
         if not is_batched:
@@ -389,8 +390,8 @@ class GraphTDigestNorm(nnx.Module):
         """
         base = self.digest_base_key + edge_index * self.max_per_edge_features
         mod = MultiFeatureTDigestNorm(
-            update_limit= self.update_limit, features=n_features, n_breakpoints=self.n_breakpoints, digest_base_key=base,
-            max_centroids=self.max_centroids, use_running_average = self.use_running_average
+            update_limit=self.update_limit, features=n_features, n_breakpoints=self.n_breakpoints, digest_base_key=base,
+            max_centroids=self.max_centroids, use_running_average=self.use_running_average
         )
         setattr(self, f"norm_{edge_key}", mod)
         return mod
@@ -466,7 +467,8 @@ class GraphTDigestNorm(nnx.Module):
                     )
             else:
                 edge = JaxEdge(
-                    feature_array=edge.feature_array, feature_names=feature_names, non_fictitious=edge.non_fictitious, address_dict=edge.address_dict
+                    feature_array=edge.feature_array, feature_names=feature_names, non_fictitious=edge.non_fictitious,
+                    address_dict=edge.address_dict
                 )
 
             return edge

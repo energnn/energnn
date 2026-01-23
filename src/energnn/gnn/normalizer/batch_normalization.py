@@ -4,6 +4,7 @@ from flax import nnx
 from flax.nnx import BatchNorm
 from energnn.graph.jax import JaxEdge, JaxGraph
 
+
 class GraphBatchNorm(nnx.Module):
     """
     Graph-level wrapper that maintains a BatchNorm for each edge key.
@@ -49,8 +50,9 @@ class GraphBatchNorm(nnx.Module):
         :return: The created BatchNorm instance.
         """
         mod = BatchNorm(
-            num_features = n_features, axis=self.axis, momentum= self.momentum, epsilon=self.epsilon, use_bias=self.use_bias,
-            digest_base_key=self.use_scale, use_fast_variance=self.use_fast_variance, use_running_average = self.use_running_average
+            num_features=n_features, axis=self.axis, momentum=self.momentum, epsilon=self.epsilon, use_bias=self.use_bias,
+            digest_base_key=self.use_scale, use_fast_variance=self.use_fast_variance,
+            use_running_average=self.use_running_average
         )
         setattr(self, f"norm_{edge_key}", mod)
         return mod
@@ -126,7 +128,8 @@ class GraphBatchNorm(nnx.Module):
                     )
             else:
                 edge = JaxEdge(
-                    feature_array=edge.feature_array, feature_names=feature_names, non_fictitious=edge.non_fictitious, address_dict=edge.address_dict
+                    feature_array=edge.feature_array, feature_names=feature_names, non_fictitious=edge.non_fictitious,
+                    address_dict=edge.address_dict
                 )
 
             return edge
