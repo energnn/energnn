@@ -117,9 +117,11 @@ class FeatureStoreClient:
         return True
 
     def download_config(self, config_id: str, output_dir: Path, unzip: bool = True) -> Path:
-        response = requests.get(url=self.config_url + "/download", params={"project_name": self.project_name, "config_id": config_id})
+        response = requests.get(url=self.config_url + "/download",
+                                params={"project_name": self.project_name, "config_id": config_id})
         if response.status_code != 200:
-            raise Exception(f"Error while trying to download configuration {config_id} for project {self.project_name} : {response.json()['message']}.")
+            raise Exception(f"Error while trying to download configuration {config_id} for project {self.project_name}"
+                            f" : {response.json()['message']}.")
         return write_zip_from_response(response, output_dir, unzip)
 
     def register_instance(self, instance: Problem) -> bool:
@@ -211,7 +213,8 @@ class FeatureStoreClient:
         storage_path = metadata["storage_path"]
         local_path = output_dir / storage_path
         if not local_path.exists():
-            instance_key = {"project_name": self.project_name, "name": name, "config_id": config_id, "code_version": code_version}
+            instance_key = {"project_name": self.project_name, "name": name,
+                            "config_id": config_id, "code_version": code_version}
             response = requests.get(url=self.instance_url + "/download", params=instance_key)
             if response.status_code != 200:
                 raise Exception(f"Error while trying to download instance : {response.json()['message']}.")
@@ -338,7 +341,8 @@ class FeatureStoreClient:
                                            code_version=instance.code_version, output_dir=output_dir,
                                            unzip=False)
                 except OSError as exc:
-                    logger.error(f"Error while downloading instances : {exc} (still {len(to_download) - to_download.index(instance)} to download).")
+                    logger.error(f"Error while downloading instances : {exc} "
+                                 f"(still {len(to_download) - to_download.index(instance)} to download).")
                     break
 
         return dataset
