@@ -6,9 +6,6 @@
 #
 from .cdf_tdigest_normalization import MultiFeatureTDigestNorm, GraphTDigestNorm
 from .batch_normalization import GraphBatchNorm
+from .center_reduce_normalization import GraphCenterReduceNorm
 
-__all__ = [
-    "MultiFeatureTDigestNorm",
-    "GraphTDigestNorm",
-    "GraphBatchNorm"
-]
+__all__ = ["MultiFeatureTDigestNorm", "GraphTDigestNorm", "GraphBatchNorm", "GraphCenterReduceNorm"]
