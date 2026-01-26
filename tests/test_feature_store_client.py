@@ -7,19 +7,16 @@
 import hashlib
 import json
 import os
-import shutil
 import tempfile
 from datetime import datetime
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from energnn.feature_store.feature_store_client import (
     FeatureStoreClient,
-    MissingDatasetError,
-    storage_almost_full,
+    MissingDatasetError, write_zip_from_response,
 )
 from energnn.problem.metadata import ProblemMetadata
 from energnn.problem.dataset import ProblemDataset
@@ -56,19 +53,6 @@ class FakeProblem:
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text("data")
         self._saved_path = str(path)
-
-
-def test_storage_almost_full_true_and_false(monkeypatch):
-    # True when used/total > 0.9
-    SD = shutil.disk_usage
-    Disk = SimpleNamespace(total=100, used=95, free=5)
-    monkeypatch.setattr(shutil, "disk_usage", lambda path: Disk)
-    assert storage_almost_full("any") is True
-
-    # False when used/total <= 0.9
-    Disk2 = SimpleNamespace(total=100, used=50, free=50)
-    monkeypatch.setattr(shutil, "disk_usage", lambda path: Disk2)
-    assert storage_almost_full("any") is False
 
 
 @patch("uuid.uuid4")
@@ -204,7 +188,7 @@ def test_get_instances_and_get_instance_metadata(monkeypatch):
         assert client.get_instance_metadata("n", "c", 1) is None
 
 
-def test_download_instance_success_and_already_local(tmp_path):
+def test_download_instance_success_and_already_local(tmp_path, monkeypatch):
     client = FeatureStoreClient(project_name="proj", feature_store_url="http://fs")
 
     # setup metadata
@@ -214,12 +198,15 @@ def test_download_instance_success_and_already_local(tmp_path):
 
     output_dir = Path(tmp_path)
     local_path = output_dir / "inst123"
+    monkeypatch.setattr("energnn.feature_store.feature_store_client.write_zip_from_response", lambda res, d, u: local_path)
 
     # # ensure not exists => will call storage.download
-    # if local_path.exists():
-    #     local_path.unlink()
-    # got = client.download_instance("n", "c", 1, output_dir)
-    # assert got == local_path
+    if local_path.exists():
+        local_path.unlink()
+    with patch("requests.get", return_value=DummyResponse(status_code=200)) as dl:
+        got = client.download_instance("n", "c", 1, output_dir)
+        assert got == local_path
+        dl.assert_called_once()
 
     # if local exists, storage.download should not be called
     local_path.write_text("already")
@@ -309,7 +296,7 @@ def test_download_dataset_missing_raises(tmp_path, monkeypatch):
         client.download_dataset("n", "train", 1, Path(tmp_path), download_instances=False)
 
 
-def test_download_dataset_downloads_instances_and_handles_space(monkeypatch, tmp_path):
+def test_download_dataset_downloads_instances(monkeypatch, tmp_path):
     client = FeatureStoreClient(project_name="proj", feature_store_url="http://fs")
 
     # make metadata
@@ -318,42 +305,48 @@ def test_download_dataset_downloads_instances_and_handles_space(monkeypatch, tmp
 
     # prepare output_dir path
     output_dir = Path(tmp_path)
+    local_path = output_dir / metadata["storage_path"]
 
     # Prepare a fake dataset returned by ProblemDataset.from_pickle
     fake_dataset = MagicMock(spec=ProblemDataset)
     # emulate a dataset with two instances; get_locally_missing_instances returns list of missing paths
-    fake_dataset.get_locally_missing_instances.return_value = ["inst1", "inst2"]
-    # we must ensure remove_instance exists for the "almost full" branch
-    fake_dataset.remove_instance = MagicMock()
+    pm1 = ProblemMetadata(
+        name="i1",
+        config_id="c",
+        code_version=1,
+        context_shape={"node": 1},
+        decision_shape={"node": 1},
+        storage_path="inst-a",
+        filter_tags={},
+    )
+    pm2 = ProblemMetadata(
+        name="i2",
+        config_id="c",
+        code_version=1,
+        context_shape={"node": 1},
+        decision_shape={"node": 1},
+        storage_path="inst-b",
+        filter_tags={},
+    )
+    fake_dataset.get_locally_missing_instances.return_value = [pm1, pm2]
 
     # monkeypatch ProblemDataset.from_pickle to return our fake_dataset
     with patch("energnn.feature_store.feature_store_client.ProblemDataset.from_pickle", return_value=fake_dataset):
         # case 1: storage not almost full -> should attempt to download each missing instance
-        monkeypatch.setattr("energnn.feature_store.feature_store_client.storage_almost_full", lambda p: False)
-        # TODO : fix with updated download methods
-        # # storage.download will be called for dataset and for instances
-        # with patch.object(storage, "download", return_value=None) as dl:
-        #     ds = client.download_dataset("name", "train", 1, output_dir, download_instances=True)
-        #     # ensure we return the dataset object
-        #     assert ds is fake_dataset
-        #     # ensure dataset download (and instance downloads) were attempted
-        #     assert dl.call_count >= 1
+        monkeypatch.setattr("energnn.feature_store.feature_store_client.write_zip_from_response", lambda res, d, unzip: local_path)
+        with patch.object(client, "download_instance", return_value=None) as dl, patch("requests.get", return_value=DummyResponse(status_code=200)) as dl2:
+            ds = client.download_dataset("name", "train", 1, output_dir, download_instances=True)
+            # ensure we return the dataset object
+            assert ds is fake_dataset
+            # ensure dataset download (and instance downloads) were attempted
+            assert dl2.call_count == 1
+            assert dl.call_count == 2
 
         # case 2: storage almost full -> dataset.remove_instance should be called instead of download
         fake_dataset.get_locally_missing_instances.return_value = ["inst3"]
 
-        local_path = output_dir / metadata["storage_path"]
         local_path.parent.mkdir(parents=True, exist_ok=True)
         local_path.write_text("already downloaded")
-
-        # TODO : fix with updated download methods
-        # monkeypatch.setattr("energnn.feature_store.feature_store_client.storage_almost_full", lambda p: True)
-        # # patch storage.download to raise if mistakenly called — but dataset file exists so it's not called
-        # with patch.object(storage, "download", side_effect=Exception("should not be called")):
-        #     ds2 = client.download_dataset("name", "train", 1, output_dir, download_instances=True)
-        #     # remove_instance must be invoked for at least the missing items
-        #     fake_dataset.remove_instance.assert_called()
-        #     assert ds2 is fake_dataset
 
 
 def test_remove_dataset_paths(monkeypatch):

@@ -5,6 +5,7 @@
 # SPDX-License-Identifier: MPL-2.0
 #
 import hashlib
+import io
 import json
 import logging
 import os
@@ -115,9 +116,11 @@ class FeatureStoreClient:
             return False
         return True
 
-    def download_config(self, config_id: str):
-        # TODO
-        return None
+    def download_config(self, config_id: str, output_dir: Path, unzip: bool = True) -> Path:
+        response = requests.get(url=self.config_url + "/download", params={"project_name": self.project_name, "config_id": config_id})
+        if response.status_code != 200:
+            raise Exception(f"Error while trying to download configuration {config_id} for project {self.project_name} : {response.json()['message']}.")
+        return write_zip_from_response(response, output_dir, unzip)
 
     def register_instance(self, instance: Problem) -> bool:
         """
@@ -190,7 +193,7 @@ class FeatureStoreClient:
             return None
         return response.json()
 
-    def download_instance(self, name: str, config_id: str, code_version: int, output_dir: Path) -> Path:
+    def download_instance(self, name: str, config_id: str, code_version: int, output_dir: Path, unzip: bool = True) -> Path:
         """
         Downloads a registered problem instance if not already available locally.
 
@@ -198,16 +201,21 @@ class FeatureStoreClient:
         :param config_id: Configuration identifier.
         :param code_version: Code version.
         :param output_dir: Directory where to save the instance.
+        :param unzip: If True, unzip the downloaded file.
         :return: Local path of the downloaded instance.
         :raises Exception: If the instance does not exist in the feature store.
         """
         metadata = self.get_instance_metadata(name, config_id, code_version)
         if metadata is None:
-            raise Exception(f"Instance with name '{name}', config ID '{config_id}' and version {code_version} does not exist")
+            raise Exception(f"Instance with name '{name}', config ID '{config_id}' and version {code_version} does not exist.")
         storage_path = metadata["storage_path"]
         local_path = output_dir / storage_path
         if not local_path.exists():
-            self.storage.download(source_path=self.project_name + "/instances/" + storage_path, target_path=str(local_path))
+            instance_key = {"project_name": self.project_name, "name": name, "config_id": config_id, "code_version": code_version}
+            response = requests.get(url=self.instance_url + "/download", params=instance_key)
+            if response.status_code != 200:
+                raise Exception(f"Error while trying to download instance : {response.json()['message']}.")
+            return write_zip_from_response(response, output_dir, unzip)
         else:
             logger.info(f"Instance with name '{name}', config ID '{config_id}' and version {code_version} already downloaded")
         return local_path
@@ -290,13 +298,14 @@ class FeatureStoreClient:
     ) -> ProblemDataset:
         """
         Downloads a dataset from the feature store, using its unique identifier (name, split, version).
-        All Problem instances of the dataset are downloaded locally if they are not already available.
+        All Problem instances of the dataset are downloaded locally (if they are not already available) if the
+         download_instances parameter is set to True.
 
         :param name: Dataset name.
         :param split: Dataset split.
         :param version: Dataset version
         :param output_dir: Local directory to store the dataset and its instances.
-        :param download_instances: If True, downloads missing instances of the dataset.
+        :param download_instances: If True, downloads instances of the dataset not already available locally.
         :return: A ProblemDataset object, containing the metadata of the downloaded dataset and its instances' ProblemMetadata.
         :raises MissingDatasetError: If the dataset does not exist in the feature store.
         """
@@ -307,7 +316,11 @@ class FeatureStoreClient:
         storage_path = metadata["storage_path"]
         local_path = output_dir / storage_path
         if not local_path.exists():
-            self.storage.download(source_path=f"{self.project_name}/datasets/{storage_path}", target_path=str(local_path))
+            dataset_key = {"project_name": self.project_name, "name": name, "split": split, "version": version}
+            response = requests.get(url=self.dataset_url + "/download", params=dataset_key)
+            if response.status_code != 200:
+                raise Exception(f"Error while trying to download dataset : {response.json()['message']}.")
+            write_zip_from_response(response, output_dir, unzip=False)
         else:
             logger.info(f"Dataset file for {key} already downloaded")
         dataset: ProblemDataset = ProblemDataset.from_pickle(local_path / key)
@@ -319,21 +332,14 @@ class FeatureStoreClient:
                 logger.info(f"All of {key} instances already downloaded")
             else:
                 logger.info(f"Downloading problem instances of {key} missing locally ({len(to_download)} instances).")
-            for path in to_download:
-                if storage_almost_full(str(output_dir)):
-                    dataset.remove_instance(path=path)
-                    logger.info(f"Removing problem instance {path} from dataset because disk is almost full.")
-                else:
-                    try:
-                        self.storage.download(
-                            source_path=f"{self.project_name}/instances/{path}",
-                            target_path=str(output_dir / path),
-                            unzip=False,
-                        )
-                    except Exception as e:
-                        logger.error(e)
-                        dataset.remove_instance(path=path)
-                        logger.info(f"Removing problem instance {path} from dataset.")
+            for instance in to_download:
+                try:
+                    self.download_instance(name=instance.name, config_id=instance.config_id,
+                                           code_version=instance.code_version, output_dir=output_dir,
+                                           unzip=False)
+                except OSError as exc:
+                    logger.error(f"Error while downloading instances : {exc} (still {len(to_download) - to_download.index(instance)} to download).")
+                    break
 
         return dataset
 
@@ -348,12 +354,17 @@ class FeatureStoreClient:
         return True
 
 
-def storage_almost_full(path: str):
-    stat = shutil.disk_usage(path)
-    if stat.used / stat.total > 0.9:
-        return True
+def write_zip_from_response(response: requests.Response, output_dir: Path, unzip: bool) -> Path:
+    filename = response.headers["Content-Disposition"].split("filename=")[1][1:-1]
+    local_path = output_dir / filename
+    if not unzip:
+        with open(local_path, "wb") as file:
+            file.write(response.content)
     else:
-        return False
+        with zipfile.ZipFile(io.BytesIO(response.content)) as zip_file:
+            os.mkdir(local_path)
+            zip_file.extractall(local_path)
+    return local_path
 
 
 def zip_files_to_send(source_path: str):
