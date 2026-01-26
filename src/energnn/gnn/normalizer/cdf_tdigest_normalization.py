@@ -1,4 +1,9 @@
-import threading
+# Copyright (c) 2025, RTE (http://www.rte-france.com)
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+# SPDX-License-Identifier: MPL-2.0
+#
 import numpy as np
 import jax
 import jax.numpy as jnp
@@ -10,9 +15,6 @@ from energnn.graph.jax import JaxEdge, JaxGraph
 
 # Public registries used by host callbacks to store TDigest instances and per-digest locks.
 GLOBAL_DIGEST_REGISTRY: dict[int, TDigest] = {}
-GLOBAL_DIGEST_LOCKS: dict[int, threading.Lock] = {}
-# Global lock protecting creation in the registries.
-_GLOBAL_REGISTRY_LOCK = threading.Lock()
 
 
 def _ensure_digest(key: int, max_centroids: int):
@@ -28,10 +30,9 @@ def _ensure_digest(key: int, max_centroids: int):
         a new TDigest.
     :return: None
     """
-    with _GLOBAL_REGISTRY_LOCK:
-        if key not in GLOBAL_DIGEST_REGISTRY:
-            GLOBAL_DIGEST_REGISTRY[key] = TDigest(max_centroids=max_centroids)
-            GLOBAL_DIGEST_LOCKS[key] = threading.Lock()
+
+    if key not in GLOBAL_DIGEST_REGISTRY:
+        GLOBAL_DIGEST_REGISTRY[key] = TDigest(max_centroids=max_centroids)
 
 
 def _merge_equal_quantiles_host(p: np.ndarray, q: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -111,12 +112,10 @@ def _host_update_and_extract_multi(
     for f in range(F):
         key = int(digest_keys[f])
         d = GLOBAL_DIGEST_REGISTRY[key]
-        lock = GLOBAL_DIGEST_LOCKS[key]
         col = batch[:, f].reshape(-1)
-        with lock:
-            d.batch_update(col)
-            q_list = [d.quantile(float(p)) for p in p_grid]
-            q_matrix[:, f] = np.asarray(q_list).reshape(K)
+        d.batch_update(col)
+        q_list = [d.quantile(float(p)) for p in p_grid]
+        q_matrix[:, f] = np.asarray(q_list).reshape(K)
 
     # merge equal quantiles column-wise and compute fp
     p_merged, q_merged = _merge_equal_quantiles_host(p_grid, q_matrix)
@@ -162,6 +161,7 @@ class MultiFeatureTDigestNorm(nnx.Module):
         self.n_breakpoints = int(n_breakpoints)
         self.K = self.n_breakpoints + 1
         self.max_centroids = int(max_centroids)
+        self.p_grid = jnp.linspace(0.0, 1.0, self.K, dtype=jnp.float32)
         self.digest_keys = np.arange(digest_base_key, digest_base_key + self.features, dtype=np.int32)
         self.update_limit = int(update_limit)
         self.updates = 0
@@ -169,8 +169,7 @@ class MultiFeatureTDigestNorm(nnx.Module):
 
         # xp/fp BatchStat device-side shape (K, F)
         self.xp = nnx.BatchStat(jnp.zeros((self.K, self.features), dtype=jnp.float32))
-        p_grid = np.linspace(0.0, 1.0, self.K, dtype=np.float32)
-        fp_init = (-1.0 + 2.0 * p_grid)[:, None] * np.ones((1, self.features), dtype=np.float32)
+        fp_init = (-1.0 + 2.0 * self.p_grid)[:, None] * np.ones((1, self.features), dtype=np.float32)
         self.fp = nnx.BatchStat(jnp.array(fp_init, dtype=jnp.float32))
 
         # TDigest state stored as BatchStat for checkpointing
@@ -302,7 +301,6 @@ class MultiFeatureTDigestNorm(nnx.Module):
 
             flattened = jnp.reshape(x_batch, (B * n_items, F))
 
-            p_grid = jnp.linspace(0.0, 1.0, self.K, dtype=jnp.float32)
             result_shapes = (
                 ShapeDtypeStruct((self.K, F), jnp.float32),
                 ShapeDtypeStruct((self.K, F), jnp.float32),
@@ -313,7 +311,7 @@ class MultiFeatureTDigestNorm(nnx.Module):
                 result_shapes,
                 flattened,  # (N, F) on host
                 jnp.array(self.digest_keys, dtype=jnp.int32),
-                p_grid,
+                self.p_grid,
                 jnp.array(self.max_centroids, dtype=jnp.int32),
                 ordered=True,
             )
@@ -407,14 +405,14 @@ class GraphTDigestNorm(nnx.Module):
         :param context_example: Example `JaxGraph` used to infer edge keys and feature counts.
         :return: None
         """
-        keys = []
-        for i, (edge_key, edge) in enumerate(context_example.edges.items()):
-            if context_example.edges[edge_key].feature_array is not None:
-                if context_example.edges[edge_key].feature_array.shape[-2] > 0:
-                    n_features = int(edge.feature_array.shape[-1])
+        keys = sorted(context_example.edges.keys(), key=str.lower)
+        for i, edge_key in enumerate(keys):
+            edge = context_example.edges[edge_key]
+            if edge.feature_array is not None:
+                if edge.feature_array.shape[-2] > 0:
                     if not hasattr(self, f"norm_{edge_key}"):
+                        n_features = int(edge.feature_array.shape[-1])
                         self._make_module_for_edge(edge_key, n_features, edge_index=i)
-                    keys.append(edge_key)
 
         self.edge_keys = tuple(keys)
 
@@ -450,9 +448,8 @@ class GraphTDigestNorm(nnx.Module):
             feature_names = None
 
             if edge.feature_array is not None:
-                feature_names = {f"norm_{k}": v for k, v in edge.feature_names.items()}
+                feature_names = {k: v for k, v in edge.feature_names.items()}
                 if edge.feature_array.shape[-2] > 0:
-                    feature_names = {f"norm_{k}": v for k, v in edge.feature_names.items()}
                     normalized_array = normalizer(edge.feature_array) * non_fictitious
                     edge = JaxEdge(
                         feature_array=normalized_array,
@@ -473,7 +470,7 @@ class GraphTDigestNorm(nnx.Module):
 
             return edge
 
-        incoming_keys = list(context.edges.keys())
+        incoming_keys = sorted(context.edges.keys(), key=str.lower)
         norm_dict = {}
         for edge_key in incoming_keys:
             attr_name = f"norm_{edge_key}"

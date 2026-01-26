@@ -1,3 +1,9 @@
+# Copyright (c) 2025, RTE (http://www.rte-france.com)
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+# SPDX-License-Identifier: MPL-2.0
+#
 import jax
 import jax.numpy as jnp
 from flax import nnx
@@ -111,9 +117,8 @@ class GraphBatchNorm(nnx.Module):
             feature_names = None
 
             if edge.feature_array is not None:
-                feature_names = {f"norm_{k}": v for k, v in edge.feature_names.items()}
+                feature_names = {k: v for k, v in edge.feature_names.items()}
                 if edge.feature_array.shape[-2] > 0:
-                    feature_names = {f"norm_{k}": v for k, v in edge.feature_names.items()}
                     normalized_array = normalizer(edge.feature_array) * non_fictitious
                     edge = JaxEdge(
                         feature_array=normalized_array,
