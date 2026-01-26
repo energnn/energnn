@@ -302,7 +302,7 @@ class FeatureStoreClient:
         """
         Downloads a dataset from the feature store, using its unique identifier (name, split, version).
         All Problem instances of the dataset are downloaded locally (if they are not already available) if the
-         download_instances parameter is set to True.
+        download_instances parameter is set to True.
 
         :param name: Dataset name.
         :param split: Dataset split.
