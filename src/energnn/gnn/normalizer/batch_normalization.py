@@ -18,9 +18,17 @@ class GraphBatchNorm(nnx.Module):
     This module dynamically instantiates a `BatchNorm` per
     graph edge type encountered in the provided `JaxGraph`.
     """
-    def __init__(self, use_running_average: bool = False, axis: int = -1, momentum: float = 0.99, epsilon: float = 1e-5,
-                 use_bias: bool = True, use_scale: bool = True, use_fast_variance: bool = True):
 
+    def __init__(
+        self,
+        use_running_average: bool = False,
+        axis: int = -1,
+        momentum: float = 0.99,
+        epsilon: float = 1e-5,
+        use_bias: bool = True,
+        use_scale: bool = True,
+        use_fast_variance: bool = True,
+    ):
         """
         Initialize GraphBatchNorm.
 
@@ -56,9 +64,14 @@ class GraphBatchNorm(nnx.Module):
         :return: The created BatchNorm instance.
         """
         mod = BatchNorm(
-            num_features=n_features, axis=self.axis, momentum=self.momentum, epsilon=self.epsilon, use_bias=self.use_bias,
-            digest_base_key=self.use_scale, use_fast_variance=self.use_fast_variance,
-            use_running_average=self.use_running_average
+            num_features=n_features,
+            axis=self.axis,
+            momentum=self.momentum,
+            epsilon=self.epsilon,
+            use_bias=self.use_bias,
+            digest_base_key=self.use_scale,
+            use_fast_variance=self.use_fast_variance,
+            use_running_average=self.use_running_average,
         )
         setattr(self, f"norm_{edge_key}", mod)
         return mod
@@ -74,14 +87,14 @@ class GraphBatchNorm(nnx.Module):
         :param context_example: Example `JaxGraph` used to infer edge keys and feature counts.
         :return: None
         """
-        keys = []
-        for i, (edge_key, edge) in enumerate(context_example.edges.items()):
-            if context_example.edges[edge_key].feature_array is not None:
-                if context_example.edges[edge_key].feature_array.shape[-2] > 0:
-                    n_features = int(edge.feature_array.shape[-1])
+        keys = list(context_example.edges.keys())
+        for i, edge_key in enumerate(keys):
+            edge = context_example.edges[edge_key]
+            if edge.feature_array is not None:
+                if edge.feature_array.shape[-2] > 0:
                     if not hasattr(self, f"norm_{edge_key}"):
+                        n_features = int(edge.feature_array.shape[-1])
                         self._make_module_for_edge(edge_key, n_features)
-                    keys.append(edge_key)
 
         self.edge_keys = tuple(keys)
 
@@ -113,31 +126,16 @@ class GraphBatchNorm(nnx.Module):
             :return: JaxEdge with normalized feature_array (or identical JaxEdge if no features).
             """
 
-            non_fictitious = jnp.expand_dims(edge.non_fictitious, -1)
-            feature_names = None
-
+            array = edge.feature_array
             if edge.feature_array is not None:
-                feature_names = {k: v for k, v in edge.feature_names.items()}
                 if edge.feature_array.shape[-2] > 0:
-                    normalized_array = normalizer(edge.feature_array) * non_fictitious
-                    edge = JaxEdge(
-                        feature_array=normalized_array,
-                        feature_names=feature_names,
-                        non_fictitious=edge.non_fictitious,
-                        address_dict=edge.address_dict,
-                    )
-                else:
-                    edge = JaxEdge(
-                        feature_array=edge.feature_array, feature_names=feature_names,
-                        non_fictitious=edge.non_fictitious, address_dict=edge.address_dict
-                    )
-            else:
-                edge = JaxEdge(
-                    feature_array=edge.feature_array, feature_names=feature_names, non_fictitious=edge.non_fictitious,
-                    address_dict=edge.address_dict
-                )
-
-            return edge
+                    array = normalizer(edge.feature_array) * jnp.expand_dims(edge.non_fictitious, -1)
+            return JaxEdge(
+                feature_array=array,
+                feature_names=edge.feature_names,
+                non_fictitious=edge.non_fictitious,
+                address_dict=edge.address_dict,
+            )
 
         incoming_keys = list(context.edges.keys())
         norm_dict = {}

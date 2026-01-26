@@ -140,8 +140,15 @@ class MultiFeatureTDigestNorm(nnx.Module):
       - On the first calls the TDigest objects will be created and updated.
     """
 
-    def __init__(self, features: int, update_limit: int, n_breakpoints: int = 20, digest_base_key: int = 1000,
-                 max_centroids: int = 1000, use_running_average: bool = False):
+    def __init__(
+        self,
+        features: int,
+        update_limit: int,
+        n_breakpoints: int = 20,
+        digest_base_key: int = 1000,
+        max_centroids: int = 1000,
+        use_running_average: bool = False,
+    ):
         """
         Initialize the MultiFeatureTDigestNorm module.
 
@@ -350,9 +357,16 @@ class GraphTDigestNorm(nnx.Module):
     This module dynamically instantiates, on host, a `MultiFeatureTDigestNorm` per
     graph edge type encountered in the provided `JaxGraph`.
     """
-    def __init__(self, update_limit: int, n_breakpoints: int = 20, digest_base_key: int = 1000, max_centroids: int = 1000,
-                 max_per_edge_features: int = 10000, use_running_average: bool = False
-                 ):
+
+    def __init__(
+        self,
+        update_limit: int,
+        n_breakpoints: int = 20,
+        digest_base_key: int = 1000,
+        max_centroids: int = 1000,
+        max_per_edge_features: int = 10000,
+        use_running_average: bool = False,
+    ):
         """
         Initialize GraphTDigestNorm.
 
@@ -388,8 +402,12 @@ class GraphTDigestNorm(nnx.Module):
         """
         base = self.digest_base_key + edge_index * self.max_per_edge_features
         mod = MultiFeatureTDigestNorm(
-            update_limit=self.update_limit, features=n_features, n_breakpoints=self.n_breakpoints, digest_base_key=base,
-            max_centroids=self.max_centroids, use_running_average=self.use_running_average
+            update_limit=self.update_limit,
+            features=n_features,
+            n_breakpoints=self.n_breakpoints,
+            digest_base_key=base,
+            max_centroids=self.max_centroids,
+            use_running_average=self.use_running_average,
         )
         setattr(self, f"norm_{edge_key}", mod)
         return mod
@@ -405,7 +423,7 @@ class GraphTDigestNorm(nnx.Module):
         :param context_example: Example `JaxGraph` used to infer edge keys and feature counts.
         :return: None
         """
-        keys = sorted(context_example.edges.keys(), key=str.lower)
+        keys = list(context_example.edges.keys())
         for i, edge_key in enumerate(keys):
             edge = context_example.edges[edge_key]
             if edge.feature_array is not None:
@@ -444,33 +462,18 @@ class GraphTDigestNorm(nnx.Module):
             :return: JaxEdge with normalized feature_array (or identical JaxEdge if no features).
             """
 
-            non_fictitious = jnp.expand_dims(edge.non_fictitious, -1)
-            feature_names = None
-
+            array = edge.feature_array
             if edge.feature_array is not None:
-                feature_names = {k: v for k, v in edge.feature_names.items()}
                 if edge.feature_array.shape[-2] > 0:
-                    normalized_array = normalizer(edge.feature_array) * non_fictitious
-                    edge = JaxEdge(
-                        feature_array=normalized_array,
-                        feature_names=feature_names,
-                        non_fictitious=edge.non_fictitious,
-                        address_dict=edge.address_dict,
-                    )
-                else:
-                    edge = JaxEdge(
-                        feature_array=edge.feature_array, feature_names=feature_names,
-                        non_fictitious=edge.non_fictitious, address_dict=edge.address_dict
-                    )
-            else:
-                edge = JaxEdge(
-                    feature_array=edge.feature_array, feature_names=feature_names, non_fictitious=edge.non_fictitious,
-                    address_dict=edge.address_dict
-                )
+                    array = normalizer(edge.feature_array) * jnp.expand_dims(edge.non_fictitious, -1)
+            return JaxEdge(
+                feature_array=array,
+                feature_names=edge.feature_names,
+                non_fictitious=edge.non_fictitious,
+                address_dict=edge.address_dict,
+            )
 
-            return edge
-
-        incoming_keys = sorted(context.edges.keys(), key=str.lower)
+        incoming_keys = list(context.edges.keys())
         norm_dict = {}
         for edge_key in incoming_keys:
             attr_name = f"norm_{edge_key}"
