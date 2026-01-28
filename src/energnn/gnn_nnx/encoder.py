@@ -9,8 +9,7 @@ from abc import ABC, abstractmethod
 from typing import Callable
 
 from flax import nnx
-from flax.nnx import initializers
-from flax.typing import Array, Initializer
+from flax.typing import Array
 import jax
 import jax.numpy as jnp
 import jax.random

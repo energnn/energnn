@@ -4,15 +4,19 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 # SPDX-License-Identifier: MPL-2.0
 #
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from typing import Callable
 
-import flax.linen as nn
 import jax
 import jax.numpy as jnp
+from flax import nnx
 
-from energnn.gnn.utils import MLP
+from energnn.gnn_nnx.utils import MLP
 from energnn.graph.jax import JaxGraph
+
+Activation = Callable[[jax.Array], jax.Array]
 
 
 class InvariantDecoder(ABC):
@@ -83,7 +87,7 @@ class InvariantDecoder(ABC):
         raise NotImplementedError
 
 
-class ZeroInvariantDecoder(nn.Module, InvariantDecoder):
+class ZeroInvariantDecoder(nnx.Module, InvariantDecoder):
     r"""
     Zero invariant decoder that returns a vector of zeros.
 
@@ -95,12 +99,14 @@ class ZeroInvariantDecoder(nn.Module, InvariantDecoder):
 
     out_size: int = 0
 
-    @nn.compact
+    def __init__(self, *, out_size: int = 0) -> None:
+        self.out_size = int(out_size)
+
     def __call__(self, *, context: JaxGraph, coordinates: jax.Array, get_info: bool = False) -> tuple[jax.Array, dict]:
         return jnp.zeros([self.out_size]), {}
 
 
-class SumInvariantDecoder(nn.Module, InvariantDecoder):
+class SumInvariantDecoder(nnx.Module, InvariantDecoder):
     r"""
     Sum invariant decoder, that sums the information of all addresses.
 
@@ -115,29 +121,70 @@ class SumInvariantDecoder(nn.Module, InvariantDecoder):
     :param phi_hidden_size: List of hidden sizes of outer MLP :math:`\phi_\theta`.
     :param phi_activation: Activation function of outer MLP :math:`\phi_\theta`.
     :param out_size: Output size of the decoder.
+    :param built: Boolean to indicate whether the decoder is built.
+    :param rngs: ``nnx.Rngs`` or integer seed used to initialize MLPs.
     """
 
-    psi_hidden_size: list[int]
-    psi_out_size: int
-    psi_activation: Callable[[jax.Array], jax.Array]
-    phi_hidden_size: list[int]
-    phi_activation: Callable[[jax.Array], jax.Array]
-    out_size: int = 0
+    def __init__(
+        self,
+        psi_hidden_size: list[int],
+        psi_out_size: int,
+        psi_activation: Activation,
+        phi_hidden_size: list[int],
+        phi_activation: Activation,
+        *,
+        out_size: int = 0,
+        rngs: nnx.Rngs | int | None = None,
+        built: bool = False,
+    ) -> None:
+        if rngs is None:
+            rngs = nnx.Rngs(0)
+        elif isinstance(rngs, int):
+            rngs = nnx.Rngs(rngs)
 
-    @nn.compact
+        self.psi_hidden_size = [int(h) for h in psi_hidden_size]
+        self.psi_out_size = int(psi_out_size)
+        self.psi_activation = psi_activation
+        self.phi_hidden_size = [int(h) for h in phi_hidden_size]
+        self.phi_activation = phi_activation
+        self.out_size = int(out_size)
+        self.rngs = rngs
+        self.built = built
+
+        self.psi = MLP(
+            hidden_size=self.psi_hidden_size,
+            out_size=self.psi_out_size,
+            activation=self.psi_activation,
+            rngs=self.rngs,
+            name="psi",
+        )
+        self.phi = MLP(
+            hidden_size=self.phi_hidden_size,
+            out_size=self.out_size,
+            activation=self.phi_activation,
+            rngs=self.rngs,
+            name="phi",
+        )
+
+    def build_from_sample(self, coordinates: jax.Array):
+        self.psi.build_from_sample(coordinates)
+        self.phi.build_from_sample(jnp.ones((self.psi_out_size,)))
+        self.built = True
+
     def __call__(self, *, context: JaxGraph, coordinates: jax.Array, get_info: bool = False) -> tuple[jax.Array, dict]:
 
-        psi = MLP(hidden_size=self.psi_hidden_size, out_size=self.psi_out_size, activation=self.psi_activation, name="psi")
-        phi = MLP(hidden_size=self.phi_hidden_size, out_size=self.out_size, activation=self.phi_activation, name="phi")
+        if not self.built:
+            self.build_from_sample(coordinates)
 
-        h = psi(coordinates)
+        h = self.psi(coordinates)
         h = h * jnp.expand_dims(context.non_fictitious_addresses, -1)
         h = jnp.sum(h, axis=0)
 
-        return phi(h), {}
+        out = self.phi(h)
+        return out, {}
 
 
-class MeanInvariantDecoder(nn.Module, InvariantDecoder):
+class MeanInvariantDecoder(nnx.Module, InvariantDecoder):
     r"""
     Mean invariant decoder, that averages the information of all addresses.
 
@@ -152,31 +199,73 @@ class MeanInvariantDecoder(nn.Module, InvariantDecoder):
     :param phi_hidden_size: List of hidden sizes of outer MLP :math:`\phi_\theta`.
     :param flax.linen.activation phi_activation: Activation function of outer MLP :math:`\phi_\theta`.
     :param out_size: Output size of the decoder.
+    :param built: Boolean to indicate whether the decoder is built.
+    :param rngs: ``nnx.Rngs`` or integer seed used to initialize MLPs.
     """
 
-    psi_hidden_size: list[int]
-    psi_out_size: int
-    psi_activation: Callable[[jax.Array], jax.Array]
-    phi_hidden_size: list[int]
-    phi_activation: Callable[[jax.Array], jax.Array]
-    out_size: int = 0
+    def __init__(
+        self,
+        psi_hidden_size: list[int],
+        psi_out_size: int,
+        psi_activation: Activation,
+        phi_hidden_size: list[int],
+        phi_activation: Activation,
+        *,
+        out_size: int = 0,
+        rngs: nnx.Rngs | int | None = None,
+        name: str | None = None,
+        built: bool = False,
+    ) -> None:
+        if rngs is None:
+            rngs = nnx.Rngs(0)
+        elif isinstance(rngs, int):
+            rngs = nnx.Rngs(rngs)
 
-    @nn.compact
+        self.psi_hidden_size = [int(h) for h in psi_hidden_size]
+        self.psi_out_size = int(psi_out_size)
+        self.psi_activation = psi_activation
+        self.phi_hidden_size = [int(h) for h in phi_hidden_size]
+        self.phi_activation = phi_activation
+        self.out_size = int(out_size)
+        self.rngs = rngs
+        self.built = built
+        self.name = name
+
+        self.psi = MLP(
+            hidden_size=self.psi_hidden_size,
+            out_size=self.psi_out_size,
+            activation=self.psi_activation,
+            rngs=self.rngs,
+            name="psi",
+        )
+        self.phi = MLP(
+            hidden_size=self.phi_hidden_size,
+            out_size=self.out_size,
+            activation=self.phi_activation,
+            rngs=self.rngs,
+            name="phi",
+        )
+
+    def build_from_sample(self, coordinates: jax.Array):
+        self.psi.build_from_sample(coordinates)
+        self.phi.build_from_sample(jnp.ones((self.psi_out_size,)))
+        self.built = True
+
     def __call__(self, *, context: JaxGraph, coordinates: jax.Array, get_info: bool = False) -> tuple[jax.Array, dict]:
 
-        psi = MLP(hidden_size=self.psi_hidden_size, out_size=self.psi_out_size, activation=self.psi_activation, name="psi")
-        phi = MLP(hidden_size=self.phi_hidden_size, out_size=self.out_size, activation=self.phi_activation, name="phi")
+        if not self.built:
+            self.build_from_sample(coordinates)
 
-        numerator = psi(coordinates)
+        numerator = self.psi(coordinates)
         numerator = numerator * jnp.expand_dims(context.non_fictitious_addresses, -1)
         numerator = jnp.sum(numerator, axis=0)
 
         denominator = jnp.sum(numerator * 0 + 1, axis=0) + 1e-9
 
-        return phi(numerator / denominator) * jnp.expand_dims(context.non_fictitious_addresses, -1), {}
+        return self.phi(numerator / denominator) * jnp.expand_dims(context.non_fictitious_addresses, -1), {}
 
 
-class AttentionInvariantDecoder(nn.Module, InvariantDecoder):
+class AttentionInvariantDecoder(nnx.Module, InvariantDecoder):
     r"""Attention invariant decoder, that weights addresses contribution with an attention mechanism.
 
     .. math::
@@ -198,47 +287,105 @@ class AttentionInvariantDecoder(nn.Module, InvariantDecoder):
     :param psi_hidden_size: List of hidden sizes of outer MLP :math:`\psi_\theta`.
     :param flax.linen.activation psi_activation: Activation function of outer MLP :math:`\phi_\theta`.
     :param out_size: Output size of the decoder.
+    :param built: Boolean to indicate whether the decoder is built.
+    :param rngs: ``nnx.Rngs`` or integer seed used to initialize MLPs.
     """
 
-    v_hidden_size: list[int]
-    v_activation: Callable[[jax.Array], jax.Array]
-    v_out_size: int
-    s_hidden_size: list[int]
-    s_activation: Callable[[jax.Array], jax.Array]
-    psi_hidden_size: list[int]
-    psi_activation: Callable[[jax.Array], jax.Array]
-    out_size: int = 0
-    n: int = 1
+    def __init__(
+        self,
+        v_hidden_size: list[int],
+        v_activation: Activation,
+        v_out_size: int,
+        s_hidden_size: list[int],
+        s_activation: Activation,
+        psi_hidden_size: list[int],
+        psi_activation: Activation,
+        *,
+        out_size: int = 0,
+        n: int = 1,
+        rngs: nnx.Rngs | int | None = None,
+        built: bool = False,
+    ) -> None:
+        if rngs is None:
+            rngs = nnx.Rngs(0)
+        elif isinstance(rngs, int):
+            rngs = nnx.Rngs(rngs)
 
-    @nn.compact
+        self.v_hidden_size = [int(h) for h in v_hidden_size]
+        self.v_activation = v_activation
+        self.v_out_size = int(v_out_size)
+        self.s_hidden_size = [int(h) for h in s_hidden_size]
+        self.s_activation = s_activation
+        self.psi_hidden_size = [int(h) for h in psi_hidden_size]
+        self.psi_activation = psi_activation
+        self.out_size = int(out_size)
+        self.n = int(n)
+        self.rngs = rngs
+        self.built = built
+
+        self.v_mlps = nnx.List(
+            [
+                MLP(
+                    hidden_size=self.v_hidden_size,
+                    out_size=self.v_out_size,
+                    activation=self.v_activation,
+                    rngs=self.rngs,
+                    name=f"value-mlp-{i}",
+                )
+                for i in range(self.n)
+            ]
+        )
+
+        self.s_mlps = nnx.List(
+            [
+                MLP(
+                    hidden_size=self.s_hidden_size,
+                    out_size=1,
+                    activation=self.s_activation,
+                    rngs=self.rngs,
+                    name=f"score-mlp-{i}",
+                )
+                for i in range(self.n)
+            ]
+        )
+
+        self.psi = MLP(
+            hidden_size=self.psi_hidden_size,
+            out_size=self.out_size,
+            activation=self.psi_activation,
+            rngs=self.rngs,
+            name="psi-mlp",
+        )
+
+    def build_from_sample(self, coordinates: jax.Array):
+        for i in range(len(self.v_mlps)):
+            self.v_mlps[i].build_from_sample(coordinates)
+        for i in range(len(self.s_mlps)):
+            self.s_mlps[i].build_from_sample(coordinates)
+        self.psi.build_from_sample(jnp.ones((self.n * self.v_out_size,)))
+        self.built = True
+
     def __call__(self, *, context: JaxGraph, coordinates: jax.Array, get_info: bool = False) -> tuple[jax.Array, dict]:
 
-        value_list = []
+        if not self.built:
+            self.build_from_sample(coordinates)
+
+        value_list: list[jax.Array] = []
+        mask = jnp.expand_dims(context.non_fictitious_addresses, -1)
+
         for i in range(self.n):
-
-            v_mlp = MLP(
-                hidden_size=self.v_hidden_size,
-                out_size=self.v_out_size,
-                activation=self.v_activation,
-                name="value-mlp-{}".format(i),
-            )
-            s_mlp = MLP(
-                hidden_size=self.s_hidden_size, out_size=1, activation=self.s_activation, name="score-mlp-{}".format(i)
-            )
-
-            v = v_mlp(coordinates)
-            s = s_mlp(coordinates)
+            v = self.v_mlps[i](coordinates)
+            s = self.s_mlps[i](coordinates)
 
             numerator = v * jnp.exp(s)
-            numerator = numerator * jnp.expand_dims(context.non_fictitious_addresses, -1)
+            numerator = numerator * mask
             numerator = jnp.sum(numerator, axis=0)
 
-            denominator = jnp.exp(s)
-            denominator = denominator * jnp.expand_dims(context.non_fictitious_addresses, -1)
+            denominator = jnp.exp(s) * mask
             denominator = jnp.sum(denominator, axis=0) + 1e-9
 
             value_list.append(numerator / denominator)
 
         value_vec = jnp.concatenate(value_list, axis=0)
-        psi_mlp = MLP(hidden_size=self.psi_hidden_size, out_size=self.out_size, activation=self.psi_activation, name="psi-mlp")
-        return psi_mlp(value_vec), {}
+        out = self.psi(value_vec)
+        return out, {}
