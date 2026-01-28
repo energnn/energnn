@@ -4,8 +4,7 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 # SPDX-License-Identifier: MPL-2.0
 #
-from .cdf_tdigest_normalization import MultiFeatureTDigestNorm, GraphTDigestNorm
-from .batch_normalization import GraphBatchNorm
+from .cdf_tdigest_normalization import GraphTDigestNorm
 from .center_reduce_normalization import GraphCenterReduceNorm
 
-__all__ = ["MultiFeatureTDigestNorm", "GraphTDigestNorm", "GraphBatchNorm", "GraphCenterReduceNorm"]
+__all__ = ["GraphTDigestNorm", "GraphCenterReduceNorm"]
