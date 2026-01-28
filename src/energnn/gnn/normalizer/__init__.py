@@ -5,9 +5,5 @@
 # SPDX-License-Identifier: MPL-2.0
 #
 from .cdf_tdigest_normalization import GraphTDigestNorm
-from .batch_normalization import GraphBatchNorm
 
-__all__ = [
-    "GraphTDigestNorm",
-    "GraphBatchNorm"
-]
+__all__ = ["GraphTDigestNorm"]

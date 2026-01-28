@@ -9,7 +9,7 @@ from .decoder import InvariantDecoder, EquivariantDecoder
 from .encoder import Encoder, IdentityEncoder, MLPEncoder
 from .gnn import EquivariantGNN, InvariantGNN
 from .utils import MLP, gather, scatter_add
-from .normalizer import GraphTDigestNorm, GraphBatchNorm
+from .normalizer import GraphTDigestNorm
 
 __all__ = [
     "EquivariantGNN",
@@ -21,7 +21,6 @@ __all__ = [
     "EquivariantDecoder",
     "Coupler",
     "GraphTDigestNorm",
-    "GraphBatchNorm",
     "MLP",
     "gather",
     "scatter_add",
