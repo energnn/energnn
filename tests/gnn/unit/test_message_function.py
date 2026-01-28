@@ -90,14 +90,18 @@ def test_empty_self_message_function():
     fn = EmptySelfMessageFunction()
     params, out, infos = assert_function_output(function=fn, seed=0, context=jax_context, coordinates=coordinates)
     assert out.shape == (coordinates.shape[0], 0)
-    out_b, info_b = assert_function_vmap_jit_output(params=params, function=fn, context=jax_context_batch, coordinates=coordinates_batch)
+    out_b, info_b = assert_function_vmap_jit_output(
+        params=params, function=fn, context=jax_context_batch, coordinates=coordinates_batch
+    )
 
 
 def test_identity_self_message_function():
     fn = IdentitySelfMessageFunction()
     params, out, infos = assert_function_output(function=fn, seed=0, context=jax_context, coordinates=coordinates)
     chex.assert_trees_all_equal(out, coordinates)
-    out_b, info_b = assert_function_vmap_jit_output(params=params, function=fn, context=jax_context_batch, coordinates=coordinates_batch)
+    out_b, info_b = assert_function_vmap_jit_output(
+        params=params, function=fn, context=jax_context_batch, coordinates=coordinates_batch
+    )
     chex.assert_trees_all_equal(out_b, coordinates_batch)
 
 
@@ -105,14 +109,18 @@ def test_empty_local_message_function():
     fn = EmptyLocalMessageFunction()
     params, out, infos = assert_function_output(function=fn, seed=0, context=jax_context, coordinates=coordinates)
     assert out.shape == (coordinates.shape[0], 0)
-    out_b, info_b = assert_function_vmap_jit_output(params=params, function=fn, context=jax_context_batch, coordinates=coordinates_batch)
+    out_b, info_b = assert_function_vmap_jit_output(
+        params=params, function=fn, context=jax_context_batch, coordinates=coordinates_batch
+    )
 
 
 def test_identity_local_message_function():
     fn = IdentityLocalMessageFunction()
     params, out, infos = assert_function_output(function=fn, seed=0, context=jax_context, coordinates=coordinates)
     chex.assert_trees_all_equal(out, coordinates)
-    out_b, info_b = assert_function_vmap_jit_output(params=params, function=fn, context=jax_context_batch, coordinates=coordinates_batch)
+    out_b, info_b = assert_function_vmap_jit_output(
+        params=params, function=fn, context=jax_context_batch, coordinates=coordinates_batch
+    )
     chex.assert_trees_all_equal(out_b, coordinates_batch)
 
 
@@ -120,14 +128,18 @@ def test_empty_remote_message_function():
     fn = EmptyRemoteMessageFunction()
     params, out, infos = assert_function_output(function=fn, seed=0, context=jax_context, coordinates=coordinates)
     assert out.shape == (coordinates.shape[0], 0)
-    out_b, info_b = assert_function_vmap_jit_output(params=params, function=fn, context=jax_context_batch, coordinates=coordinates_batch)
+    out_b, info_b = assert_function_vmap_jit_output(
+        params=params, function=fn, context=jax_context_batch, coordinates=coordinates_batch
+    )
 
 
 def test_identity_remote_message_function():
     fn = IdentityRemoteMessageFunction()
     params, out, infos = assert_function_output(function=fn, seed=0, context=jax_context, coordinates=coordinates)
     chex.assert_trees_all_equal(out, coordinates)
-    out_b, info_b = assert_function_vmap_jit_output(params=params, function=fn, context=jax_context_batch, coordinates=coordinates_batch)
+    out_b, info_b = assert_function_vmap_jit_output(
+        params=params, function=fn, context=jax_context_batch, coordinates=coordinates_batch
+    )
     chex.assert_trees_all_equal(out_b, coordinates_batch)
 
 

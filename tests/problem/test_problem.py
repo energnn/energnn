@@ -39,6 +39,7 @@ def test_problem_is_abstract():
 
 def test_get_decision_structure_returns_ints():
     """get_decision_structure should convert feature name values to native ints."""
+
     class P(Problem):
         def __init__(self):
             pass
@@ -75,6 +76,7 @@ def test_get_decision_structure_returns_ints():
 
 def test_get_decision_structure_with_jax_numpy_values():
     """get_decision_structure should accept jnp/np integer-like types and return native ints."""
+
     class P(Problem):
         def __init__(self):
             pass
@@ -106,6 +108,7 @@ def test_get_decision_structure_with_jax_numpy_values():
 
 def test_get_decision_structure_invalid_feature_value_raises():
     """If a feature name value cannot be converted to int, get_decision_structure should raise."""
+
     class P(Problem):
         def __init__(self):
             pass
@@ -136,6 +139,7 @@ def test_get_decision_structure_invalid_feature_value_raises():
 
 def test_get_decision_structure_missing_feature_names_raises():
     """If an edge has feature_names=None the code should raise when attempting to iterate .items()."""
+
     class P(Problem):
         def __init__(self):
             pass
@@ -166,6 +170,7 @@ def test_get_decision_structure_missing_feature_names_raises():
 
 def test_get_methods_return_tuple_and_info():
     """Check each abstract method returns (Graph, dict) or (float, dict) and handles get_info flag."""
+
     class P(Problem):
         def __init__(self):
             pass
@@ -222,6 +227,7 @@ def test_get_methods_return_tuple_and_info():
 
 def test_get_gradient_structure_matches_decision():
     """Check gradients returned have the same edge keys and shapes as the decision."""
+
     class P(Problem):
         def __init__(self):
             pass
@@ -260,6 +266,7 @@ def test_get_gradient_structure_matches_decision():
 
 def test_save_writes_file_and_cleanup():
     """A concrete save implementation should create a file at the given path."""
+
     class P(Problem):
         def __init__(self):
             pass
@@ -299,6 +306,7 @@ def test_save_writes_file_and_cleanup():
 
 def test_integration_minimal_pipeline():
     """Integration: context -> zero_decision -> gradient -> metrics with numeric checks."""
+
     class P(Problem):
         def __init__(self):
             pass
@@ -324,7 +332,7 @@ def test_integration_minimal_pipeline():
             # metric: sum of squares of all decision features -> numeric check
             total = 0.0
             for e in decision.edges.values():
-                total += float(jnp.sum(e.feature_array ** 2))
+                total += float(jnp.sum(e.feature_array**2))
             return total, {}
 
         def get_metadata(self):
@@ -342,4 +350,4 @@ def test_integration_minimal_pipeline():
         np.testing.assert_allclose(np.array(grad.edges[k].feature_array), 2.0 * np.array(decision.edges[k].feature_array))
     metric, _ = p.get_metrics(decision=decision)
     # for decision [[1],[2]] metric = 1^2 + 2^2 = 5.0
-    assert pytest.approx(metric, rel=1e-6) == 1.0 ** 2 + 2.0 ** 2
+    assert pytest.approx(metric, rel=1e-6) == 1.0**2 + 2.0**2

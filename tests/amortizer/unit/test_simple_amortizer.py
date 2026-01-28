@@ -40,8 +40,12 @@ def patch_graph_helpers(monkeypatch):
     """
     monkeypatch.setattr("energnn.graph.separate_graphs", lambda g: [g])
     # from_numpy_graph should wrap any numpy "graph" into our FakeJaxGraph
-    monkeypatch.setattr("energnn.graph.jax.JaxGraph.from_numpy_graph", lambda g, device=None: FakeJaxGraph(numpy_graph=g, feature_flat_array=getattr(g, "feature_flat_array", [[0.0]])))
+    monkeypatch.setattr(
+        "energnn.graph.jax.JaxGraph.from_numpy_graph",
+        lambda g, device=None: FakeJaxGraph(numpy_graph=g, feature_flat_array=getattr(g, "feature_flat_array", [[0.0]])),
+    )
     yield
+
 
 # create a tiny loader
 tiny_loader = TestProblemLoader(
@@ -172,7 +176,7 @@ def test_infer_and_infer_batch_delegate_to_forward_without_jit():
     assert "fwd" in infos
     fwd_val = infos["fwd"]
     # If vmap collected scalar infos into an array, check leading dim equals B
-    
+
     if hasattr(fwd_val, "shape"):
         assert int(np.asarray(fwd_val).shape[0]) == B
     else:
@@ -253,10 +257,12 @@ def test_eval_aggregates_metrics_and_infos(monkeypatch):
     loader = FakeProblemLoader([pb1, pb2])
 
     # stub eval_step to return arrays and info arrays
-    amort.eval_step = MagicMock(side_effect=[
-        (np.array([1.0]), {"a": np.array([10.0])}),
-        (np.array([3.0]), {"a": np.array([30.0])}),
-    ])
+    amort.eval_step = MagicMock(
+        side_effect=[
+            (np.array([1.0]), {"a": np.array([10.0])}),
+            (np.array([3.0]), {"a": np.array([30.0])}),
+        ]
+    )
 
     metrics, infos = amort.eval(loader, cfg=None)
     # metrics = mean([1.,3.]) = 2.0
@@ -296,13 +302,14 @@ def test_update_params_numeric_gradient_application():
         # norm_decision.feature_flat_array shape will be (B, 1, D) in our construction below
         ones = jnp.ones_like(norm_decision.feature_flat_array)
         return Decision(ones), {}
+
     amort.postprocessor.precondition_gradient_batch = fake_prec
 
     # Monkeypatch SimpleAmortizer._apply_model to produce Decision(feature_flat_array = context[None,:] * params['w'])
     def fake_apply_model(params, context_elem, get_info):
         # context_elem: one sample context, shape (D,)
         # params: dict with key 'w' (scalar)
-        w = params['w']
+        w = params["w"]
         # decision feature array per sample: shape (1, D)
         feat = (context_elem * w)[None, :]  # add object-dimension (e.g., N=1)
         return Decision(feat), {}
@@ -310,7 +317,7 @@ def test_update_params_numeric_gradient_application():
     amort._apply_model = fake_apply_model
 
     # Prepare params, opt_state, context and gradient arguments for update_params
-    params = {'w': jnp.array(2.0)}  # initial param
+    params = {"w": jnp.array(2.0)}  # initial param
     optimizer = amort.optimizer
     opt_state = optimizer.init(params)
 
@@ -321,19 +328,20 @@ def test_update_params_numeric_gradient_application():
     dummy_grad = JaxGraph.__new__(JaxGraph)
 
     # Call the non-jitted version to avoid complications with JIT tracing in unit test
-    new_params, new_opt_state, infos = amort.update_params.__wrapped__(amort, params, opt_state, dummy_context, dummy_grad, True)
+    new_params, new_opt_state, infos = amort.update_params.__wrapped__(
+        amort, params, opt_state, dummy_context, dummy_grad, True
+    )
 
     # Expected calculations:
     flat_mean = float(jnp.mean(contexts))  # 1.5
     expected_grad = flat_mean
-    expected_new_w = float(params['w']) - 0.1 * expected_grad  # sgd lr=0.1
+    expected_new_w = float(params["w"]) - 0.1 * expected_grad  # sgd lr=0.1
 
     # Validate new parameter close to expected
-    assert np.allclose(float(new_params['w']), expected_new_w, rtol=1e-6, atol=1e-6)
+    assert np.allclose(float(new_params["w"]), expected_new_w, rtol=1e-6, atol=1e-6)
 
     # Infos contains 'loss' and grads / updates metrics (pytrees) - ensure they exist and are numeric
-    assert 'loss' in infos
-    assert 'grads/l2_norm' in infos
+    assert "loss" in infos
+    assert "grads/l2_norm" in infos
     # grads/l2_norm should be positive
-    assert float(infos['grads/l2_norm']) >= 0.0
-
+    assert float(infos["grads/l2_norm"]) >= 0.0

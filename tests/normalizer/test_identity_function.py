@@ -112,14 +112,18 @@ def test_jit_compatibility_apply_and_gradient_inverse():
 def test_vmap_compatibility_apply_batching():
     fn = IdentityFunction()
     # build a small batch (B, N, D)
-    batch = jnp.array([
-        [[1.0, 2.0], [3.0, 4.0]],
-        [[5.0, 6.0], [7.0, 8.0]],
-    ])
-    masks = jnp.array([
-        [1.0, 0.0],
-        [0.0, 1.0],
-    ])
+    batch = jnp.array(
+        [
+            [[1.0, 2.0], [3.0, 4.0]],
+            [[5.0, 6.0], [7.0, 8.0]],
+        ]
+    )
+    masks = jnp.array(
+        [
+            [1.0, 0.0],
+            [0.0, 1.0],
+        ]
+    )
 
     # vectorize apply across batch dimension
     batched_apply = jax.vmap(fn.apply, in_axes=(None, 0, 0))

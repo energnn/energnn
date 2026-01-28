@@ -188,7 +188,12 @@ def test_apply_returns_infos_keys_and_masks():
     # check mask effect: choose an index and set mask to zero then expect zero output
     mask3 = np.array(jax_context.non_fictitious_addresses)
     mask3[0] = 0.0
-    ctx3 = JaxGraph(edges=jax_context.edges, non_fictitious_addresses=jnp.array(mask3), true_shape=jax_context.true_shape, current_shape=jax_context.current_shape)
+    ctx3 = JaxGraph(
+        edges=jax_context.edges,
+        non_fictitious_addresses=jnp.array(mask3),
+        true_shape=jax_context.true_shape,
+        current_shape=jax_context.current_shape,
+    )
     out3, _ = coupling.apply(params, context=ctx3, coordinates=coordinates, get_info=False)
     assert np.allclose(np.array(out3[0]), 0.0)
 

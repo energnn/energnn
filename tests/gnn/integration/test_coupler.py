@@ -50,6 +50,7 @@ jax_context_batch = JaxGraph.from_numpy_graph(context_batch)
 context = separate_graphs(context_batch)[0]
 jax_context = JaxGraph.from_numpy_graph(context)
 
+
 def test_zero_solving_method():
     coupling_function = CouplingFunction(
         phi=MLP(hidden_size=[8], activation=nn.relu, out_size=1),
@@ -106,6 +107,7 @@ def test_neuralode_solving_method_runs_and_returns_shapes_and_info():
     Run NeuralODESolvingMethod with a coupling that returns zero vector (so ODE RHS=0).
     This ensures the diffrax integration path is exercised but numerically stable and deterministic.
     """
+
     class ZeroCoupling:
         def init(self, *, rngs, context, coordinates):
             return {"z": 0}

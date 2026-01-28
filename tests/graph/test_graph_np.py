@@ -21,10 +21,7 @@ from energnn.graph.graph import (
     check_valid_addresses,
     get_statistics,
 )
-from tests.graph.utils import (
-    make_simple_edge,
-    make_graph_with_registry
-)
+from tests.graph.utils import make_simple_edge, make_graph_with_registry
 
 
 def test_from_dict_and_basic_props():
@@ -193,16 +190,16 @@ def test_get_statistics_basic_and_with_norm():
     # Expected numerical values (analytically computed)
     arr = np.array([1.0, 2.0])
     rmse_expected = np.sqrt(np.mean(arr**2))  # sqrt((1^2 + 2^2)/2) = sqrt(2.5)
-    mae_expected = np.mean(np.abs(arr))      # (1 + 2)/2 = 1.5
-    mean_expected = np.mean(arr)             # 1.5
-    std_expected = np.std(arr)               # population std = 0.5
-    q90_expected = np.nanpercentile(arr, 90) # 1.9
-    q75_expected = np.nanpercentile(arr, 75) # 1.75
-    q50_expected = np.nanpercentile(arr, 50) # 1.5
-    q25_expected = np.nanpercentile(arr, 25) # 1.25
-    q10_expected = np.nanpercentile(arr, 10) # 1.1
-    qmin_expected = np.nanmin(arr)           # 1.0
-    qmax_expected = np.nanmax(arr)           # 2.0
+    mae_expected = np.mean(np.abs(arr))  # (1 + 2)/2 = 1.5
+    mean_expected = np.mean(arr)  # 1.5
+    std_expected = np.std(arr)  # population std = 0.5
+    q90_expected = np.nanpercentile(arr, 90)  # 1.9
+    q75_expected = np.nanpercentile(arr, 75)  # 1.75
+    q50_expected = np.nanpercentile(arr, 50)  # 1.5
+    q25_expected = np.nanpercentile(arr, 25)  # 1.25
+    q10_expected = np.nanpercentile(arr, 10)  # 1.1
+    qmin_expected = np.nanmin(arr)  # 1.0
+    qmax_expected = np.nanmax(arr)  # 2.0
 
     # Normalization: norm array is [2,4] => demeaned variance = 1.0, mean absolute dev = 1.0
     # So nrmse = rmse / 1.0 == rmse, nmae = mae / 1.0 == mae
@@ -221,7 +218,21 @@ def test_get_statistics_basic_and_with_norm():
     min_key = "T/x/min"
 
     # Assert presence
-    for k in [rmse_key, nrmse_key, mae_key, nmae_key, mean_key, std_key, max_key, q90_key, q75_key, q50_key, q25_key, q10_key, min_key]:
+    for k in [
+        rmse_key,
+        nrmse_key,
+        mae_key,
+        nmae_key,
+        mean_key,
+        std_key,
+        max_key,
+        q90_key,
+        q75_key,
+        q50_key,
+        q25_key,
+        q10_key,
+        min_key,
+    ]:
         assert k in stats
 
     # Numeric assertions
