@@ -4,12 +4,10 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
-import os
-import shutil
-
 import diffrax
 import flax
 import optax
+from energnn.model_registry import DummyRegistry
 from jax.random import PRNGKey
 from omegaconf import DictConfig
 
@@ -24,7 +22,6 @@ from energnn.gnn.decoder import MLPEquivariantDecoder
 from energnn.gnn.utils import MLP
 from energnn.normalizer import Postprocessor, Preprocessor
 from energnn.normalizer.normalization_function import CenterReduceFunction
-from energnn.storage import DummyStorage
 from energnn.tracker import DummyTracker
 from tests.utils import TestProblemLoader
 
@@ -58,7 +55,8 @@ val_loader = TestProblemLoader(
     shuffle=True,
 )
 
-storage = DummyStorage()
+#TODO : change to LocalRegistry
+registry = DummyRegistry()
 tracker = DummyTracker()
 
 
@@ -90,7 +88,8 @@ def test_create(tmp_path):
         decoder=MLPEquivariantDecoder(hidden_size=[8], activation=flax.linen.relu),
     )
     optimizer = optax.adam(1e-3)
-    amortizer = SimpleAmortizer(preprocessor=preprocessor, postprocessor=postprocessor, gnn=gnn, optimizer=optimizer)
+    amortizer = SimpleAmortizer(preprocessor=preprocessor, postprocessor=postprocessor, gnn=gnn, optimizer=optimizer,
+                                project_name="test-amortizer", run_id="test-run")
 
     problem_cfg = DictConfig({})
     amortizer.init(rngs=PRNGKey(0), loader=train_loader, problem_cfg=problem_cfg)
@@ -100,24 +99,19 @@ def test_create(tmp_path):
         val_loader=val_loader,
         problem_cfg=problem_cfg,
         n_epochs=1,
-        out_dir=tmp_path,
-        last_id="last",
-        best_id="best",
-        storage=storage,
+        registry=registry,
         tracker=tracker,
     )
 
-    path_amortizer = tmp_path / "last"
-    new_amortizer = SimpleAmortizer.load(path_amortizer)
-
-    _ = new_amortizer.train(
-        train_loader=train_loader,
-        val_loader=val_loader,
-        problem_cfg=DictConfig({}),
-        n_epochs=1,
-        out_dir=tmp_path,
-        last_id="last",
-        best_id="best",
-        storage=storage,
-        tracker=tracker,
-    )
+    #TODO : retry with LocalRegistry
+    # path_amortizer = tmp_path / "last"
+    # new_amortizer = SimpleAmortizer.load(path_amortizer)
+    #
+    # _ = new_amortizer.train(
+    #     train_loader=train_loader,
+    #     val_loader=val_loader,
+    #     problem_cfg=DictConfig({}),
+    #     n_epochs=1,
+    #     registry=registry,
+    #     tracker=tracker,
+    # )

@@ -5,10 +5,11 @@
 # SPDX-License-Identifier: MPL-2.0
 #
 from __future__ import annotations
+
 import logging
 import os
 from functools import partial
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 import cloudpickle
 import flatdict
@@ -16,19 +17,21 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
-from jax import jit, vmap
-from omegaconf import DictConfig
-from optax import GradientTransformation
-from tqdm import tqdm
-
 from energnn.amortizer.utils import TaskLogger
 from energnn.gnn import EquivariantGNN
 from energnn.graph import Graph, separate_graphs
 from energnn.graph.jax import JaxGraph
 from energnn.normalizer import Postprocessor, Preprocessor
 from energnn.problem import ProblemBatch, ProblemLoader
-from energnn.storage import Storage
 from energnn.tracker import Tracker
+from jax import jit, vmap
+from omegaconf import DictConfig
+from optax import GradientTransformation
+from tqdm import tqdm
+
+if TYPE_CHECKING:
+    from energnn.model_registry.model_registry import ModelRegistry
+
 
 # Types
 GraphBatch = Graph
@@ -63,6 +66,9 @@ class SimpleAmortizer:
     The amortizer is also frequently evaluated against the validation set,
     and saved only if the average metrics has improved.
 
+    :param project_name: Name of the project to which the trainer belongs.
+    :param run_id: Unique identifier for the training run.
+    :param parent_run_id: Unique identifier for the parent training run, if any.
     :param gnn: Core Graph Neural Network model.
     :param preprocessor: Pre-processing layer applied over the GNN input.
     :param postprocessor: Post-processing layer applied over the GNN output.
@@ -77,8 +83,14 @@ class SimpleAmortizer:
         preprocessor: Preprocessor,
         postprocessor: Postprocessor,
         optimizer: GradientTransformation,
+        project_name: str,
+        run_id: str,
         progress_bar: bool = True,
+        parent_run_id: str | None = None,
     ):
+        self.project_name = project_name
+        self.run_id = run_id
+        self.parent_run_id = parent_run_id
         self.gnn: EquivariantGNN = gnn
         self.preprocessor: Preprocessor = preprocessor
         self.postprocessor: Postprocessor = postprocessor
@@ -122,10 +134,7 @@ class SimpleAmortizer:
         val_loader: ProblemLoader,
         problem_cfg: DictConfig,
         n_epochs: int,
-        out_dir: str,
-        last_id: str,
-        best_id: str,
-        storage: Storage,
+        registry: ModelRegistry,
         tracker: Tracker,
         log_period: int | None = 1,
         save_period: int | None = 1,
@@ -139,10 +148,7 @@ class SimpleAmortizer:
         :param val_loader: Problem loader used for validation.
         :param problem_cfg: Problem configuration.
         :param n_epochs: Number of training epochs to perform.
-        :param out_dir: Path to the local output directory.
-        :param last_id: Unique ID associated with the current last gnn.
-        :param best_id: Unique ID associated with the current best gnn.
-        :param storage: Remote storage manager.
+        :param registry: Registry in which to store the trainer snapshots during training.
         :param tracker: Experiment tracker.
         :param log_period: Number of training iterations between two logs, None for no logs.
         :param save_period: Number of training iterations between two saves, None for no saves.
@@ -160,9 +166,7 @@ class SimpleAmortizer:
                 val_loader=val_loader,
                 cfg=problem_cfg,
                 tracker=tracker,
-                storage=storage,
-                out_dir=out_dir,
-                best_id=best_id,
+                registry=registry
             )
 
         for _ in tqdm(range(1, n_epochs + 1), desc="Training", unit="epoch", disable=not self.progress_bar):
@@ -180,7 +184,7 @@ class SimpleAmortizer:
 
                 # If True, save latest model
                 if (save_period is not None) and (self.train_step % save_period == 0):
-                    self.save_latest(out_dir=out_dir, last_id=last_id, storage=storage)
+                    registry.register_trainer(trainer=self, last=True)
 
                 # If True, run evaluation
                 if (eval_period is not None) and (self.train_step % eval_period == 0):
@@ -188,54 +192,36 @@ class SimpleAmortizer:
                         val_loader=val_loader,
                         cfg=problem_cfg,
                         tracker=tracker,
-                        storage=storage,
-                        out_dir=out_dir,
-                        best_id=best_id,
+                        registry=registry
                     )
 
                 self.train_step += 1
 
             # At the end of each epoch, save latest model and perform an evaluation.
-            self.save_latest(out_dir=out_dir, last_id=last_id, storage=storage)
+            registry.register_trainer(trainer=self, last=True)
             self.run_evaluation(
                 val_loader=val_loader,
                 cfg=problem_cfg,
                 tracker=tracker,
-                storage=storage,
-                out_dir=out_dir,
-                best_id=best_id,
+                registry=registry
             )
 
         return self.best_metrics
 
-    def run_evaluation(self, *, val_loader, cfg: DictConfig, tracker: Tracker, storage: Storage, out_dir: str, best_id: str):
+    def run_evaluation(self, *, val_loader, cfg: DictConfig, tracker: Tracker, registry: ModelRegistry):
         """
         Runs an evaluation and saves the model if it returns better metrics than the best one.
 
         :param val_loader: Validation data loader.
         :param cfg: Problem configuration for evaluation.
         :param tracker: Tracker for logging experiment's metrics and infos.
-        :param storage: Remote storage manager for uploading the best gnn.
-        :param out_dir: Directory to store local checkpoint.
-        :param best_id: Unique ID associated with the current best gnn.
+        :param registry: Trainer registry to store the best gnn.
         """
         metrics, infos = self.eval(val_loader, cfg=cfg)
         tracker.run_append(infos={"eval": infos}, step=self.train_step)
         if metrics < self.best_metrics:
-            self.save(name="best", directory=out_dir)
-            storage.upload(source_path=os.path.join(out_dir, "best"), target_path="amortizers/" + best_id)
+            registry.register_trainer(trainer=self, best=True)
             self.best_metrics = metrics
-
-    def save_latest(self, *, out_dir: str, last_id: str, storage: Storage):
-        """
-        Save and upload the most recent model checkpoint.
-
-        :param out_dir: Local directory for saving checkpoint.
-        :param last_id: Unique ID associated with the current last gnn.
-        :param storage: Remote storage manager.
-        """
-        self.save(name="last", directory=out_dir)
-        storage.upload(source_path=os.path.join(out_dir, "last"), target_path="amortizers/" + last_id)
 
     def eval(self, loader: ProblemLoader, cfg: DictConfig) -> tuple[float, dict]:
         """

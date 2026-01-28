@@ -4,7 +4,7 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 # SPDX-License-Identifier: MPL-2.0
 #
-from .dummy import DummyStorage
-from .storage import Storage
+from .model_registry import ModelRegistry
+from .dummy import DummyRegistry
 
-__all__ = ["Storage", "DummyStorage"]
+__all__= ["ModelRegistry", "DummyRegistry"]
