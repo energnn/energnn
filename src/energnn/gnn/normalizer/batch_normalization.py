@@ -12,9 +12,17 @@ class GraphBatchNorm(nnx.Module):
     This module dynamically instantiates a `BatchNorm` per
     graph edge type encountered in the provided `JaxGraph`.
     """
-    def __init__(self, use_running_average: bool = False, axis: int = -1, momentum: float = 0.99, epsilon: float = 1e-5,
-                 use_bias: bool = True, use_scale: bool = True, use_fast_variance: bool = True):
 
+    def __init__(
+        self,
+        use_running_average: bool = False,
+        axis: int = -1,
+        momentum: float = 0.99,
+        epsilon: float = 1e-5,
+        use_bias: bool = True,
+        use_scale: bool = True,
+        use_fast_variance: bool = True,
+    ):
         """
         Initialize GraphBatchNorm.
 
@@ -50,9 +58,14 @@ class GraphBatchNorm(nnx.Module):
         :return: The created BatchNorm instance.
         """
         mod = BatchNorm(
-            num_features=n_features, axis=self.axis, momentum=self.momentum, epsilon=self.epsilon, use_bias=self.use_bias,
-            digest_base_key=self.use_scale, use_fast_variance=self.use_fast_variance,
-            use_running_average=self.use_running_average
+            num_features=n_features,
+            axis=self.axis,
+            momentum=self.momentum,
+            epsilon=self.epsilon,
+            use_bias=self.use_bias,
+            digest_base_key=self.use_scale,
+            use_fast_variance=self.use_fast_variance,
+            use_running_average=self.use_running_average,
         )
         setattr(self, f"norm_{edge_key}", mod)
         return mod
@@ -123,13 +136,17 @@ class GraphBatchNorm(nnx.Module):
                     )
                 else:
                     edge = JaxEdge(
-                        feature_array=edge.feature_array, feature_names=feature_names,
-                        non_fictitious=edge.non_fictitious, address_dict=edge.address_dict
+                        feature_array=edge.feature_array,
+                        feature_names=feature_names,
+                        non_fictitious=edge.non_fictitious,
+                        address_dict=edge.address_dict,
                     )
             else:
                 edge = JaxEdge(
-                    feature_array=edge.feature_array, feature_names=feature_names, non_fictitious=edge.non_fictitious,
-                    address_dict=edge.address_dict
+                    feature_array=edge.feature_array,
+                    feature_names=feature_names,
+                    non_fictitious=edge.non_fictitious,
+                    address_dict=edge.address_dict,
                 )
 
             return edge

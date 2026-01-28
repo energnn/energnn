@@ -335,7 +335,6 @@ def test_remove_instance_present_and_absent(monkeypatch):
         assert storage.delete.call_args.kwargs.get("target_path") == "proj/instances/sp"
 
 
-
 # Tests for dataset register/download/remove
 @patch("uuid.uuid4")
 def test_register_dataset_success_and_fail(mock_uuid, tmp_path):

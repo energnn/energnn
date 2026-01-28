@@ -16,6 +16,7 @@ from energnn.graph.jax import JaxEdge, JaxGraph
 # Public registries used by host callbacks to store TDigest instances and per-digest locks.
 GLOBAL_DIGEST_REGISTRY: dict[int, TDigest] = {}
 
+
 def _ensure_digest(key: int, max_centroids: int):
     """
     Ensure a TDigest instance and its per-digest lock exist for the given `key`.

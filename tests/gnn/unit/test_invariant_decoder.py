@@ -72,6 +72,7 @@ def assert_vmap_jit_consistent(fn_apply, params, ctx_batch, coords_batch, rtol=1
     assert info3 == {}
     assert info2 == info4
 
+
 # ZeroInvariantDecoder tests
 def test_zero_invariant_decoder_output_shapes_and_values():
     decoder = ZeroInvariantDecoder()
@@ -140,6 +141,7 @@ def test_sum_invariant_decoder_init_deterministic():
     p1 = decoder.init_with_size(rngs=rng, context=jax_context, coordinates=coordinates, out_size=2)
     p2 = decoder.init_with_size(rngs=rng, context=jax_context, coordinates=coordinates, out_size=2)
     chex.assert_trees_all_equal(p1, p2)
+
 
 def test_sum_invariant_decoder_numeric_identity():
     """
@@ -273,6 +275,7 @@ def test_attention_invariant_decoder_init_deterministic():
     p1 = decoder.init_with_size(rngs=rng, context=jax_context, coordinates=coordinates, out_size=2)
     p2 = decoder.init_with_size(rngs=rng, context=jax_context, coordinates=coordinates, out_size=2)
     chex.assert_trees_all_equal(p1, p2)
+
 
 def test_attention_invariant_decoder_numeric_simple():
     """

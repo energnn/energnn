@@ -55,6 +55,7 @@ jax_context = JaxGraph.from_numpy_graph(context)
 
 out_structure = {"node": {"e": jnp.array(0)}, "edge": {"f": jnp.array(0)}}
 
+
 def build_simple_coupler(latent_dim: int):
     """
     Build a Coupler with an MLP phi and identity message functions and a ZeroSolvingMethod.
