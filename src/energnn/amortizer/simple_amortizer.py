@@ -17,6 +17,8 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
+
+from energnn.amortizer.metadata import AmortizerMetadata
 from energnn.amortizer.utils import TaskLogger
 from energnn.gnn import EquivariantGNN
 from energnn.graph import Graph, separate_graphs
@@ -442,3 +444,11 @@ class SimpleAmortizer:
         with open(path, "rb") as handle:
             normalizer = cloudpickle.load(handle)
         return normalizer
+
+    def get_metadata(self) -> AmortizerMetadata:
+        return AmortizerMetadata(
+            project_name=self.project_name,
+            name=self.__class__.__name__,
+            run_id=self.run_id,
+            training_step=self.train_step
+        )

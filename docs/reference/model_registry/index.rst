@@ -21,3 +21,10 @@ A valid implementation of :class:'ModelRegistry' must respect the following inte
     ModelRegistry.register_trainer
     ModelRegistry.get_trainer_metadata
     ModelRegistry.download_trainer
+
+
+The :class:'LocalRegistry' is a local implementation of a :class:'ModelRegistry', that stores the trainers in a local directory.
+
+.. autoclass:: LocalRegistry
+    :no-members:
+    :show-inheritance:

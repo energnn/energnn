@@ -7,7 +7,6 @@
 import diffrax
 import flax
 import optax
-from energnn.model_registry import DummyRegistry
 from jax.random import PRNGKey
 from omegaconf import DictConfig
 
@@ -20,6 +19,7 @@ from energnn.gnn.coupler.coupling_function import SumLocalMessageFunction
 from energnn.gnn.coupler.solving_method import NeuralODESolvingMethod
 from energnn.gnn.decoder import MLPEquivariantDecoder
 from energnn.gnn.utils import MLP
+from energnn.model_registry import LocalRegistry
 from energnn.normalizer import Postprocessor, Preprocessor
 from energnn.normalizer.normalization_function import CenterReduceFunction
 from energnn.tracker import DummyTracker
@@ -55,12 +55,12 @@ val_loader = TestProblemLoader(
     shuffle=True,
 )
 
-#TODO : change to LocalRegistry
-registry = DummyRegistry()
 tracker = DummyTracker()
 
 
 def test_create(tmp_path):
+    registry = LocalRegistry(tmp_path)
+
     preprocessor = Preprocessor(f=CenterReduceFunction())
     postprocessor = Postprocessor(f=CenterReduceFunction())
     gnn = EquivariantGNN(
@@ -103,15 +103,13 @@ def test_create(tmp_path):
         tracker=tracker,
     )
 
-    #TODO : retry with LocalRegistry
-    # path_amortizer = tmp_path / "last"
-    # new_amortizer = SimpleAmortizer.load(path_amortizer)
-    #
-    # _ = new_amortizer.train(
-    #     train_loader=train_loader,
-    #     val_loader=val_loader,
-    #     problem_cfg=DictConfig({}),
-    #     n_epochs=1,
-    #     registry=registry,
-    #     tracker=tracker,
-    # )
+    new_amortizer = registry.download_trainer(project_name="test-amortizer", run_id="test-run", step=2)
+
+    _ = new_amortizer.train(
+        train_loader=train_loader,
+        val_loader=val_loader,
+        problem_cfg=DictConfig({}),
+        n_epochs=1,
+        registry=registry,
+        tracker=tracker,
+    )
