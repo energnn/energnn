@@ -1,45 +1,58 @@
+# Copyright (c) 2025, RTE (http://www.rte-france.com)
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+# SPDX-License-Identifier: MPL-2.0
+#
 from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from typing import Callable
 
-from flax import nnx
-from flax.nnx import initializers
-from flax.typing import Array, Initializer
 import jax
 import jax.numpy as jnp
-import jax.random
+from flax import nnx
 
 from energnn.gnn_nnx.utils import MLP
-from energnn.graph.jax import JaxEdge, JaxGraph
+from energnn.graph.jax import JaxGraph
 
-MAX_INTEGER = 2147483647
-Activation = Callable[[Array], Array]
 
-class Encoder(ABC):
-    r"""
-    Interface for the graph encoder :math:`E_\theta`.
+Activation = Callable[[jax.Array], jax.Array]
 
-    Subclasses must implement methods to initialize parameters and apply the encoder
-    to a JaxGraph object.
+
+class InvariantDecoder(ABC):
+    """
+    Interface for invariant decoders.
+
+    Subclasses must implement methods to initialize parameters and apply the decoder
+    to a JaxGraph object
+
+    :param out_size: Size of the output vector.
     """
 
-    @abstractmethod
-    def __init__(self):
-        """
-        Abstract constructor.
-        Implementations may define module parameters or internal state.
+    out_size: int = 0
 
-        :raises NotImplementedError: if subclass does not override this constructor.
+    def init_with_size(self, *, rngs: jax.Array, context: JaxGraph, coordinates: jax.Array, out_size: int):
         """
-        raise NotImplementedError
-
-    @abstractmethod
-    def init(self, *, rngs: jax.Array, context: JaxGraph) -> dict:
-        """
-        Should return initialized encoder weights.
+        Set the size of the decoder output and return initialized decoder weights.
 
         :param rngs: JAX Pseudo-Random Number Generator (PRNG) array.
         :param context: Input graph.
+        :param coordinates: Coordinates stored as JAX array.
+        :param out_size: Size of the output vector.
+        :return: Initialized parameters.
+        """
+        self.out_size = out_size
+        return self.init(rngs=rngs, context=context, coordinates=coordinates)
+
+    @abstractmethod
+    def init(self, *, rngs: jax.Array, context: JaxGraph, coordinates: jax.Array) -> dict:
+        """
+        Should return initialized decoder weights.
+
+        :param rngs: JAX Pseudo-Random Number Generator (PRNG) array.
+        :param context: Input graph.
+        :param coordinates: Coordinates stored as JAX array.
         :return: Initialized parameters.
 
         :raises NotImplementedError: if subclass does not override this constructor.
@@ -47,143 +60,318 @@ class Encoder(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def init_with_output(self, *, rngs: jax.Array, context: JaxGraph) -> tuple[tuple[JaxGraph, dict], dict]:
+    def init_with_output(self, *, context: JaxGraph, coordinates: jax.Array) -> tuple[jax.Array, dict]:
         """
-        Initialize encoder parameters and return encoded graph and parameters.
+        Should return initialized decoder weights and decision vector.
 
-        :param rngs: JAX Pseudo-Random Number Generator (PRNG) array.
         :param context: Input graph.
-        :return: Tuple ((encoded graph, encoder parameters), other info dict).
+        :param coordinates: Coordinates stored as JAX array.
+        :return: Initialized parameters and decision vector
 
         :raises NotImplementedError: if subclass does not override this constructor.
         """
         raise NotImplementedError
 
     @abstractmethod
-    def apply(self, params: dict, context: JaxGraph, get_info: bool = False) -> tuple[JaxGraph, dict]:
+    def apply(self, params, *, context: JaxGraph, coordinates: jax.Array, get_info: bool = False) -> tuple[jax.Array, dict]:
         """
-        Apply encoder to input graph and return encoded `context`.
+        Should return decision vector.
 
         :param params: Parameters.
-        :param context: Input graph to encode.
+        :param context: Input graph to decode.
+        :param coordinates: Coordinates stored as JAX array.
         :param get_info: If True, returns additional info for tracking purpose.
-        :return: Tuple (encoded graph, info).
+        :return: Tuple(decision vector, info).
 
         :raises NotImplementedError: if subclass does not override this constructor.
         """
         raise NotImplementedError
 
 
-class MLPEncoder(nnx.Module, Encoder):
+class ZeroInvariantDecoder(nnx.Module, InvariantDecoder):
     r"""
-    Encoder that applies class-specific Multi Layer Perceptrons.
+    Zero invariant decoder that returns a vector of zeros.
 
     .. math::
-        \begin{align}
-        &\forall c \in \mathcal{C}, \forall e \in \mathcal{E}^c, & \tilde{x}_e = \phi_\theta^c(x_e),
-        \end{align}
+        \hat{y} = [0, \dots, 0]
 
-    where :math:`({\phi}_{\theta}^c)_{c\in C}` are a set of class-specific MLPs.
-
-    :param hidden_size: Hidden sizes for each MLP.
-    :param out_size: Output size for each MLP.
-    :param activation: Activation function to use inside MLPs.
-    :param rngs: nnx.Rngs or integer seed used to derive RNG streams for per-type MLPs.
-    :return: NNX Module that encodes edges using class-specific MLPs.
+    :param out_size: Size of the output vector.
     """
 
-    def __init__(self, hidden_size: list[int], *, out_size: int, activation: Activation | None = jax.nn.relu,
-        rngs: nnx.Rngs | int | None = None) -> None:
+    out_size: int = 0
 
+    def __init__(self, *, out_size: int = 0) -> None:
+        self.out_size = int(out_size)
+
+    def __call__(self, *, context: JaxGraph, coordinates: jax.Array, get_info: bool = False) -> tuple[jax.Array, dict]:
+        return jnp.zeros([self.out_size]), {}
+
+
+class SumInvariantDecoder(nnx.Module, InvariantDecoder):
+    r"""
+    Sum invariant decoder, that sums the information of all addresses.
+
+    .. math::
+        \hat{y} = \phi_\theta \left( \sum_{a \in \mathcal{A}(x)} \psi_\theta(h_a)\right),
+
+    where :math:`\phi_\theta` (outer) and :math:`\psi_\theta` (inner) are both trainable MLPs.
+
+    :param psi_hidden_size: List of hidden sizes of inner MLP :math:`\psi_\theta`.
+    :param psi_out_size: Output size of inner MLP :math:`\psi_\theta`.
+    :param psi_activation: Activation function of inner MLP :math:`\psi_\theta`.
+    :param phi_hidden_size: List of hidden sizes of outer MLP :math:`\phi_\theta`.
+    :param phi_activation: Activation function of outer MLP :math:`\phi_\theta`.
+    :param out_size: Output size of the decoder.
+    :param built: Boolean to indicate whether the decoder is built.
+    :param rngs: nnx.Rngs ou int seed pour initialisation des MLPs.
+    """
+
+    def __init__(
+        self,
+        psi_hidden_size: list[int],
+        psi_out_size: int,
+        psi_activation: Activation,
+        phi_hidden_size: list[int],
+        phi_activation: Activation,
+        *,
+        out_size: int = 0,
+        rngs: nnx.Rngs | int | None = None,
+        built: bool = False,
+    ) -> None:
         if rngs is None:
             rngs = nnx.Rngs(0)
         elif isinstance(rngs, int):
             rngs = nnx.Rngs(rngs)
 
-        self.hidden_size = [int(h) for h in hidden_size]
+        self.psi_hidden_size = [int(h) for h in psi_hidden_size]
+        self.psi_out_size = int(psi_out_size)
+        self.psi_activation = psi_activation
+        self.phi_hidden_size = [int(h) for h in phi_hidden_size]
+        self.phi_activation = phi_activation
         self.out_size = int(out_size)
-        self.activation = activation
         self.rngs = rngs
-        self.mlps: nnx.Dict = nnx.Dict()
+        self.built = built
 
-    def _build_mlps_for_context(self, context: JaxGraph) -> nnx.Dict:
-        """
-        Ensure that an MLP exists for each edge class in `context.edges`.
-
-        For each key `k` in `context.edges`:
-          - if an MLP is not already present in self.mlps, instantiate it;
-          - once instantiated, if the corresponding edge has a non-None `feature_array`, call
-            `mlp.build_from_sample(edge.feature_array)` to lazily initialize
-            internal Linear layers.
-
-        :param context: JaxGraph used to infer input feature dimensions when available.
-        :returns: nnx.Dict mapping edge-class keys to MLP instances (created/initialized).
-        """
-        for k, edge in context.edges.items():
-            # create MLP for key if missing
-            if k not in self.mlps:
-                self.mlps[k] = MLP(
-                    hidden_size=self.hidden_size,
-                    out_size=self.out_size,
-                    activation=self.activation,
-                    rngs=self.rngs,
-                    name=str(k),
-                )
-
-                # if feature_array is present, lazily initialize sub-layers from sample
-                if edge.feature_array is not None:
-                    self.mlps[k].build_from_sample(edge.feature_array)
-
-        return self.mlps
-
-    def __call__(self, *, context: JaxGraph, get_info: bool = False) -> tuple[JaxGraph, dict]:
-        """
-        Apply the Multi Layer Perceptron neural network to edges of an input graph and return the corresponding graph.
-
-        Each edge type (key in `context.edges`) gets its own MLP.
-
-        :param context: Input graph with edges to encode.
-        :param get_info: Flag to return additional information for tracking purpose.
-        :return: Encoded graph and additional info dictionary.
-        """
-        info: dict = {}
-
-        feature_names = {f"lat_{i}": jnp.array(i) for i in range(self.out_size)}
-
-        mlp_dict = self._build_mlps_for_context(context)
-
-        plain_mlps = {k: mlp_dict[k] for k in context.edges.keys()}
-
-        def apply_mlp(edge: JaxEdge, mlp: MLP) -> JaxEdge:
-            """Apply the MLP to an edge"""
-            if edge.feature_array is not None:
-                encoded_array = mlp(edge.feature_array)
-                return JaxEdge(
-                    feature_array=encoded_array,
-                    feature_names=feature_names,
-                    non_fictitious=edge.non_fictitious,
-                    address_dict=edge.address_dict,
-                )
-            else:
-                return JaxEdge(
-                    feature_array=None,
-                    feature_names=None,
-                    non_fictitious=edge.non_fictitious,
-                    address_dict=edge.address_dict,
-                )
-
-        encoded_edge_dict = jax.tree.map(
-            apply_mlp,
-            context.edges,
-            plain_mlps,
-            is_leaf=lambda x: isinstance(x, JaxEdge),
+        self.psi = MLP(
+            hidden_size=self.psi_hidden_size,
+            out_size=self.psi_out_size,
+            activation=self.psi_activation,
+            rngs=self.rngs,
+            name="psi",
+        )
+        self.phi = MLP(
+            hidden_size=self.phi_hidden_size,
+            out_size=self.out_size,
+            activation=self.phi_activation,
+            rngs=self.rngs,
+            name="phi",
         )
 
-        encoded_context = JaxGraph(
-            edges=encoded_edge_dict,
-            non_fictitious_addresses=context.non_fictitious_addresses,
-            true_shape=context.true_shape,
-            current_shape=context.current_shape,
+    def build_from_sample(self, coordinates: jax.Array):
+        self.psi.build_from_sample(coordinates)
+        self.phi.build_from_sample(coordinates)
+        self.built = True
+
+    def __call__(self, *, context: JaxGraph, coordinates: jax.Array, get_info: bool = False) -> tuple[jax.Array, dict]:
+
+        if not self.built:
+            self.psi.build_from_sample(coordinates)
+            self.phi.build_from_sample(coordinates)
+
+        h = self.psi(coordinates)
+        h = h * jnp.expand_dims(context.non_fictitious_addresses, -1)
+        h = jnp.sum(h, axis=0)
+
+        out = self.phi(h)
+        return out, {}
+
+
+class MeanInvariantDecoder(nnx.Module, InvariantDecoder):
+    r"""
+    Mean invariant decoder, that averages the information of all addresses.
+
+    .. math::
+        \hat{y} = \phi_\theta \left( \frac{1}{\vert \mathcal{A}(x) \vert} \sum_{a \in \mathcal{A}(x)} \psi_\theta(h_a) \right),
+
+    where :math:`\phi_\theta` (outer) and :math:`\psi_\theta` (inner) are both trainable MLPs.
+
+    :param psi_hidden_size: List of hidden sizes of inner MLP :math:`\psi_\theta`.
+    :param flax.linen.activation psi_activation: Activation function of inner MLP :math:`\psi_\theta`.
+    :param psi_out_size: Output size of inner MLP :math:`\psi_\theta`.
+    :param phi_hidden_size: List of hidden sizes of outer MLP :math:`\phi_\theta`.
+    :param flax.linen.activation phi_activation: Activation function of outer MLP :math:`\phi_\theta`.
+    :param out_size: Output size of the decoder.
+    :param built: Boolean to indicate whether the decoder is built.
+    :param rngs: nnx.Rngs ou int seed.
+    """
+
+    def __init__(
+        self,
+        psi_hidden_size: list[int],
+        psi_out_size: int,
+        psi_activation: Activation,
+        phi_hidden_size: list[int],
+        phi_activation: Activation,
+        *,
+        out_size: int = 0,
+        rngs: nnx.Rngs | int | None = None,
+        name: str | None = None,
+        built: bool = False,
+    ) -> None:
+        if rngs is None:
+            rngs = nnx.Rngs(0)
+        elif isinstance(rngs, int):
+            rngs = nnx.Rngs(rngs)
+
+        self.psi_hidden_size = [int(h) for h in psi_hidden_size]
+        self.psi_out_size = int(psi_out_size)
+        self.psi_activation = psi_activation
+        self.phi_hidden_size = [int(h) for h in phi_hidden_size]
+        self.phi_activation = phi_activation
+        self.out_size = int(out_size)
+        self.rngs = rngs
+        self.built = built
+        self.name = name
+
+        self.psi = MLP(
+            hidden_size=self.psi_hidden_size,
+            out_size=self.psi_out_size,
+            activation=self.psi_activation,
+            rngs=self.rngs,
+            name="psi",
+        )
+        self.phi = MLP(
+            hidden_size=self.phi_hidden_size,
+            out_size=self.out_size,
+            activation=self.phi_activation,
+            rngs=self.rngs,
+            name="phi",
         )
 
-        return encoded_context, info
+    def build_from_sample(self, coordinates: jax.Array):
+        self.psi.build_from_sample(coordinates)
+        self.phi.build_from_sample(coordinates)
+        self.built = True
+
+    def __call__(self, *, context: JaxGraph, coordinates: jax.Array, get_info: bool = False) -> tuple[jax.Array, dict]:
+
+        if not self.built:
+            self.psi.build_from_sample(coordinates)
+            self.phi.build_from_sample(coordinates)
+
+        numerator = self.psi(coordinates)  # (addresses, psi_out_size)
+        mask = jnp.expand_dims(context.non_fictitious_addresses, -1)
+        numerator = numerator * mask
+        numerator = jnp.sum(numerator, axis=0)
+
+        # denominator = number of non-fictitious addresses (scalar per feature)
+        denominator = jnp.sum(mask, axis=0) + 1e-9  # shape (1, psi_out_size) -> broadcast
+        # compute mean
+        mean_vec = numerator / denominator.squeeze(0)
+
+        out = self.phi(mean_vec)  # shape (out_size,)
+        # expand out to per-address if caller expects broadcasted output (original Linen returned expanded)
+        out = out * jnp.expand_dims(context.non_fictitious_addresses, -1)
+        return out, {}
+
+
+class AttentionInvariantDecoder(nnx.Module, InvariantDecoder):
+    """
+    Attention invariant decoder.
+
+    :param v_hidden_size: hidden sizes for value MLPs.
+    :param v_activation: activation for value MLPs.
+    :param v_out_size: output size for value MLPs.
+    :param s_hidden_size: hidden sizes for score MLPs (outputs scalar score).
+    :param s_activation: activation for score MLPs.
+    :param psi_hidden_size: hidden sizes for final psi MLP.
+    :param psi_activation: activation for final psi MLP.
+    :param out_size: final output size.
+    :param n: number of attention heads.
+    :param rngs: nnx.Rngs or int seed.
+    """
+
+    def __init__(
+        self,
+        v_hidden_size: list[int],
+        v_activation: Activation,
+        v_out_size: int,
+        s_hidden_size: list[int],
+        s_activation: Activation,
+        psi_hidden_size: list[int],
+        psi_activation: Activation,
+        *,
+        out_size: int = 0,
+        n: int = 1,
+        rngs: nnx.Rngs | int | None = None,
+        name: str | None = None,
+    ) -> None:
+        if rngs is None:
+            rngs = nnx.Rngs(0)
+        elif isinstance(rngs, int):
+            rngs = nnx.Rngs(rngs)
+
+        self.v_hidden_size = [int(h) for h in v_hidden_size]
+        self.v_activation = v_activation
+        self.v_out_size = int(v_out_size)
+        self.s_hidden_size = [int(h) for h in s_hidden_size]
+        self.s_activation = s_activation
+        self.psi_hidden_size = [int(h) for h in psi_hidden_size]
+        self.psi_activation = psi_activation
+        self.out_size = int(out_size)
+        self.n = int(n)
+        self.rngs = rngs
+        self.name = name
+
+        # create lists of MLPs for value (v) and score (s)
+        self.v_mlps: list[MLP] = [
+            MLP(
+                hidden_size=self.v_hidden_size,
+                out_size=self.v_out_size,
+                activation=self.v_activation,
+                rngs=self.rngs,
+                name=f"value-mlp-{i}",
+            )
+            for i in range(self.n)
+        ]
+        self.s_mlps: list[MLP] = [
+            MLP(
+                hidden_size=self.s_hidden_size, out_size=1, activation=self.s_activation, rngs=self.rngs, name=f"score-mlp-{i}"
+            )
+            for i in range(self.n)
+        ]
+
+        self.psi = MLP(
+            hidden_size=self.psi_hidden_size,
+            out_size=self.out_size,
+            activation=self.psi_activation,
+            rngs=self.rngs,
+            name="psi-mlp",
+        )
+
+    def __call__(self, *, context: JaxGraph, coordinates: jax.Array, get_info: bool = False) -> tuple[jax.Array, dict]:
+        # ensure lazy sub-MLPs are initialized
+        for mlp in self.v_mlps:
+            mlp.build_from_sample(coordinates)
+        for mlp in self.s_mlps:
+            mlp.build_from_sample(coordinates)
+        self.psi.build_from_sample(coordinates)
+
+        value_list = []
+        mask = jnp.expand_dims(context.non_fictitious_addresses, -1)
+        for i in range(self.n):
+            v = self.v_mlps[i](coordinates)  # (addresses, v_out_size)
+            s = self.s_mlps[i](coordinates)  # (addresses, 1)
+
+            numerator = v * jnp.exp(s)
+            numerator = numerator * mask
+            numerator = jnp.sum(numerator, axis=0)  # (v_out_size,)
+
+            denominator = jnp.exp(s) * mask
+            denominator = jnp.sum(denominator, axis=0) + 1e-9  # shape (1, v_out_size) if broadcast ; safe
+
+            value_list.append(numerator / denominator)
+
+        value_vec = jnp.concatenate(value_list, axis=0)  # concat heads -> (n * v_out_size,)
+        out = self.psi(value_vec)
+        return out, {}
