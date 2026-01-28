@@ -279,7 +279,9 @@ def compare_batched_graphs(*graphs, rtol=1e-6, atol=1e-6):
                 continue
             # shape must match
             if base_np is None or feat_np is None:
-                raise AssertionError(f"Feature-array presence mismatch for edge '{key}': {base_np is None} vs {feat_np is None}")
+                raise AssertionError(
+                    f"Feature-array presence mismatch for edge '{key}': {base_np is None} vs {feat_np is None}"
+                )
             if base_np.shape != feat_np.shape:
                 raise AssertionError(f"Feature-array shapes differ for edge '{key}': {base_np.shape} vs {feat_np.shape}")
             # numeric compare
@@ -297,7 +299,9 @@ def compare_batched_graphs(*graphs, rtol=1e-6, atol=1e-6):
             for g in graphs[1:]:
                 other_addr_np = np.array(g.edges[key].address_dict[ak])
                 if base_addr_np.shape != other_addr_np.shape:
-                    raise AssertionError(f"Address array shapes differ for edge '{key}' addr '{ak}': {base_addr_np.shape} vs {other_addr_np.shape}")
+                    raise AssertionError(
+                        f"Address array shapes differ for edge '{key}' addr '{ak}': {base_addr_np.shape} vs {other_addr_np.shape}"
+                    )
                 np.testing.assert_allclose(base_addr_np, other_addr_np, rtol=rtol, atol=atol)
 
         # non_fictitious masks

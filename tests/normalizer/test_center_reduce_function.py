@@ -140,6 +140,7 @@ def test_gradient_inverse_equals_std_plus_epsilon():
     expected[1, :] = 0.0  # because mask[1] == 0
     np.testing.assert_allclose(np.array(grad), expected, rtol=1e-6, atol=1e-8)
 
+
 def test_gradient_inverse_matches_expected_std_plus_epsilon():
     # For CenterReduceFunction inverse(x) = x * (std + eps) + mean
     # so d/dx inverse = std + eps
@@ -213,9 +214,7 @@ def test_compute_params_empty_aux_raises():
 
 
 def test_center_reduce_numeric_mean_std_and_inverse():
-    a = jnp.array([[1.0, 2.0],
-                   [3.0, 4.0],
-                   [5.0, 6.0]], dtype=jnp.float32)
+    a = jnp.array([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]], dtype=jnp.float32)
 
     cr = CenterReduceFunction(epsilon=1e-8)
 
@@ -251,9 +250,7 @@ def test_center_reduce_numeric_mean_std_and_inverse():
 
 def test_center_reduce_with_fictitious_mask_preserves_zero_rows():
     # dataset (3 objets, 2 features)
-    a = jnp.array([[10.0, -1.0],
-                   [0.5, 0.5],
-                   [3.0, 4.0]], dtype=jnp.float32)
+    a = jnp.array([[10.0, -1.0], [0.5, 0.5], [3.0, 4.0]], dtype=jnp.float32)
 
     cr = CenterReduceFunction(epsilon=1e-8)
     aux = [a]

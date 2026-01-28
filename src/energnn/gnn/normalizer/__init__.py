@@ -5,5 +5,6 @@
 # SPDX-License-Identifier: MPL-2.0
 #
 from .cdf_tdigest_normalization import GraphTDigestNorm
+from .center_reduce_normalization import GraphCenterReduceNorm
 
-__all__ = ["GraphTDigestNorm"]
+__all__ = ["GraphTDigestNorm", "GraphCenterReduceNorm"]

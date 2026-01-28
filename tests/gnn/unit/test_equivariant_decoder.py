@@ -69,7 +69,9 @@ def assert_decoder_vmap_jit_output(*, params: dict, decoder: EquivariantDecoder,
 def test_zero_equivariant_decoder_single_basic():
     decoder = ZeroEquivariantDecoder()
     rng = jax.random.PRNGKey(0)
-    params = decoder.init_with_structure(rngs=rng, context=jax_context, coordinates=coordinates, out_structure=default_out_structure)
+    params = decoder.init_with_structure(
+        rngs=rng, context=jax_context, coordinates=coordinates, out_structure=default_out_structure
+    )
     out, info = decoder.apply(params, context=jax_context, coordinates=coordinates, get_info=True)
 
     # Basic checks: edges present only for keys in out_structure
@@ -97,7 +99,9 @@ def test_zero_equivariant_decoder_single_basic():
 def test_zero_equivariant_decoder_batch_vmap_jit():
     decoder = ZeroEquivariantDecoder()
     rng = jax.random.PRNGKey(1)
-    params = decoder.init_with_structure(rngs=rng, context=jax_context, coordinates=coordinates, out_structure=default_out_structure)
+    params = decoder.init_with_structure(
+        rngs=rng, context=jax_context, coordinates=coordinates, out_structure=default_out_structure
+    )
     assert_decoder_vmap_jit_output(params=params, decoder=decoder, context=jax_context_batch, coordinates=coordinates_batch)
 
 
@@ -123,15 +127,23 @@ def test_zero_equivariant_decoder_requires_feature_array():
     rng = jax.random.PRNGKey(2)
     # should raise AttributeError because code accesses feature_array.shape
     with pytest.raises(AttributeError):
-        _ = decoder.init_with_structure(rngs=rng, context=custom_graph, coordinates=coordinates, out_structure=default_out_structure)
+        _ = decoder.init_with_structure(
+            rngs=rng, context=custom_graph, coordinates=coordinates, out_structure=default_out_structure
+        )
 
 
 # MLPEquivariantDecoder tests
 def test_mlp_equivariant_decoder_init_deterministic():
-    decoder = MLPEquivariantDecoder(activation=nn.relu, hidden_size=[8], final_kernel_zero_init=False, out_structure=default_out_structure)
+    decoder = MLPEquivariantDecoder(
+        activation=nn.relu, hidden_size=[8], final_kernel_zero_init=False, out_structure=default_out_structure
+    )
     rng = jax.random.PRNGKey(3)
-    p1 = decoder.init_with_structure(rngs=rng, context=jax_context, coordinates=coordinates, out_structure=default_out_structure)
-    p2 = decoder.init_with_structure(rngs=rng, context=jax_context, coordinates=coordinates, out_structure=default_out_structure)
+    p1 = decoder.init_with_structure(
+        rngs=rng, context=jax_context, coordinates=coordinates, out_structure=default_out_structure
+    )
+    p2 = decoder.init_with_structure(
+        rngs=rng, context=jax_context, coordinates=coordinates, out_structure=default_out_structure
+    )
     chex.assert_trees_all_equal(p1, p2)
 
 
@@ -152,14 +164,33 @@ def test_mlp_equivariant_decoder_single_shapes_and_masking():
     # set first element fictitious for node edge to test masking
     node_nf = jnp.array(np.array(node_edge.non_fictitious))
     node_nf = node_nf.at[0].set(0)
-    e1 = JaxEdge(address_dict=node_edge.address_dict, feature_array=jnp.ones((n_node, 2)), feature_names={"a": jnp.array(0), "b": jnp.array(1)}, non_fictitious=node_nf)
-    e2 = JaxEdge(address_dict=edge_edge.address_dict, feature_array=jnp.ones((n_edge, 3)), feature_names={"c": jnp.array(0), "d": jnp.array(1), "e": jnp.array(2)}, non_fictitious=edge_edge.non_fictitious)
+    e1 = JaxEdge(
+        address_dict=node_edge.address_dict,
+        feature_array=jnp.ones((n_node, 2)),
+        feature_names={"a": jnp.array(0), "b": jnp.array(1)},
+        non_fictitious=node_nf,
+    )
+    e2 = JaxEdge(
+        address_dict=edge_edge.address_dict,
+        feature_array=jnp.ones((n_edge, 3)),
+        feature_names={"c": jnp.array(0), "d": jnp.array(1), "e": jnp.array(2)},
+        non_fictitious=edge_edge.non_fictitious,
+    )
 
-    custom_graph = JaxGraph(edges={"node": e1, "edge": e2}, non_fictitious_addresses=jax_context.non_fictitious_addresses, true_shape=jax_context.true_shape, current_shape=jax_context.current_shape)
+    custom_graph = JaxGraph(
+        edges={"node": e1, "edge": e2},
+        non_fictitious_addresses=jax_context.non_fictitious_addresses,
+        true_shape=jax_context.true_shape,
+        current_shape=jax_context.current_shape,
+    )
 
-    decoder = MLPEquivariantDecoder(activation=nn.relu, hidden_size=[4], final_kernel_zero_init=False, out_structure=default_out_structure)
+    decoder = MLPEquivariantDecoder(
+        activation=nn.relu, hidden_size=[4], final_kernel_zero_init=False, out_structure=default_out_structure
+    )
     rng = jax.random.PRNGKey(4)
-    params = decoder.init_with_structure(rngs=rng, context=custom_graph, coordinates=coordinates, out_structure=default_out_structure)
+    params = decoder.init_with_structure(
+        rngs=rng, context=custom_graph, coordinates=coordinates, out_structure=default_out_structure
+    )
     out, info = decoder.apply(params, context=custom_graph, coordinates=coordinates, get_info=True)
 
     # shapes
@@ -184,7 +215,9 @@ def test_mlp_equivariant_decoder_plain_dict_out_structure_accepts_dict():
     rng = jax.random.PRNGKey(5)
 
     # init_with_structure should not raise
-    params = decoder.init_with_structure(rngs=rng, context=jax_context, coordinates=coordinates, out_structure=out_struct_plain)
+    params = decoder.init_with_structure(
+        rngs=rng, context=jax_context, coordinates=coordinates, out_structure=out_struct_plain
+    )
 
     # apply should also run without raising and produce expected outputs
     out, info = decoder.apply(params, context=jax_context, coordinates=coordinates, get_info=True)
@@ -198,9 +231,13 @@ def test_mlp_equivariant_decoder_plain_dict_out_structure_accepts_dict():
 
 
 def test_mlp_equivariant_decoder_batch_vmap_jit():
-    decoder = MLPEquivariantDecoder(activation=nn.relu, hidden_size=[8], final_kernel_zero_init=False, out_structure=default_out_structure)
+    decoder = MLPEquivariantDecoder(
+        activation=nn.relu, hidden_size=[8], final_kernel_zero_init=False, out_structure=default_out_structure
+    )
     rng = jax.random.PRNGKey(6)
-    params = decoder.init_with_structure(rngs=rng, context=jax_context, coordinates=coordinates, out_structure=default_out_structure)
+    params = decoder.init_with_structure(
+        rngs=rng, context=jax_context, coordinates=coordinates, out_structure=default_out_structure
+    )
     assert_decoder_vmap_jit_output(params=params, decoder=decoder, context=jax_context_batch, coordinates=coordinates_batch)
 
 

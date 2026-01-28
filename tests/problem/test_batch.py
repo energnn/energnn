@@ -38,6 +38,7 @@ def pb_batch(pb_loader):
 
 class DelegateProblemBatch(ProblemBatch):
     """A tiny concrete ProblemBatch that delegates to a provided TestProblemLoader batch."""
+
     def __init__(self, pb_batch):
         # store a concrete batch that exposes get_context/get_zero_decision/get_gradient/get_metrics
         self._pb_batch = pb_batch
@@ -126,6 +127,7 @@ def test_get_gradient_shapes_match_decision(pb_batch):
         dec_arr = dec0.edges[key].feature_array
         grad_arr = grad0.edges[key].feature_array
         assert dec_arr.shape == grad_arr.shape
+
 
 def test_get_info_flag_propagates_to_gradient_and_metrics(pb_batch):
     """Ensure get_info flag works for gradient and metrics methods."""

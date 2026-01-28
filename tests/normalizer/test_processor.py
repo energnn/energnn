@@ -172,8 +172,8 @@ def test_postprocessor_center_reduce_preconditioning_numeric():
     std = jnp.array([2.0, 0.5], dtype=jnp.float32)
 
     # create two samples: mean - std and mean + std -> std will be as desired
-    sample1 = (mean - std)
-    sample2 = (mean + std)
+    sample1 = mean - std
+    sample2 = mean + std
     aux = [jnp.stack([sample1, sample2], axis=0)]  # shape (2, D)
     params_node = cr.compute_params(None, aux)  # returns stacked [mean, std] shape (2, D)
 
@@ -193,12 +193,16 @@ def test_postprocessor_center_reduce_preconditioning_numeric():
     non_fict = jnp.array([1.0, 1.0], dtype=jnp.float32)  # shape (N,)
 
     edge = JaxEdge(address_dict=None, feature_array=feat, feature_names=None, non_fictitious=non_fict)
-    out_graph = JaxGraph(edges={"node": edge}, non_fictitious_addresses=non_fict, true_shape=true_shape, current_shape=current_shape)
+    out_graph = JaxGraph(
+        edges={"node": edge}, non_fictitious_addresses=non_fict, true_shape=true_shape, current_shape=current_shape
+    )
 
     # gradient graph: suppose gradient is some known array
     grad_feat = jnp.array([[2.0, 4.0], [6.0, 8.0]], dtype=jnp.float32)
     grad_edge = JaxEdge(address_dict=None, feature_array=grad_feat, feature_names=None, non_fictitious=non_fict)
-    grad_graph = JaxGraph(edges={"node": grad_edge}, non_fictitious_addresses=non_fict, true_shape=true_shape, current_shape=current_shape)
+    grad_graph = JaxGraph(
+        edges={"node": grad_edge}, non_fictitious_addresses=non_fict, true_shape=true_shape, current_shape=current_shape
+    )
 
     # call precondition_gradient (single)
     prec_grad_graph, _ = post.precondition_gradient(out_graph, grad_graph, get_info=False)
@@ -211,7 +215,7 @@ def test_postprocessor_center_reduce_preconditioning_numeric():
     # --- Batch version ---
     B = 3
     # create batched features: shape (B, N, D)
-    out_feat_b = jnp.stack([feat] * B, axis=0)   # (B, N, D)
+    out_feat_b = jnp.stack([feat] * B, axis=0)  # (B, N, D)
     grad_feat_b = jnp.stack([grad_feat] * B, axis=0)
 
     # non_fict must be batched: shape (B, N)
@@ -259,7 +263,9 @@ def test_cdfpw_linear_invertibility_small():
     norm_batch, _ = pre.preprocess_batch(jax_context)
     # inverse should restore original (approximately)
     recovered_batch, _ = pre.preprocess_inverse_batch(norm_batch)
-    np.testing.assert_allclose(np.array(recovered_batch.to_numpy_graph().feature_flat_array), np.array(context_batch.feature_flat_array), rtol=1e-5)
+    np.testing.assert_allclose(
+        np.array(recovered_batch.to_numpy_graph().feature_flat_array), np.array(context_batch.feature_flat_array), rtol=1e-5
+    )
 
 
 # Cleanup test: ensure temp dirs created during tests are removed
