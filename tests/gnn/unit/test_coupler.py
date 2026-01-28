@@ -49,6 +49,7 @@ jax_context_batch = JaxGraph.from_numpy_graph(context_batch)
 context = separate_graphs(context_batch)[0]
 jax_context = JaxGraph.from_numpy_graph(context)
 
+
 def test_coupler_init_returns_function_key_and_value():
     """Coupler.init must return a dict containing key 'FUNCTION' with the value returned by coupling.init."""
     dummy_coupling = make_dummy_coupling_mock()

@@ -53,6 +53,7 @@ def set_dense_layers_to_identity_or_zero(params, module_name, set_identity=True)
     p["params"] = top
     return freeze(p)
 
+
 def make_dummy_coupling_mock():
     """Simple coupling stub that returns a fixed param on init and whose apply returns zeros of matching shape."""
 
@@ -74,6 +75,7 @@ def make_dummy_coupling_mock():
     m.apply = apply
     return m
 
+
 def make_stub_solver_mock(coords_out):
     """Stub solver that records that it was called and returns a pre-defined coordinate/result."""
 
@@ -88,12 +90,11 @@ def make_stub_solver_mock(coords_out):
     m = MagicMock(spec=SolvingMethod)
     m.called = False
     m.initialize_coordinates = initialize_coordinates
-    m.solve = lambda *, params, function, context, coordinates_init, get_info=False : solve(m, params=params,
-                                                                                            function=function,
-                                                                                            context=context,
-                                                                                            coordinates_init=coordinates_init,
-                                                                                            get_info=get_info)
+    m.solve = lambda *, params, function, context, coordinates_init, get_info=False: solve(
+        m, params=params, function=function, context=context, coordinates_init=coordinates_init, get_info=get_info
+    )
     return m
+
 
 def assert_single(*, coupler: Coupler, seed: int, context: JaxGraph):
     rngs = jax.random.PRNGKey(seed)

@@ -208,6 +208,7 @@ def test_neuralode_respects_max_steps_raises_on_tight_max_steps():
     with pytest.raises(Exception):
         _ = method.solve(params={}, function=const_f, coordinates_init=h0, context=jax_context, get_info=False)
 
+
 def test_neuralode_with_different_solvers_consistency():
     """
     Run solve with two adaptive solvers (Tsit5 and Dopri5) on a simple constant field

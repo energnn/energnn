@@ -77,9 +77,9 @@ todo_include_todos = True
 autosummary_generate = True
 
 # Pour modifier l'affichage dans autosummary
-modindex_common_prefix = ['energnn.']
+modindex_common_prefix = ["energnn."]
 
 # Utilise les templates personnalisés
 autosummary_context = {
-    'add_module_names': False,
+    "add_module_names": False,
 }

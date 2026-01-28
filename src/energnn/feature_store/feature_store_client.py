@@ -393,4 +393,5 @@ class MissingDatasetError(Exception):
     """
     Raised when a requested dataset is not found in the feature store.
     """
+
     pass

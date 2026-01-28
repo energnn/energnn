@@ -9,8 +9,7 @@ from abc import ABC, abstractmethod
 from typing import Callable
 
 from flax import nnx
-from flax.nnx import initializers
-from flax.typing import Array, Initializer
+from flax.typing import Array
 import jax
 import jax.numpy as jnp
 import jax.random
@@ -135,8 +134,15 @@ class MLPEncoder(nnx.Module, Encoder):
     :return: NNX Module that encodes edges using class-specific MLPs.
     """
 
-    def __init__(self, hidden_size: list[int], *, out_size: int, activation: Activation | None = jax.nn.relu,
-        rngs: nnx.Rngs | int | None = None) -> None:
+    def __init__(
+        self,
+        hidden_size: list[int],
+        *,
+        out_size: int,
+        activation: Activation | None = jax.nn.relu,
+        rngs: nnx.Rngs | int | None = None,
+        built: bool = False,
+    ) -> None:
 
         if rngs is None:
             rngs = nnx.Rngs(0)

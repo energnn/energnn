@@ -36,8 +36,15 @@ class LazyLinear(nnx.Module):
     :return: An NNX Module that creates its internal Linear on first call.
     """
 
-    def __init__(self, out_features: int, *, use_bias: bool = True, kernel_init: Initializer = initializers.lecun_normal(),
-            bias_init: Initializer = initializers.zeros_init(), rngs: nnx.Rngs | int | None = None) -> None:
+    def __init__(
+        self,
+        out_features: int,
+        *,
+        use_bias: bool = True,
+        kernel_init: Initializer = initializers.lecun_normal(),
+        bias_init: Initializer = initializers.zeros_init(),
+        rngs: nnx.Rngs | int | None = None,
+    ) -> None:
         if rngs is None:
             raise ValueError("LazyLinear expects an `nnx.Rngs` or int seed for rngs")
         if isinstance(rngs, int):
@@ -103,6 +110,7 @@ class MLP(nnx.Module):
     :param out_size: Number of units in the output layer.
     :param rngs: ``nnx.Rngs`` or integer seed used to initialize sub-layers.
     :param name: Optional module name.
+    :param built: Boolean to indicate whether the MLP is built.
     :param final_kernel_zero_init: If True, the final layer is initialized with zeros.
                                    Otherwise, use LeCun normal initialization.
     :param final_activation: Activation function applied after the final layer.
@@ -111,9 +119,18 @@ class MLP(nnx.Module):
     :return: Flax NNX module representing the MLP.
     """
 
-    def __init__(self, hidden_size: list[int], *, activation: Activation | None = jax.nn.relu, out_size: int = 1,
-            rngs: nnx.Rngs | int | None = None, final_kernel_zero_init: bool = False, final_activation: Activation | None = None,
-            name: str | None = None ) -> None:
+    def __init__(
+        self,
+        hidden_size: list[int],
+        *,
+        activation: Activation | None = jax.nn.relu,
+        out_size: int = 1,
+        rngs: nnx.Rngs | int | None = None,
+        final_kernel_zero_init: bool = False,
+        final_activation: Activation | None = None,
+        name: str | None = None,
+        built: bool = False,
+    ) -> None:
 
         if rngs is None:
             rngs = nnx.Rngs(0)
@@ -127,6 +144,7 @@ class MLP(nnx.Module):
         self.final_kernel_zero_init = final_kernel_zero_init
         self.final_activation = final_activation
         self.name = name
+        self.built = built
 
         layers: list = []
         if self.activation is not None:
@@ -136,9 +154,7 @@ class MLP(nnx.Module):
             for d in self.hidden_size:
                 layers.append(LazyLinear(d, rngs=self.rngs))
 
-        final_kernel_init = (
-            initializers.zeros_init() if final_kernel_zero_init else initializers.lecun_normal()
-        )
+        final_kernel_init = initializers.zeros_init() if final_kernel_zero_init else initializers.lecun_normal()
         layers.append(
             LazyLinear(
                 self.out_size,
@@ -168,6 +184,8 @@ class MLP(nnx.Module):
                 # static callable (activation) — no in_features change
                 continue
 
+        self.built = True
+
     def __call__(self, inputs: jax.Array) -> jax.Array:
         """Forward pass through the MLP.
 
@@ -176,6 +194,8 @@ class MLP(nnx.Module):
         :param inputs: Input array with feature dimension on the last axis.
         :returns: Output array with last axis equal to ``out_size``.
         """
+        if not self.built:
+            self.build_from_sample(inputs)
 
         return self.sequential(inputs)
 
