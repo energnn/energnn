@@ -54,4 +54,3 @@ class ModelRegistry(ABC):
         :return: The SimpleAmortizer class corresponding to the specified trainer export.
         """
         raise NotImplementedError
-

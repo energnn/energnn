@@ -7,4 +7,4 @@
 from .model_registry import ModelRegistry
 from .dummy import DummyRegistry
 
-__all__= ["ModelRegistry", "DummyRegistry"]
+__all__ = ["ModelRegistry", "DummyRegistry"]
