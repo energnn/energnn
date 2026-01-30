@@ -229,7 +229,6 @@ def test_remove_instance_present_and_absent(monkeypatch):
         res = client.remove_instance("n", "c", 1)
         assert res is True
 
-
 # Tests for dataset register/download/remove
 @patch("uuid.uuid4")
 def test_register_dataset_success_and_fail(mock_uuid, tmp_path):

@@ -54,8 +54,10 @@ def _maybe_flax_init_with_output(encoder, *, rngs, context):
     """
     res = encoder.init_with_output(rngs=rngs, context=context)
     # Flax style: (output, params)
-    if isinstance(res, tuple) and len(res) == 2 and not (
-        isinstance(res[0], tuple) and len(res[0]) == 2 and isinstance(res[1], dict)
+    if (
+        isinstance(res, tuple)
+        and len(res) == 2
+        and not (isinstance(res[0], tuple) and len(res[0]) == 2 and isinstance(res[1], dict))
     ):
         output, params = res
         infos = {}
@@ -86,6 +88,7 @@ def _maybe_apply(encoder, params, context, get_info=False):
         output = res
         infos = {}
     return output, infos
+
 
 def assert_encoder_vmap_jit_output(*, params: dict, encoder: Encoder, context: JaxGraph):
     def apply(params, context, get_info):
@@ -183,8 +186,18 @@ def test_mlp_encoder_single_shapes_and_feature_names(mlp_encoder):
 
 def test_mlp_encoder_handles_none_feature_array_gracefully():
     # Build a JaxGraph with one edge having feature_array=None
-    edge_with_none = JaxEdge(address_dict=jax_context.edges["node"].address_dict, feature_array=None, feature_names=None, non_fictitious=jax_context.edges["node"].non_fictitious)
-    custom_graph = JaxGraph(edges={"node": edge_with_none, "edge": jax_context.edges["edge"]}, non_fictitious_addresses=jax_context.non_fictitious_addresses, true_shape=jax_context.true_shape, current_shape=jax_context.current_shape)
+    edge_with_none = JaxEdge(
+        address_dict=jax_context.edges["node"].address_dict,
+        feature_array=None,
+        feature_names=None,
+        non_fictitious=jax_context.edges["node"].non_fictitious,
+    )
+    custom_graph = JaxGraph(
+        edges={"node": edge_with_none, "edge": jax_context.edges["edge"]},
+        non_fictitious_addresses=jax_context.non_fictitious_addresses,
+        true_shape=jax_context.true_shape,
+        current_shape=jax_context.current_shape,
+    )
 
     encoder = MLPEncoder(hidden_size=[4], out_size=3, activation=nn.relu)
     rng = jax.random.PRNGKey(3)

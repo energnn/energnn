@@ -87,6 +87,7 @@ class IdentityRemoteMessageFunction(nn.Module, RemoteMessageFunction):
 
     This module returns the node features unchanged as the remote-message.
     It implements the identity mapping on node features:
+
     .. math::
         h^\leadsto_a = h_a
     """

@@ -54,7 +54,9 @@ def test_feature_flat_array_concatenation_order_and_shape():
     # feature_flat_array should concatenate edge A then B (keys sorted)
     flat = jg.feature_flat_array
     # convert to numpy and compare to manual concatenation of each edge's feature_flat_array
-    manual = np.concatenate([np.array(jnp.ravel(jnp.array(e.feature_flat_array))) for _, e in sorted(jg.edges.items())], axis=-1)
+    manual = np.concatenate(
+        [np.array(jnp.ravel(jnp.array(e.feature_flat_array))) for _, e in sorted(jg.edges.items())], axis=-1
+    )
     np.testing.assert_allclose(np.array(flat), manual)
 
 

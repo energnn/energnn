@@ -12,10 +12,7 @@ import pytest
 from energnn.graph.shape import GraphShape
 from energnn.graph.edge import Edge
 from energnn.graph.jax.shape import JaxGraphShape
-from tests.graph.utils import (
-    get_fixed_graphshape,
-    assert_graphshape_equal
-)
+from tests.graph.utils import get_fixed_graphshape, assert_graphshape_equal
 
 
 def test_from_numpy_and_to_numpy_roundtrip():
