@@ -57,7 +57,7 @@ class LazyLinear(nnx.Module):
         self.rngs = rngs
 
         # placeholder for the inner layer
-        self._linear = None
+        self._linear = nnx.data(None)
 
     def create_inner(self, in_features: int) -> None:
         """Create the inner ``nnx.Linear`` with the inferred input dimension.
