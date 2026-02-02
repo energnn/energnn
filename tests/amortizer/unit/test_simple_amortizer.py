@@ -8,7 +8,6 @@ import os
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-import cloudpickle
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -16,22 +15,20 @@ import optax
 import pytest
 
 from energnn.amortizer.simple_amortizer import SimpleAmortizer
-from energnn.graph.jax import JaxEdge, JaxGraph
-from energnn.graph import separate_graphs
-from energnn.normalizer import Preprocessor, Postprocessor
-
-from tests.utils import TestProblemLoader
+from energnn.graph.jax import JaxGraph
+from energnn.normalizer import Postprocessor, Preprocessor
 from tests.amortizer.unit.utils import (
     Decision,
-    FakeJaxGraph,
     FakeGNN,
-    FakeStorage,
-    FakeTracker,
+    FakeJaxGraph,
     FakePostprocessor,
     FakePreprocessor,
-    FakeProblemLoader,
     FakeProblemBatch,
+    FakeProblemLoader,
+    FakeStorage,
+    FakeTracker,
 )
+from tests.utils import TestProblemLoader
 
 
 @pytest.fixture(autouse=True)
@@ -153,7 +150,7 @@ def test_infer_and_infer_batch_delegate_to_forward_without_jit():
         "mask": jax.numpy.ones((B,), dtype=jax.numpy.float32),
     }
     # Single context (no batch axis) is the first element of batch_ctx
-    single_ctx = jax.tree_map(lambda x: x[0], batch_ctx)
+    single_ctx = jax.tree.map(lambda x: x[0], batch_ctx)
 
     # Build amortizer and monkeypatch forward with a simple Python function
     amort, _ = build_amortizer_with_fakes()

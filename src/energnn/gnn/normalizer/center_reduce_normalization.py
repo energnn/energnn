@@ -7,7 +7,7 @@ from energnn.graph.jax import JaxEdge
 
 
 class GraphCenterReduceNorm(nnx.Module):
-    """Graph-level wrapper that maintains an EdgeCenterReduceNorm for each edge key."""
+    """Graph-level wrapper that maintains an EdgeCenterReduceNormalizer for each edge key."""
 
     def __init__(
         self,
@@ -38,7 +38,7 @@ class GraphCenterReduceNorm(nnx.Module):
 
     def _make_module_for_edge(self, edge_key: str, n_features: int) -> None:
         """
-        Create and attach an EdgeCenterReduceNorm submodule for the given edge key.
+        Create and attach an EdgeCenterReduceNormalizer submodule for the given edge key.
 
         :param edge_key: String key identifying the graph edge type.
         :param n_features: Number of features (columns) for this edge.
@@ -73,7 +73,7 @@ class GraphCenterReduceNorm(nnx.Module):
 
     def __call__(self, *, context: JaxGraph, get_info: bool = False) -> tuple[JaxGraph, dict]:
         """
-        Apply normalization to edges within a JaxGraph context using EdgeCenterReduceNorm. This method normalizes the
+        Apply normalization to edges within a JaxGraph context using EdgeCenterReduceNormalizer. This method normalizes the
         edges' feature arrays and updates the associated context graph accordingly.
 
         :param context: JaxGraph representing the graph structure containing edges with feature arrays to be normalized.
@@ -85,7 +85,7 @@ class GraphCenterReduceNorm(nnx.Module):
 
         def apply_norm(edge: JaxEdge, normalizer: EdgeCenterReduceNorm) -> JaxEdge:
             """
-            Apply the EdgeCenterReduceNorm to a single JaxEdge.
+            Apply the EdgeCenterReduceNormalizer to a single JaxEdge.
 
             :param edge: JaxEdge instance.
             :param normalizer: Callable or nnx.Module implementing normalization for the edge.
@@ -138,7 +138,7 @@ class GraphCenterReduceNorm(nnx.Module):
 
 class EdgeCenterReduceNorm(nnx.Module):
     """
-    EdgeCenterReduceNorm normalizes Edge data using a feature-wise mean and variance
+    EdgeCenterReduceNormalizer normalizes Edge data using a feature-wise mean and variance
     calculation while supporting running averages and bias correction.
     """
 

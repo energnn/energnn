@@ -43,7 +43,7 @@ class MLPEncoder(Encoder):
         self.out_size = int(out_size)
         self.activation = activation
         self.mlp_dict: dict = {}
-        self.feature_names = nnx.Dict({f"lat_{i}": jnp.array(i) for i in range(self.out_size)})
+        self.feature_names = nnx.data({f"lat_{i}": jnp.array(i) for i in range(self.out_size)})
 
     def _build_missing_mlps(self, graph: JaxGraph) -> None:
         """Creates an MLP for each edge class appearing in the graph."""

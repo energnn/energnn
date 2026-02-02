@@ -6,10 +6,11 @@
 #
 from copy import deepcopy
 
+import jax.numpy as jnp
 import numpy as np
 from omegaconf import DictConfig
 
-from energnn.graph import Edge, Graph, GraphShape, collate_graphs
+from energnn.graph import Edge, Graph, GraphShape, collate_graphs, separate_graphs
 from energnn.graph.jax import JaxGraph
 from energnn.problem import Problem, ProblemBatch, ProblemLoader, ProblemMetadata
 
@@ -314,3 +315,43 @@ def compare_batched_graphs(*graphs, rtol=1e-6, atol=1e-6):
                 if base_nf.shape != other_nf.shape:
                     raise AssertionError(f"Non-fictitious shapes differ for edge '{key}': {base_nf.shape} vs {other_nf.shape}")
                 np.testing.assert_allclose(base_nf, other_nf, rtol=rtol, atol=atol)
+
+
+n_addr = 10
+n_batch = 4
+d = 2
+dataset_size = 8
+
+
+test_loader = TestProblemLoader(
+    dataset_size=dataset_size,
+    n_batch=n_batch,
+    context_edge_params={
+        "node": {"n_obj": n_addr, "feature_list": ["a", "b"], "address_list": ["0"]},
+        "edge": {"n_obj": n_addr, "feature_list": ["c", "d"], "address_list": ["0", "1"]},
+    },
+    oracle_edge_params={
+        "node": {"n_obj": n_addr, "feature_list": ["e"]},
+        "edge": {"n_obj": n_addr, "feature_list": ["f"]},
+    },
+    n_addr=n_addr,
+    shuffle=True,
+)
+
+pb_batch = next(iter(test_loader))
+np_context_batch, _ = pb_batch.get_context()
+test_context_batch = JaxGraph.from_numpy_graph(np_context_batch)
+np_context = separate_graphs(np_context_batch)[0]
+test_context = JaxGraph.from_numpy_graph(np_context)
+
+np_oracle_batch, _ = pb_batch.get_oracle()
+test_oracle_batch = JaxGraph.from_numpy_graph(np_oracle_batch)
+np_oracle = separate_graphs(np_oracle_batch)[0]
+test_oracle = JaxGraph.from_numpy_graph(np_oracle)
+
+np_test_coordinates_batch = build_coordinates_batch(n_batch=n_batch, n_addr=n_addr, d=d)
+test_coordinates_batch = jnp.array(np_test_coordinates_batch)
+test_coordinates = test_coordinates_batch[0]
+
+
+test_out_structure = {"node": {"e": jnp.array([0])}, "edge": {"f": jnp.array([0])}}
