@@ -18,14 +18,6 @@ from .decoder import Decoder
 
 
 class InvariantDecoder(Decoder, ABC):
-    """
-    Interface for invariant decoders.
-
-    Subclasses must implement the __call__ method to apply the decoder to a JaxGraph object.
-
-    :param seed: Random seed.
-    :param out_size: Size of the output vector.
-    """
 
     def __init__(self, *, seed: int = 0, out_size: int = 64):
         super().__init__(seed=seed)
@@ -67,59 +59,40 @@ class SumInvariantDecoder(InvariantDecoder):
 
     def __init__(
         self,
+        *,
         psi_hidden_size: list[int],
         psi_out_size: int,
         psi_activation: Activation,
         phi_hidden_size: list[int],
         phi_activation: Activation,
-        *,
         out_size: int = 0,
-        rngs: nnx.Rngs | int | None = None,
-        built: bool = False,
+        seed: int = 0,
     ) -> None:
-        if rngs is None:
-            rngs = nnx.Rngs(0)
-        elif isinstance(rngs, int):
-            rngs = nnx.Rngs(rngs)
+        super().__init__(seed=seed, out_size=out_size)
 
         self.psi_hidden_size = [int(h) for h in psi_hidden_size]
         self.psi_out_size = int(psi_out_size)
         self.psi_activation = psi_activation
         self.phi_hidden_size = [int(h) for h in phi_hidden_size]
         self.phi_activation = phi_activation
-        self.out_size = int(out_size)
-        self.rngs = rngs
-        self.built = built
 
         self.psi = MLP(
             hidden_size=self.psi_hidden_size,
             out_size=self.psi_out_size,
             activation=self.psi_activation,
             rngs=self.rngs,
-            name="psi",
         )
         self.phi = MLP(
             hidden_size=self.phi_hidden_size,
             out_size=self.out_size,
             activation=self.phi_activation,
             rngs=self.rngs,
-            name="phi",
         )
 
-    def build_from_sample(self, coordinates: jax.Array):
-        self.psi.build_from_sample(coordinates)
-        self.phi.build_from_sample(jnp.ones((self.psi_out_size,)))
-        self.built = True
-
     def __call__(self, *, graph: JaxGraph, coordinates: jax.Array, get_info: bool = False) -> tuple[jax.Array, dict]:
-
-        if not self.built:
-            self.build_from_sample(coordinates)
-
         h = self.psi(coordinates)
         h = h * jnp.expand_dims(graph.non_fictitious_addresses, -1)
         h = jnp.sum(h, axis=0)
-
         out = self.phi(h)
         return out, {}
 
@@ -134,74 +107,50 @@ class MeanInvariantDecoder(InvariantDecoder):
     where :math:`\phi_\theta` (outer) and :math:`\psi_\theta` (inner) are both trainable MLPs.
 
     :param psi_hidden_size: List of hidden sizes of inner MLP :math:`\psi_\theta`.
-    :param flax.linen.activation psi_activation: Activation function of inner MLP :math:`\psi_\theta`.
+    :param psi_activation: Activation function of inner MLP :math:`\psi_\theta`.
     :param psi_out_size: Output size of inner MLP :math:`\psi_\theta`.
     :param phi_hidden_size: List of hidden sizes of outer MLP :math:`\phi_\theta`.
-    :param flax.linen.activation phi_activation: Activation function of outer MLP :math:`\phi_\theta`.
+    :param phi_activation: Activation function of outer MLP :math:`\phi_\theta`.
     :param out_size: Output size of the decoder.
-    :param built: Boolean to indicate whether the decoder is built.
-    :param rngs: ``nnx.Rngs`` or integer seed used to initialize MLPs.
     """
 
     def __init__(
         self,
+        *,
         psi_hidden_size: list[int],
         psi_out_size: int,
         psi_activation: Activation,
         phi_hidden_size: list[int],
         phi_activation: Activation,
-        *,
         out_size: int = 0,
-        rngs: nnx.Rngs | int | None = None,
-        name: str | None = None,
-        built: bool = False,
+        seed: int = 0,
     ) -> None:
-        if rngs is None:
-            rngs = nnx.Rngs(0)
-        elif isinstance(rngs, int):
-            rngs = nnx.Rngs(rngs)
+        super().__init__(seed=seed, out_size=out_size)
 
         self.psi_hidden_size = [int(h) for h in psi_hidden_size]
         self.psi_out_size = int(psi_out_size)
         self.psi_activation = psi_activation
         self.phi_hidden_size = [int(h) for h in phi_hidden_size]
         self.phi_activation = phi_activation
-        self.out_size = int(out_size)
-        self.rngs = rngs
-        self.built = built
-        self.name = name
 
         self.psi = MLP(
             hidden_size=self.psi_hidden_size,
             out_size=self.psi_out_size,
             activation=self.psi_activation,
             rngs=self.rngs,
-            name="psi",
         )
         self.phi = MLP(
             hidden_size=self.phi_hidden_size,
             out_size=self.out_size,
             activation=self.phi_activation,
             rngs=self.rngs,
-            name="phi",
         )
 
-    def build_from_sample(self, coordinates: jax.Array):
-        self.psi.build_from_sample(coordinates)
-        self.phi.build_from_sample(jnp.ones((self.psi_out_size,)))
-        self.built = True
-
     def __call__(self, *, graph: JaxGraph, coordinates: jax.Array, get_info: bool = False) -> tuple[jax.Array, dict]:
-
-        if not self.built:
-            self.build_from_sample(coordinates)
-
         numerator = self.psi(coordinates)
         numerator = numerator * jnp.expand_dims(graph.non_fictitious_addresses, -1)
         numerator = jnp.sum(numerator, axis=0)
-
-        denominator = jnp.sum(numerator * 0 + 1, axis=0) + 1e-9
-
+        denominator = jnp.sum(graph.non_fictitious_addresses, axis=0) + 1e-9
         return self.phi(numerator / denominator), {}
 
 
@@ -212,27 +161,26 @@ class AttentionInvariantDecoder(InvariantDecoder):
         &v_a^i = v^i_\theta(h_a) \\
         &s_a^i = s^i_\theta(h_a) \\
         &\alpha^i_a = \frac{\exp(s_a^i)}{ \sum_{a' \in \mathcal{A}(x) } \exp(s^i_{a'}) } \\
-        &{v'}_a^i = \sum_{a' \in \mathcal{A}(x)} \alpha_a^i v_a^i \\
-        &\hat{y} = \psi_\theta({v'}_a^1, \dots, {v'}_a^n)
+        &{v'}^i = \sum_{a \in \mathcal{A}(x)} \alpha_a^i v_a^i \\
+        &\hat{y} = \psi_\theta({v'}^1, \dots, {v'}^n)
 
     where :math:`(v^i_\theta)_i` (value), :math:`(s^i_\theta)_i` (score) and :math:`\psi_\theta` (outer) are trainable MLPs.
 
 
     :param n: Number of attention heads.
     :param v_hidden_size: List of hidden sizes of MLPs :math:`(v_\theta)_i`.
-    :param flax.linen.activation v_activation: Activation function of value MLPs :math:`(v_\theta)_i`.
+    :param v_activation: Activation function of value MLPs :math:`(v_\theta)_i`.
     :param v_out_size: Output size of value MLPs :math:`(v_\theta)_i`.
     :param s_hidden_size: List of hidden sizes of score MLP :math:`(s^i_\theta)_i`.
-    :param flax.linen.activation s_activation: Activation function of score MLP :math:`(s^i_\theta)_i`.
+    :param s_activation: Activation function of score MLP :math:`(s^i_\theta)_i`.
     :param psi_hidden_size: List of hidden sizes of outer MLP :math:`\psi_\theta`.
-    :param flax.linen.activation psi_activation: Activation function of outer MLP :math:`\phi_\theta`.
+    :param psi_activation: Activation function of outer MLP :math:`\phi_\theta`.
     :param out_size: Output size of the decoder.
-    :param built: Boolean to indicate whether the decoder is built.
-    :param rngs: ``nnx.Rngs`` or integer seed used to initialize MLPs.
     """
 
     def __init__(
         self,
+        *,
         v_hidden_size: list[int],
         v_activation: Activation,
         v_out_size: int,
@@ -240,16 +188,11 @@ class AttentionInvariantDecoder(InvariantDecoder):
         s_activation: Activation,
         psi_hidden_size: list[int],
         psi_activation: Activation,
-        *,
         out_size: int = 0,
         n: int = 1,
-        rngs: nnx.Rngs | int | None = None,
-        built: bool = False,
+        seed: int = 0,
     ) -> None:
-        if rngs is None:
-            rngs = nnx.Rngs(0)
-        elif isinstance(rngs, int):
-            rngs = nnx.Rngs(rngs)
+        super().__init__(seed=seed, out_size=out_size)
 
         self.v_hidden_size = [int(h) for h in v_hidden_size]
         self.v_activation = v_activation
@@ -260,31 +203,17 @@ class AttentionInvariantDecoder(InvariantDecoder):
         self.psi_activation = psi_activation
         self.out_size = int(out_size)
         self.n = int(n)
-        self.rngs = rngs
-        self.built = built
 
         self.v_mlps = nnx.List(
             [
-                MLP(
-                    hidden_size=self.v_hidden_size,
-                    out_size=self.v_out_size,
-                    activation=self.v_activation,
-                    rngs=self.rngs,
-                    name=f"value-mlp-{i}",
-                )
+                MLP(hidden_size=self.v_hidden_size, out_size=self.v_out_size, activation=self.v_activation, rngs=self.rngs)
                 for i in range(self.n)
             ]
         )
 
         self.s_mlps = nnx.List(
             [
-                MLP(
-                    hidden_size=self.s_hidden_size,
-                    out_size=1,
-                    activation=self.s_activation,
-                    rngs=self.rngs,
-                    name=f"score-mlp-{i}",
-                )
+                MLP(hidden_size=self.s_hidden_size, out_size=1, activation=self.s_activation, rngs=self.rngs)
                 for i in range(self.n)
             ]
         )
@@ -294,21 +223,9 @@ class AttentionInvariantDecoder(InvariantDecoder):
             out_size=self.out_size,
             activation=self.psi_activation,
             rngs=self.rngs,
-            name="psi-mlp",
         )
 
-    def build_from_sample(self, coordinates: jax.Array):
-        for i in range(len(self.v_mlps)):
-            self.v_mlps[i].build_from_sample(coordinates)
-        for i in range(len(self.s_mlps)):
-            self.s_mlps[i].build_from_sample(coordinates)
-        self.psi.build_from_sample(jnp.ones((self.n * self.v_out_size,)))
-        self.built = True
-
     def __call__(self, *, graph: JaxGraph, coordinates: jax.Array, get_info: bool = False) -> tuple[jax.Array, dict]:
-
-        if not self.built:
-            self.build_from_sample(coordinates)
 
         value_list: list[jax.Array] = []
         mask = jnp.expand_dims(graph.non_fictitious_addresses, -1)
