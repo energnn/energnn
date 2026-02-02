@@ -66,12 +66,8 @@ def test_simple_trainer(tmp_path):
         phi_activation=nn.relu,
         phi_final_activation=nn.tanh,
         message_functions=[
-            LocalSumMessageFunction(
-                out_size=4, hidden_size=[8], activation=nn.relu, final_activation=nn.tanh, seed=64
-            ),
-            LocalSumMessageFunction(
-                out_size=4, hidden_size=[8], activation=nn.relu, final_activation=nn.tanh, seed=64
-            ),
+            LocalSumMessageFunction(out_size=4, hidden_size=[8], activation=nn.relu, final_activation=nn.tanh, seed=64),
+            LocalSumMessageFunction(out_size=4, hidden_size=[8], activation=nn.relu, final_activation=nn.tanh, seed=64),
         ],
         latent_dimension=8,
         dt=0.1,

@@ -13,7 +13,6 @@ from typing import Any
 import cloudpickle
 import flatdict
 import jax
-import jax.numpy as jnp
 import numpy as np
 from flax import nnx
 from omegaconf import DictConfig
@@ -274,7 +273,7 @@ class SimpleTrainer:
 
             decision = jax_decision.to_numpy_graph()
             gradient, infos["3_gradient"] = problem_batch.get_gradient(decision=decision, cfg=cfg, get_info=get_info)
-            jax_gradient = JaxGraph.from_numpy_graph(gradient, dtype=jnp.float64)
+            jax_gradient = JaxGraph.from_numpy_graph(gradient)
 
             infos["4_update"] = self.update_params(
                 nnx_optimizer=self.nnx_optimizer,
