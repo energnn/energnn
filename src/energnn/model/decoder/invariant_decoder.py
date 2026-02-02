@@ -7,77 +7,36 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Callable
 
 import jax
 import jax.numpy as jnp
 from flax import nnx
 
-from energnn.gnn_nnx.utils import MLP
 from energnn.graph.jax import JaxGraph
+from energnn.model.utils import Activation, MLP
+from .decoder import Decoder
 
-Activation = Callable[[jax.Array], jax.Array]
 
-
-class InvariantDecoder(ABC):
+class InvariantDecoder(Decoder, ABC):
     """
     Interface for invariant decoders.
 
-    Subclasses must implement methods to initialize parameters and apply the decoder
-    to a JaxGraph object
+    Subclasses must implement the __call__ method to apply the decoder to a JaxGraph object.
 
+    :param seed: Random seed.
     :param out_size: Size of the output vector.
     """
 
-    out_size: int = 0
-
-    def init_with_size(self, *, rngs: jax.Array, context: JaxGraph, coordinates: jax.Array, out_size: int):
-        """
-        Set the size of the decoder output and return initialized decoder weights.
-
-        :param rngs: JAX Pseudo-Random Number Generator (PRNG) array.
-        :param context: Input graph.
-        :param coordinates: Coordinates stored as JAX array.
-        :param out_size: Size of the output vector.
-        :return: Initialized parameters.
-        """
-        self.out_size = out_size
-        return self.init(rngs=rngs, context=context, coordinates=coordinates)
+    def __init__(self, *, seed: int = 0, out_size: int = 64):
+        super().__init__(seed=seed)
+        self.out_size = int(out_size)
 
     @abstractmethod
-    def init(self, *, rngs: jax.Array, context: JaxGraph, coordinates: jax.Array) -> dict:
-        """
-        Should return initialized decoder weights.
-
-        :param rngs: JAX Pseudo-Random Number Generator (PRNG) array.
-        :param context: Input graph.
-        :param coordinates: Coordinates stored as JAX array.
-        :return: Initialized parameters.
-
-        :raises NotImplementedError: if subclass does not override this constructor.
-        """
-        raise NotImplementedError
-
-    @abstractmethod
-    def init_with_output(self, *, context: JaxGraph, coordinates: jax.Array) -> tuple[jax.Array, dict]:
-        """
-        Should return initialized decoder weights and decision vector.
-
-        :param context: Input graph.
-        :param coordinates: Coordinates stored as JAX array.
-        :return: Initialized parameters and decision vector
-
-        :raises NotImplementedError: if subclass does not override this constructor.
-        """
-        raise NotImplementedError
-
-    @abstractmethod
-    def apply(self, params, *, context: JaxGraph, coordinates: jax.Array, get_info: bool = False) -> tuple[jax.Array, dict]:
+    def __call__(self, *, graph: JaxGraph, coordinates: jax.Array, get_info: bool = False) -> tuple[jax.Array, dict]:
         """
         Should return decision vector.
 
-        :param params: Parameters.
-        :param context: Input graph to decode.
+        :param graph: Input graph to decode.
         :param coordinates: Coordinates stored as JAX array.
         :param get_info: If True, returns additional info for tracking purpose.
         :return: Tuple(decision vector, info).
@@ -87,26 +46,7 @@ class InvariantDecoder(ABC):
         raise NotImplementedError
 
 
-class ZeroInvariantDecoder(nnx.Module, InvariantDecoder):
-    r"""
-    Zero invariant decoder that returns a vector of zeros.
-
-    .. math::
-        \hat{y} = [0, \dots, 0]
-
-    :param out_size: Size of the output vector.
-    """
-
-    out_size: int = 0
-
-    def __init__(self, *, out_size: int = 0) -> None:
-        self.out_size = int(out_size)
-
-    def __call__(self, *, context: JaxGraph, coordinates: jax.Array, get_info: bool = False) -> tuple[jax.Array, dict]:
-        return jnp.zeros([self.out_size]), {}
-
-
-class SumInvariantDecoder(nnx.Module, InvariantDecoder):
+class SumInvariantDecoder(InvariantDecoder):
     r"""
     Sum invariant decoder, that sums the information of all addresses.
 
@@ -171,20 +111,20 @@ class SumInvariantDecoder(nnx.Module, InvariantDecoder):
         self.phi.build_from_sample(jnp.ones((self.psi_out_size,)))
         self.built = True
 
-    def __call__(self, *, context: JaxGraph, coordinates: jax.Array, get_info: bool = False) -> tuple[jax.Array, dict]:
+    def __call__(self, *, graph: JaxGraph, coordinates: jax.Array, get_info: bool = False) -> tuple[jax.Array, dict]:
 
         if not self.built:
             self.build_from_sample(coordinates)
 
         h = self.psi(coordinates)
-        h = h * jnp.expand_dims(context.non_fictitious_addresses, -1)
+        h = h * jnp.expand_dims(graph.non_fictitious_addresses, -1)
         h = jnp.sum(h, axis=0)
 
         out = self.phi(h)
         return out, {}
 
 
-class MeanInvariantDecoder(nnx.Module, InvariantDecoder):
+class MeanInvariantDecoder(InvariantDecoder):
     r"""
     Mean invariant decoder, that averages the information of all addresses.
 
@@ -251,21 +191,21 @@ class MeanInvariantDecoder(nnx.Module, InvariantDecoder):
         self.phi.build_from_sample(jnp.ones((self.psi_out_size,)))
         self.built = True
 
-    def __call__(self, *, context: JaxGraph, coordinates: jax.Array, get_info: bool = False) -> tuple[jax.Array, dict]:
+    def __call__(self, *, graph: JaxGraph, coordinates: jax.Array, get_info: bool = False) -> tuple[jax.Array, dict]:
 
         if not self.built:
             self.build_from_sample(coordinates)
 
         numerator = self.psi(coordinates)
-        numerator = numerator * jnp.expand_dims(context.non_fictitious_addresses, -1)
+        numerator = numerator * jnp.expand_dims(graph.non_fictitious_addresses, -1)
         numerator = jnp.sum(numerator, axis=0)
 
         denominator = jnp.sum(numerator * 0 + 1, axis=0) + 1e-9
 
-        return self.phi(numerator / denominator) * jnp.expand_dims(context.non_fictitious_addresses, -1), {}
+        return self.phi(numerator / denominator), {}
 
 
-class AttentionInvariantDecoder(nnx.Module, InvariantDecoder):
+class AttentionInvariantDecoder(InvariantDecoder):
     r"""Attention invariant decoder, that weights addresses contribution with an attention mechanism.
 
     .. math::
@@ -365,13 +305,13 @@ class AttentionInvariantDecoder(nnx.Module, InvariantDecoder):
         self.psi.build_from_sample(jnp.ones((self.n * self.v_out_size,)))
         self.built = True
 
-    def __call__(self, *, context: JaxGraph, coordinates: jax.Array, get_info: bool = False) -> tuple[jax.Array, dict]:
+    def __call__(self, *, graph: JaxGraph, coordinates: jax.Array, get_info: bool = False) -> tuple[jax.Array, dict]:
 
         if not self.built:
             self.build_from_sample(coordinates)
 
         value_list: list[jax.Array] = []
-        mask = jnp.expand_dims(context.non_fictitious_addresses, -1)
+        mask = jnp.expand_dims(graph.non_fictitious_addresses, -1)
 
         for i in range(self.n):
             v = self.v_mlps[i](coordinates)

@@ -4,22 +4,21 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 # SPDX-License-Identifier: MPL-2.0
 #
-# from .equivariant_decoder import EquivariantDecoder, ZeroEquivariantDecoder, MLPEquivariantDecoder
+from .decoder import Decoder
+from .equivariant_decoder import EquivariantDecoder, MLPEquivariantDecoder
 from .invariant_decoder import (
-    InvariantDecoder,
-    ZeroInvariantDecoder,
-    SumInvariantDecoder,
-    MeanInvariantDecoder,
     AttentionInvariantDecoder,
+    InvariantDecoder,
+    MeanInvariantDecoder,
+    SumInvariantDecoder,
 )
 
 __all__ = [
-    # "EquivariantDecoder",
-    # "ZeroEquivariantDecoder",
-    # "MLPEquivariantDecoder",
+    "EquivariantDecoder",
+    "MLPEquivariantDecoder",
     "InvariantDecoder",
-    "ZeroInvariantDecoder",
     "SumInvariantDecoder",
     "MeanInvariantDecoder",
     "AttentionInvariantDecoder",
+    "Decoder",
 ]
