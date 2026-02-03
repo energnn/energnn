@@ -413,6 +413,89 @@ class SimpleTrainer:
 
         return infos
 
+    def __getstate__(self):
+        """
+        Return a picklable state. Replace JAX PRNG keys by a serializable marker:
+        {'__jax_prng_key__': numpy_array_of_key_bits}.
+        This avoids cloudpickle trying to pickle PRNGKeyArray/KeyArray objects.
+        Only traverse common container types (dict, list, tuple, set).
+        For other objects, keep them as-is (cloudpickle will try to pickle them).
+        """
+
+        def _serialize(obj):
+            # dict
+            if isinstance(obj, dict):
+                return {k: _serialize(v) for k, v in obj.items()}
+            # list
+            if isinstance(obj, list):
+                return [_serialize(v) for v in obj]
+            # tuple (covers namedtuple as well)
+            if isinstance(obj, tuple):
+                seq = [_serialize(v) for v in obj]
+                # For tuple subclasses (namedtuple), call constructor with unpacked args.
+                try:
+                    return type(obj)(*seq)
+                except Exception:
+                    # Fallback to plain tuple if reconstruction fails
+                    return tuple(seq)
+            # set
+            if isinstance(obj, set):
+                return {_serialize(v) for v in obj}
+            # Try to treat as a JAX PRNG key: key_data raises if not a key
+            try:
+                key_bits = jax.random.key_data(obj)
+            except Exception:
+                # Not a PRNG key: return as-is (let pickle handle it)
+                return obj
+            else:
+                # convert to numpy array (serializable) and mark
+                return {"__jax_prng_key__": np.asarray(key_bits)}
+
+        raw_state = self.__dict__.copy()
+        return _serialize(raw_state)
+
+    def __setstate__(self, state):
+        """
+        Reconstruct the object state from the serialized form produced by __getstate__.
+        Tries to reconstruct PRNG key objects with jax.random.wrap_key_data() when possible.
+        If wrap_key_data is unavailable, leaves the numpy representation in place.
+        """
+        logger = logging.getLogger(__name__)
+
+        def _deserialize(obj):
+            # dict that encodes a PRNG key marker?
+            if isinstance(obj, dict):
+                if "__jax_prng_key__" in obj and len(obj) == 1:
+                    bits = np.asarray(obj["__jax_prng_key__"])
+                    try:
+                        key = jax.random.wrap_key_data(bits)
+                        return key
+                    except Exception:
+                        logger.debug(
+                            "jax.random.wrap_key_data unavailable/failed while unpickling PRNG key; "
+                            "restoring numpy array of key bits instead."
+                        )
+                        return bits
+                # general dict: recurse
+                return {k: _deserialize(v) for k, v in obj.items()}
+            # list/tuple
+            if isinstance(obj, list):
+                return [_deserialize(v) for v in obj]
+            if isinstance(obj, tuple):
+                seq = [_deserialize(v) for v in obj]
+                try:
+                    return type(obj)(*seq)
+                except Exception:
+                    return tuple(seq)
+            # set
+            if isinstance(obj, set):
+                return {_deserialize(v) for v in obj}
+            # leaf
+            return obj
+
+        recovered = _deserialize(state)
+        self.__dict__.update(recovered)
+
     def save(self, *, name: str, directory: str) -> None:
         """Saves an amortizer as a .pkl file.
 
