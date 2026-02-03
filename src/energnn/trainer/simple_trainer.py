@@ -13,6 +13,7 @@ from typing import Any
 import cloudpickle
 import flatdict
 import jax
+import jax.numpy as jnp
 import numpy as np
 from flax import nnx
 from omegaconf import DictConfig
@@ -275,11 +276,13 @@ class SimpleTrainer:
             gradient, infos["3_gradient"] = problem_batch.get_gradient(decision=decision, cfg=cfg, get_info=get_info)
             jax_gradient = JaxGraph.from_numpy_graph(gradient)
 
+            jax_cotangent = self._cast_cotangent_to_primal_dtype(jax_gradient, jax_decision)
+
             infos["4_update"] = self.update_params(
                 nnx_optimizer=self.nnx_optimizer,
                 model=self.model,
                 model_vjp=model_vjp,
-                gradient=jax_gradient,
+                gradient=jax_cotangent,
                 get_info=get_info,
             )
 
@@ -344,6 +347,22 @@ class SimpleTrainer:
         :param get_info: Whether to return intermediate diagnostics or not.
         """
         return model(context, get_info=get_info)
+
+    def _cast_cotangent_to_primal_dtype(self, cotangent_pytree, primal_pytree):
+        """
+        Cast each leaf in `cotangent_pytree` to the dtype of the corresponding leaf in `primal_pytree`.
+        Leaves that don't appear to have a .dtype are returned unchanged.
+        """
+
+        def _cast_leaf(c, p):
+            try:
+                target_dtype = p.dtype
+            except Exception:
+                # Keep the original cotangent leaf if we cannot read dtype
+                return c
+            return jnp.asarray(c, dtype=target_dtype)
+
+        return jax.tree.map(_cast_leaf, cotangent_pytree, primal_pytree)
 
     # @partial(jit, static_argnames=("self", "get_info"))
     def update_params(
