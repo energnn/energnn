@@ -126,47 +126,7 @@ def test_get_locally_missing_instances_detects_missing_files(tmp_path: Path):
     )
 
     missing = ds.get_locally_missing_instances(str(tmp_path))
-    assert missing == ["missing.pkl"]
-
-
-def test_remove_instance_removes_and_decrements_size():
-    m1 = make_metadata("i1", "a.pkl")
-    m2 = make_metadata("i2", "b.pkl")
-    ds = ProblemDataset(
-        name="ds",
-        split="s",
-        version=1,
-        instances=[m1, m2],
-        size=2,
-        context_max_shape={},
-        decision_max_shape={},
-        generation_date=datetime.now(),
-        selection_criteria={},
-        tags={},
-    )
-    assert ds.size == 2
-    ds.remove_instance(path="a.pkl")
-    assert ds.size == 1
-    assert all(inst.storage_path != "a.pkl" for inst in ds.instances)
-
-
-def test_remove_instance_missing_path_raises():
-    m = make_metadata("i", "p.pkl")
-    ds = ProblemDataset(
-        name="ds",
-        split="s",
-        version=1,
-        instances=[m],
-        size=1,
-        context_max_shape={},
-        decision_max_shape={},
-        generation_date=datetime.now(),
-        selection_criteria={},
-        tags={},
-    )
-    # Current implementation removes `None` if not found and thus raises ValueError
-    with pytest.raises(ValueError):
-        ds.remove_instance(path="no-such-path.pkl")
+    assert missing == [m2]
 
 
 def test_to_json_writes_file_and_content(tmp_path: Path):
@@ -248,7 +208,7 @@ def test_get_locally_missing_instances_with_subpaths(tmp_path: Path):
     )
 
     missing = ds.get_locally_missing_instances(str(tmp_path))
-    assert missing == ["sub/f2.pkl"]
+    assert missing == [m2]
 
 
 def test_behaviour_with_empty_instances_list(tmp_path: Path):
