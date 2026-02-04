@@ -11,7 +11,7 @@ import jax.numpy as jnp
 import numpy as np
 from unittest.mock import MagicMock
 
-from energnn.model_registry import ModelRegistry
+from energnn.trainer_registry import TrainerRegistry
 
 
 class FakeJaxGraph:

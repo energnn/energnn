@@ -18,7 +18,7 @@ import jax.numpy as jnp
 import numpy as np
 import optax
 
-from energnn.amortizer.metadata import AmortizerMetadata
+from energnn.amortizer.metadata import TrainerMetadata
 from energnn.amortizer.utils import TaskLogger
 from energnn.gnn import EquivariantGNN
 from energnn.graph import Graph, separate_graphs
@@ -32,7 +32,7 @@ from optax import GradientTransformation
 from tqdm import tqdm
 
 if TYPE_CHECKING:
-    from energnn.model_registry.model_registry import ModelRegistry
+    from energnn.trainer_registry.trainer_registry import TrainerRegistry
 
 
 # Types
@@ -136,7 +136,7 @@ class SimpleAmortizer:
         val_loader: ProblemLoader,
         problem_cfg: DictConfig,
         n_epochs: int,
-        registry: ModelRegistry,
+        registry: TrainerRegistry,
         tracker: Tracker,
         log_period: int | None = 1,
         save_period: int | None = 1,
@@ -210,7 +210,7 @@ class SimpleAmortizer:
 
         return self.best_metrics
 
-    def run_evaluation(self, *, val_loader, cfg: DictConfig, tracker: Tracker, registry: ModelRegistry):
+    def run_evaluation(self, *, val_loader, cfg: DictConfig, tracker: Tracker, registry: TrainerRegistry):
         """
         Runs an evaluation and saves the model if it returns better metrics than the best one.
 
@@ -445,8 +445,8 @@ class SimpleAmortizer:
             normalizer = cloudpickle.load(handle)
         return normalizer
 
-    def get_metadata(self) -> AmortizerMetadata:
-        return AmortizerMetadata(
+    def get_metadata(self) -> TrainerMetadata:
+        return TrainerMetadata(
             project_name=self.project_name,
             name=self.__class__.__name__,
             run_id=self.run_id,

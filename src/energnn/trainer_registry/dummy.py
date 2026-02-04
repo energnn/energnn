@@ -5,15 +5,15 @@
 # SPDX-License-Identifier: MPL-2.0
 #
 from energnn.amortizer import SimpleAmortizer
-from energnn.amortizer.metadata import AmortizerMetadata
-from energnn.model_registry import ModelRegistry
+from energnn.amortizer.metadata import TrainerMetadata
+from energnn.trainer_registry import TrainerRegistry
 
 
-class DummyRegistry(ModelRegistry):
+class DummyRegistry(TrainerRegistry):
     def register_trainer(self, trainer: SimpleAmortizer, best: bool = False, last: bool = False) -> bool:
         pass
 
-    def get_trainer_metadata(self, project_name: str, run_id: str, step: int) -> AmortizerMetadata | None:
+    def get_trainer_metadata(self, project_name: str, run_id: str, step: int) -> TrainerMetadata | None:
         pass
 
     def download_trainer(self, project_name: str, run_id: str, step: int) -> SimpleAmortizer:

@@ -10,11 +10,11 @@ import os
 from pathlib import Path
 
 from energnn.amortizer import SimpleAmortizer
-from energnn.amortizer.metadata import AmortizerMetadata
-from energnn.model_registry import ModelRegistry
+from energnn.amortizer.metadata import TrainerMetadata
+from energnn.trainer_registry import TrainerRegistry
 
 
-class LocalRegistry(ModelRegistry):
+class LocalRegistry(TrainerRegistry):
     """
     Local implementation model registry for storing and retrieving trained models locally.
 
@@ -28,7 +28,7 @@ class LocalRegistry(ModelRegistry):
     def register_trainer(self, trainer: SimpleAmortizer, best: bool = False, last: bool = False) -> bool:
         save_name = f"{trainer.project_name}_{trainer.run_id}_{trainer.train_step}_{best}_{last}"
         save_dir = self.local_directory / save_name
-        metadata: AmortizerMetadata = trainer.get_metadata()
+        metadata: TrainerMetadata = trainer.get_metadata()
         metadata["best"] = best
         metadata["last"] = last
         os.makedirs(save_dir, exist_ok=True)
@@ -37,14 +37,14 @@ class LocalRegistry(ModelRegistry):
             json.dump(metadata, f)
         return True
 
-    def get_trainer_metadata(self, project_name: str, run_id: str, step: int) -> AmortizerMetadata | None:
+    def get_trainer_metadata(self, project_name: str, run_id: str, step: int) -> TrainerMetadata | None:
         key = f"{project_name}_{run_id}_{step}"
         stored_trainers = os.listdir(self.local_directory)
         for trainer_name in stored_trainers:
             if trainer_name.startswith(key):
                 metadata_path = self.local_directory / trainer_name / "metadata.json"
                 with open(metadata_path, "r") as f:
-                    return AmortizerMetadata(**json.load(f))
+                    return TrainerMetadata(**json.load(f))
         logging.error(f"Trainer with key {key} not found in local directory.")
         return None
 

@@ -7,14 +7,14 @@
 from abc import ABC, abstractmethod
 
 from energnn.amortizer import SimpleAmortizer
-from energnn.amortizer.metadata import AmortizerMetadata
+from energnn.amortizer.metadata import TrainerMetadata
 
 
-class ModelRegistry(ABC):
-    """Abstract base class for model registries.
+class TrainerRegistry(ABC):
+    """Abstract base class for trainer registries.
 
-    A model registry implementation is necessary for the train method of SimpleAmortizer to work.
-    It provides methods for registering, retrieving, and deleting models, as well as for listing all registered models.
+    A trainer registry implementation is necessary for the train method of SimpleAmortizer to work.
+    It provides methods for registering, retrieving, and deleting trainer, as well as for listing all registered trainers for a given project.
     """
 
     @abstractmethod
@@ -32,7 +32,7 @@ class ModelRegistry(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def get_trainer_metadata(self, project_name: str, run_id: str, step: int) -> AmortizerMetadata | None:
+    def get_trainer_metadata(self, project_name: str, run_id: str, step: int) -> TrainerMetadata | None:
         """
         Retrieves the metadata corresponding to the specified trainer export.
 

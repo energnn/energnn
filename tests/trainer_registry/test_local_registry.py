@@ -5,7 +5,7 @@
 # SPDX-License-Identifier: MPL-2.0
 #
 from energnn.amortizer import SimpleAmortizer
-from energnn.model_registry import LocalRegistry
+from energnn.trainer_registry import LocalRegistry
 from unittest.mock import MagicMock
 
 def test_local_registry(tmp_path):

@@ -4,6 +4,6 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 # SPDX-License-Identifier: MPL-2.0
 #
-from energnn import amortizer, graph, gnn, normalizer, problem, tracker, feature_store, model_registry
+from energnn import amortizer, graph, gnn, normalizer, problem, tracker, feature_store, trainer_registry
 
 __all__ = ["amortizer", "graph", "gnn", "normalizer", "problem", "tracker", "feature_store", "model_registry"]

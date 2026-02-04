@@ -19,7 +19,7 @@ from energnn.gnn.coupler.coupling_function import SumLocalMessageFunction
 from energnn.gnn.coupler.solving_method import NeuralODESolvingMethod
 from energnn.gnn.decoder import MLPEquivariantDecoder
 from energnn.gnn.utils import MLP
-from energnn.model_registry import LocalRegistry
+from energnn.trainer_registry import LocalRegistry
 from energnn.normalizer import Postprocessor, Preprocessor
 from energnn.normalizer.normalization_function import CenterReduceFunction
 from energnn.tracker import DummyTracker
