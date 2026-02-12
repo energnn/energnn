@@ -1,6 +1,6 @@
-==============
+================
 Trainer registry
-==============
+================
 
 .. currentmodule:: energnn.trainer_registry
 
