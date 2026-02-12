@@ -14,4 +14,4 @@ of energnn classes and methods.
     graph_neural_network/index
     tracker/index
     feature_store/index
-    model_registry/index
+    trainer_registry/index

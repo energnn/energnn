@@ -1,16 +1,16 @@
 ==============
-Model registry
+Trainer registry
 ==============
 
-.. currentmodule:: energnn.model_registry
+.. currentmodule:: energnn.trainer_registry
 
-A **model registry** must be defined in order to use a :class:`SimpleAmortizer` train method.
+A **trainer registry** must be defined in order to use a :class:`SimpleAmortizer` train method.
 It is used by the trainer to store and reference trainer snapshots during the training process, in order to reuse them after.
 
-A valid implementation of :class:'ModelRegistry' must respect the following interface :
+A valid implementation of :class:'TrainerRegistry' must respect the following interface :
 
 
-.. autoclass:: ModelRegistry
+.. autoclass:: TrainerRegistry
     :no-members:
     :show-inheritance:
 
@@ -18,12 +18,12 @@ A valid implementation of :class:'ModelRegistry' must respect the following inte
     :toctree: _autosummary
     :nosignatures:
 
-    ModelRegistry.register_trainer
-    ModelRegistry.get_trainer_metadata
-    ModelRegistry.download_trainer
+    TrainerRegistry.register_trainer
+    TrainerRegistry.get_trainer_metadata
+    TrainerRegistry.download_trainer
 
 
-The :class:'LocalRegistry' is a local implementation of a :class:'ModelRegistry', that stores the trainers in a local directory.
+The :class:'LocalRegistry' is a local implementation of a :class:'TrainerRegistry', that stores the trainers in a local directory.
 
 .. autoclass:: LocalRegistry
     :no-members:
