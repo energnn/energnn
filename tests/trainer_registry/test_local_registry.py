@@ -9,7 +9,7 @@ from energnn.trainer_registry import LocalRegistry
 from unittest.mock import MagicMock
 
 def test_local_registry(tmp_path):
-    registry = LocalRegistry(tmp_path)
+    registry = LocalRegistry("test_amortizer", tmp_path)
 
     amortizer: SimpleAmortizer = MagicMock()
     amortizer.project_name = "test_amortizer"
@@ -25,12 +25,12 @@ def test_local_registry(tmp_path):
     assert (tmp_path / f"{key}_False_False").exists()
     amortizer.save.assert_called_with(name="trainer.pkl", directory=str(tmp_path / f"{key}_False_False"))
 
-    stored_metadata = registry.get_trainer_metadata(amortizer.project_name, amortizer.run_id, amortizer.train_step)
+    stored_metadata = registry.get_trainer_metadata(amortizer.run_id, amortizer.train_step)
     metadata["last"] = False
     metadata["best"] = False
     assert stored_metadata == metadata
 
     SimpleAmortizer.load = MagicMock(return_value=amortizer)
-    stored_amortizer = registry.download_trainer(amortizer.project_name, amortizer.run_id, amortizer.train_step)
+    stored_amortizer = registry.download_trainer(amortizer.run_id, amortizer.train_step)
     assert stored_amortizer == amortizer
     SimpleAmortizer.load.assert_called_with(str(tmp_path / f"{key}_False_False" / "trainer.pkl"))

@@ -59,7 +59,7 @@ tracker = DummyTracker()
 
 
 def test_create(tmp_path):
-    registry = LocalRegistry(tmp_path)
+    registry = LocalRegistry(project_name="test-amortizer", local_directory=tmp_path)
 
     preprocessor = Preprocessor(f=CenterReduceFunction())
     postprocessor = Postprocessor(f=CenterReduceFunction())
@@ -103,7 +103,7 @@ def test_create(tmp_path):
         tracker=tracker,
     )
 
-    new_amortizer = registry.download_trainer(project_name="test-amortizer", run_id="test-run", step=2)
+    new_amortizer = registry.download_trainer(run_id="test-run", step=2)
 
     _ = new_amortizer.train(
         train_loader=train_loader,
