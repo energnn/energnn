@@ -18,11 +18,14 @@ class LocalRegistry(TrainerRegistry):
     """
     Local implementation model registry for storing and retrieving trained models locally.
 
+    :param project_name: Name of the project.
     :param local_directory: Path to the local directory where models are stored.
     """
+    project_name: str
     local_directory: Path
 
-    def __init__(self, local_directory: Path):
+    def __init__(self, project_name: str, local_directory: Path):
+        self.project_name = project_name
         self.local_directory = local_directory
 
     def register_trainer(self, trainer: SimpleAmortizer, best: bool = False, last: bool = False) -> bool:
@@ -37,8 +40,8 @@ class LocalRegistry(TrainerRegistry):
             json.dump(metadata, f)
         return True
 
-    def get_trainer_metadata(self, project_name: str, run_id: str, step: int) -> TrainerMetadata | None:
-        key = f"{project_name}_{run_id}_{step}"
+    def get_trainer_metadata(self, run_id: str, step: int) -> TrainerMetadata | None:
+        key = f"{self.project_name}_{run_id}_{step}"
         stored_trainers = os.listdir(self.local_directory)
         for trainer_name in stored_trainers:
             if trainer_name.startswith(key):
@@ -48,8 +51,8 @@ class LocalRegistry(TrainerRegistry):
         logging.error(f"Trainer with key {key} not found in local directory.")
         return None
 
-    def download_trainer(self, project_name: str, run_id: str, step: int) -> SimpleAmortizer | None:
-        key = f"{project_name}_{run_id}_{step}"
+    def download_trainer(self, run_id: str, step: int) -> SimpleAmortizer | None:
+        key = f"{self.project_name}_{run_id}_{step}"
         stored_trainers = os.listdir(self.local_directory)
         for trainer_name in stored_trainers:
             if trainer_name.startswith(key):

@@ -8,7 +8,6 @@
 class TrainerMetadata(dict):
     """Metadata of a SimpleAmortizer instance.
 
-    :param name: Name of the instance.
     :param run_id: Identifier of the run in which the trainer was created.
     :param training_step: Step at which the trainer was stored.
     :param parent_run_id: If this run was started from another one, identifier of the run from which the trainer was created.
@@ -17,7 +16,6 @@ class TrainerMetadata(dict):
     :param tags: Dictionary of tags associated with the trainer.
     """
     project_name: str
-    name: str
     run_id: str
     training_step: int
     parent_run_id: str

@@ -401,8 +401,7 @@ class FeatureStoreClient(TrainerRegistry):
         logger.info(f"Successfully registered trainer {trainer_name}")
         return True
 
-
-    def get_trainer_metadata(self, run_id: str, step: int) -> TrainerMetadata | None:
+    def get_trainer_metadata(self, run_id: str, step: int, **kwargs) -> TrainerMetadata | None:
         """
         Retrieves metadata of a specific trainer from the feature store by run_id and step.
 
@@ -425,20 +424,22 @@ class FeatureStoreClient(TrainerRegistry):
         :param step: Training step of the run at which the trainer was registered.
         :return: The corresponding SimpleAmortizer instance if it exists, None otherwise.
         """
-        metadata = self.get_trainer_metadata(self.project_name, run_id, step)
+        metadata = self.get_trainer_metadata(run_id, step)
         if metadata is None:
             raise Exception(f"Trainer generated on step {step} during run {run_id} does not exist.")
         storage_path = metadata["storage_path"]
-        local_path = output_dir / storage_path
-        if not local_path.exists():
-            trainer_key = {"project_name": self.project_name, "run_id": run_id, "training_step": step}
-            response = requests.get(url=self.trainer_url + "/download", params=trainer_key)
-            if response.status_code != 200:
-                raise Exception(f"Error while trying to download trainer : {response.json()['message']}.")
-            return write_zip_from_response(response, output_dir, unzip=True)
-        else:
-            logger.info(f"Trainer generated on step {step} during run {run_id} already downloaded")
-        return SimpleAmortizer.load(local_path / f"{metadata['run_id']}_{metadata['training_step']}")
+        with TemporaryDirectory() as output_dir_name:
+            output_dir = Path(output_dir_name)
+            local_path = output_dir / storage_path
+            if not local_path.exists():
+                trainer_key = {"project_name": self.project_name, "run_id": run_id, "training_step": step}
+                response = requests.get(url=self.trainer_url + "/download", params=trainer_key)
+                if response.status_code != 200:
+                    raise Exception(f"Error while trying to download trainer : {response.json()['message']}.")
+                write_zip_from_response(response, output_dir, unzip=True)
+            else:
+                logger.info(f"Trainer generated on step {step} during run {run_id} already downloaded")
+            return SimpleAmortizer.load(local_path / f"{metadata['run_id']}_{metadata['training_step']}")
 
 
 def write_zip_from_response(response: requests.Response, output_dir: Path, unzip: bool) -> Path:

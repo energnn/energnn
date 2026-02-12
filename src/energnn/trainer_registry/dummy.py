@@ -13,8 +13,8 @@ class DummyRegistry(TrainerRegistry):
     def register_trainer(self, trainer: SimpleAmortizer, best: bool = False, last: bool = False) -> bool:
         pass
 
-    def get_trainer_metadata(self, project_name: str, run_id: str, step: int) -> TrainerMetadata | None:
+    def get_trainer_metadata(self, run_id: str, step: int) -> TrainerMetadata | None:
         pass
 
-    def download_trainer(self, project_name: str, run_id: str, step: int) -> SimpleAmortizer:
+    def download_trainer(self, run_id: str, step: int) -> SimpleAmortizer:
         pass

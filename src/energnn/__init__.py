@@ -6,4 +6,4 @@
 #
 from energnn import amortizer, graph, gnn, normalizer, problem, tracker, feature_store, trainer_registry
 
-__all__ = ["amortizer", "graph", "gnn", "normalizer", "problem", "tracker", "feature_store", "model_registry"]
+__all__ = ["amortizer", "graph", "gnn", "normalizer", "problem", "tracker", "feature_store", "trainer_registry"]
