@@ -1,117 +1,124 @@
-#
 # Copyright (c) 2025, RTE (http://www.rte-france.com)
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
-#
 
 import diffrax
-import flax.linen as nn
-import jax.numpy as jnp
 import optax
+import orbax.checkpoint as ocp
 from flax import nnx
 
 from energnn.model import (
     CenterReduceNormalizer,
     LocalSumMessageFunction,
+    MLP,
     MLPEncoder,
     MLPEquivariantDecoder,
     NeuralODECoupler,
     SimpleGNN,
 )
-from energnn.storage import DummyStorage
-from energnn.tracker import DummyTracker
 from energnn.trainer import SimpleTrainer
 from tests.utils import TestProblemLoader
 
-train_loader = TestProblemLoader(
-    dataset_size=8,
-    n_batch=4,
-    context_edge_params={
-        "node": {"n_obj": 10, "feature_list": ["a", "b"], "address_list": ["0"]},
-        "edge": {"n_obj": 10, "feature_list": ["c", "d"], "address_list": ["0", "1"]},
-    },
-    oracle_edge_params={
-        "node": {"n_obj": 10, "feature_list": ["e"]},
-        "edge": {"n_obj": 10, "feature_list": ["f"]},
-    },
-    n_addr=10,
-    shuffle=True,
-)
-
-val_loader = TestProblemLoader(
-    dataset_size=8,
-    n_batch=4,
-    context_edge_params={
-        "node": {"n_obj": 10, "feature_list": ["a", "b"], "address_list": ["0"]},
-        "edge": {"n_obj": 10, "feature_list": ["c", "d"], "address_list": ["0", "1"]},
-    },
-    oracle_edge_params={
-        "node": {"n_obj": 10, "feature_list": ["e"]},
-        "edge": {"n_obj": 10, "feature_list": ["f"]},
-    },
-    n_addr=10,
-    shuffle=True,
-)
-
-storage = DummyStorage()
-tracker = DummyTracker()
-
 
 def test_simple_trainer(tmp_path):
-    normalizer = CenterReduceNormalizer(update_limit=1000, use_running_average=False)
-    encoder = MLPEncoder(hidden_size=[16], activation=nnx.relu, out_size=7, seed=64)
+
+    train_loader = TestProblemLoader(seed=0)
+    val_loader = TestProblemLoader(seed=1)
+
+    normalizer = CenterReduceNormalizer(
+        update_limit=1000,
+        in_structure=train_loader.context_structure,
+    )
+    encoder = MLPEncoder(
+        in_structure=train_loader.context_structure,
+        hidden_sizes=[],
+        final_activation=nnx.leaky_relu,
+        out_size=4,
+        seed=64,
+    )
     coupler = NeuralODECoupler(
-        phi_hidden_size=[16],
-        phi_activation=nn.relu,
-        phi_final_activation=nn.tanh,
+        phi=MLP(in_size=4, hidden_sizes=[], out_size=4, seed=64, final_activation=nnx.tanh),
         message_functions=[
-            LocalSumMessageFunction(out_size=4, hidden_size=[8], activation=nn.relu, final_activation=nn.tanh, seed=64),
-            LocalSumMessageFunction(out_size=4, hidden_size=[8], activation=nn.relu, final_activation=nn.tanh, seed=64),
+            LocalSumMessageFunction(
+                in_graph_structure=train_loader.context_structure,
+                in_array_size=4,
+                out_size=4,
+                hidden_sizes=[4],
+                activation=nnx.leaky_relu,
+                final_activation=nnx.tanh,
+                outer_activation=nnx.tanh,
+                encoded_feature_size=4,
+                seed=64,
+            )
         ],
-        latent_dimension=8,
-        dt=0.1,
+        dt=0.25,
         stepsize_controller=diffrax.ConstantStepSize(),
         adjoint=diffrax.RecursiveCheckpointAdjoint(),
         solver=diffrax.Euler(),
-        max_steps=1000,
-        seed=64,
+        max_steps=10,
     )
 
     decoder = MLPEquivariantDecoder(
-        out_structure={"node": {"e": jnp.array([0])}, "edge": {"f": jnp.array([0])}},
-        hidden_size=[16],
-        activation=nnx.relu,
+        in_array_size=4,
+        in_graph_structure=train_loader.context_structure,
+        encoded_feature_size=4,
+        out_structure=train_loader.decision_structure,
+        hidden_sizes=[4],
+        activation=nnx.leaky_relu,
         seed=64,
     )
     model = SimpleGNN(normalizer=normalizer, encoder=encoder, coupler=coupler, decoder=decoder)
-    trainer = SimpleTrainer(model=model, optimizer=optax.adam(1e-3))
+
+    ckpt_manager = ocp.CheckpointManager(
+        directory=tmp_path / "test_trainer", options=ocp.CheckpointManagerOptions(max_to_keep=10)
+    )
+
+    trainer = SimpleTrainer(
+        model=model,
+        gradient_transformation=optax.adam(1e-3),
+    )
 
     _ = trainer.train(
         train_loader=train_loader,
         val_loader=val_loader,
+        checkpoint_manager=ckpt_manager,
         n_epochs=1,
-        log_period=10,
-        eval_period=10,
-        out_dir=tmp_path,
-        last_id="last",
-        best_id="best",
-        storage=storage,
-        tracker=tracker,
+        log_period=None,
+        eval_period=None,
+        progress_bar=True,
+        eval_before_training=False,
+        eval_after_epoch=True,
     )
+    metrics_1 = trainer.run_evaluation(val_loader=val_loader, progress_bar=True)
 
-    path_amortizer = tmp_path / "last"
-    new_amortizer = SimpleTrainer.load(path_amortizer)
-
-    _ = new_amortizer.train(
+    _ = trainer.train(
         train_loader=train_loader,
         val_loader=val_loader,
+        checkpoint_manager=ckpt_manager,
         n_epochs=1,
-        log_period=10,
-        eval_period=10,
-        out_dir=tmp_path,
-        last_id="last",
-        best_id="best",
-        storage=storage,
-        tracker=tracker,
+        log_period=None,
+        eval_period=None,
+        progress_bar=True,
+        eval_before_training=False,
+        eval_after_epoch=False,
     )
+    metrics_2 = trainer.run_evaluation(val_loader=val_loader, progress_bar=True)
+
+    trainer.load_checkpoint(ckpt_manager, step=4)
+    metrics_3 = trainer.run_evaluation(val_loader=val_loader, progress_bar=True)
+
+    _ = trainer.train(
+        train_loader=train_loader,
+        val_loader=val_loader,
+        checkpoint_manager=ckpt_manager,
+        n_epochs=1,
+        log_period=None,
+        eval_period=None,
+        progress_bar=True,
+        eval_before_training=False,
+        eval_after_epoch=False,
+    )
+    metrics_4 = trainer.run_evaluation(val_loader=val_loader, progress_bar=True)
+
+    assert metrics_1 == metrics_3 != metrics_2 == metrics_4

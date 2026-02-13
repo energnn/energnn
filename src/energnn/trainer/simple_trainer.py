@@ -155,7 +155,8 @@ class SimpleTrainer:
 
         for _ in tqdm(range(1, n_epochs + 1), desc="Training", unit="epoch", disable=not progress_bar):
 
-            for problem_batch in tqdm(train_loader, desc="Current epoch", leave=False, unit="batch", disable=not progress_bar):
+            for problem_batch in tqdm(train_loader, desc="Current epoch", unit="batch", disable=not progress_bar):
+                # for problem_batch in tqdm(train_loader, desc="Current epoch", leave=False, unit="batch", disable=not progress_bar):
 
                 # Perform one training step
                 if (log_period is not None) and (self.train_step % log_period == 0) and (tracker is not None):
@@ -247,7 +248,9 @@ class SimpleTrainer:
             "step": self.train_step,
             "metrics": metrics,
         }
-        saved = checkpoint_manager.save(self.train_step, args=ocp.args.StandardSave(checkpoint_data))
+        saved = checkpoint_manager.save(
+            self.train_step, args=ocp.args.Composite(default=ocp.args.StandardSave(checkpoint_data))
+        )
         if saved:
             local_path = checkpoint_manager.directory / str(self.train_step)
         else:
@@ -269,7 +272,10 @@ class SimpleTrainer:
         _, model_state = nnx.split(self.model)
         _, opt_state = nnx.split(self.optimizer)
         abstract_checkpoint_data = {"model": model_state, "optimizer": opt_state, "step": self.train_step, "metrics": 0.0}
-        restored = checkpoint_manager.restore(step, args=ocp.args.StandardRestore(abstract_checkpoint_data))
+        restored = checkpoint_manager.restore(
+            step, args=ocp.args.Composite(default=ocp.args.StandardRestore(abstract_checkpoint_data))
+        )
+        restored = restored["default"]
         nnx.update(self.model, restored["model"])
         nnx.update(self.optimizer, restored["optimizer"])
         self.train_step = restored["step"]
