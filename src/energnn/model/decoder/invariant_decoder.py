@@ -96,5 +96,3 @@ class MeanInvariantDecoder(InvariantDecoder):
         numerator = jnp.sum(numerator, axis=0)
         denominator = jnp.sum(graph.non_fictitious_addresses, axis=0) + 1e-9
         return self.phi(numerator / denominator), {}
-
-

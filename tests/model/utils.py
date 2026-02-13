@@ -15,6 +15,7 @@ from flax.core.frozen_dict import freeze, unfreeze
 from energnn.gnn.coupler.coupling_function import CouplingFunction
 from energnn.gnn.coupler.solving_method import SolvingMethod
 from energnn.graph.jax import JaxGraph
+
 # from energnn.gnn.coupler import Coupler
 from energnn.model.coupler import Coupler
 

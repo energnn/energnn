@@ -16,7 +16,8 @@ import pytest
 
 from energnn.feature_store.feature_store_client import (
     FeatureStoreClient,
-    MissingDatasetError, write_zip_from_response,
+    MissingDatasetError,
+    write_zip_from_response,
 )
 from energnn.problem.metadata import ProblemMetadata
 from energnn.problem.dataset import ProblemDataset
@@ -99,7 +100,6 @@ def test_register_config_new_success(mock_uuid):
             pass
 
 
-
 def test_get_configs_and_get_config_metadata(monkeypatch):
     client = FeatureStoreClient(project_name="proj", feature_store_url="http://fs")
 
@@ -163,6 +163,7 @@ def test_register_instance_success_and_http_fail(mock_uuid, tmp_path):
     with patch("requests.post", return_value=DummyResponse(status_code=500)):
         res = client.register_instance(problem2)
         assert res is False
+
 
 def test_get_instances_and_get_instance_metadata(monkeypatch):
     client = FeatureStoreClient(project_name="proj", feature_store_url="http://fs")
@@ -228,6 +229,7 @@ def test_remove_instance_present_and_absent(monkeypatch):
     with patch("requests.delete", return_value=DummyResponse(status_code=200)) as delete_mock:
         res = client.remove_instance("n", "c", 1)
         assert res is True
+
 
 # Tests for dataset register/download/remove
 @patch("uuid.uuid4")
@@ -332,8 +334,13 @@ def test_download_dataset_downloads_instances(monkeypatch, tmp_path):
     # monkeypatch ProblemDataset.from_pickle to return our fake_dataset
     with patch("energnn.feature_store.feature_store_client.ProblemDataset.from_pickle", return_value=fake_dataset):
         # case 1: storage not almost full -> should attempt to download each missing instance
-        monkeypatch.setattr("energnn.feature_store.feature_store_client.write_zip_from_response", lambda res, d, unzip: local_path)
-        with patch.object(client, "download_instance", return_value=None) as dl, patch("requests.get", return_value=DummyResponse(status_code=200)) as dl2:
+        monkeypatch.setattr(
+            "energnn.feature_store.feature_store_client.write_zip_from_response", lambda res, d, unzip: local_path
+        )
+        with (
+            patch.object(client, "download_instance", return_value=None) as dl,
+            patch("requests.get", return_value=DummyResponse(status_code=200)) as dl2,
+        ):
             ds = client.download_dataset("name", "train", 1, output_dir, download_instances=True)
             # ensure we return the dataset object
             assert ds is fake_dataset
