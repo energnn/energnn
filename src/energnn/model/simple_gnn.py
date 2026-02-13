@@ -52,3 +52,25 @@ class SimpleGNN(nnx.Module):
         latent_coordinates, info["coupling"] = self.coupler(graph=encoded_graph, get_info=get_info)
         output, info["decoding"] = self.decoder(coordinates=latent_coordinates, graph=encoded_graph, get_info=get_info)
         return output, info
+
+    def forward_batch(self, *, graph: JaxGraph, get_info: bool = False) -> tuple[JaxGraph | jax.Array, dict]:
+        """Applies the model to a batch of graphs.
+
+        Only the encoder, coupler, and decoder modules are vmapped, while the normalization module is not.
+
+        :param graph: Batch of input graphs.
+        :param get_info: Whether to return additional information about the processing steps.
+        """
+
+        def apply_core(encoder, coupler, decoder, graph, get_info):
+            info = {}
+            encoded_graph, info["encoding"] = encoder(graph=graph, get_info=get_info)
+            latent_coordinates, info["coupling"] = coupler(graph=encoded_graph, get_info=get_info)
+            output, info["decoding"] = decoder(coordinates=latent_coordinates, graph=encoded_graph, get_info=get_info)
+            return output, info
+
+        normalized_graph, info_norm = self.normalizer(graph=graph, get_info=get_info)
+        output, info_core = jax.vmap(apply_core, in_axes=[None, None, None, 0, None], out_axes=0)(
+            self.encoder, self.coupler, self.decoder, normalized_graph, get_info
+        )
+        return output, info_norm | info_core
