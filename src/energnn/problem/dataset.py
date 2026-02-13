@@ -71,31 +71,18 @@ class ProblemDataset(dict):
         res["generation_date"] = str(self.generation_date)
         return res
 
-    def get_locally_missing_instances(self, path: str) -> list[str]:
+    def get_locally_missing_instances(self, path: str) -> list[ProblemMetadata]:
         """
-        Identify instances whose storage files are missing in a local directory.
+        Identify instances whose files are missing in a local directory.
 
         :param path: Base directory where instance files should be stored.
-        :returns: List of relative file paths not present under `path`.
+        :returns: List of metadata of instances not present under `path`.
         """
         return [
-            instance.storage_path
+            instance
             for instance in self.instances
             if not os.path.exists(os.path.join(path, instance.storage_path))
         ]
-
-    def remove_instance(self, *, path: str):
-        """
-        Removes an instance from the dataset.
-
-        :param path: Base directory where instance files should be stored.
-        """
-        self["size"] -= 1
-        missing_instance = None
-        for instance in self["instances"]:
-            if instance.storage_path == path:
-                missing_instance = instance
-        self["instances"].remove(missing_instance)
 
     def get_instance_paths(self) -> list[str]:
         """

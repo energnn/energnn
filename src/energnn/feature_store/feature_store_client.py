@@ -5,9 +5,13 @@
 # SPDX-License-Identifier: MPL-2.0
 #
 import hashlib
+import io
+import json
 import logging
+import os
 import shutil
 import uuid
+import zipfile
 from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -18,7 +22,6 @@ from energnn.feature_store.config_info import ProblemGenerationConfigInfo
 from energnn.problem import Problem
 from energnn.problem import ProblemDataset
 from energnn.problem.metadata import ProblemMetadata
-from energnn.storage import Storage
 
 logger = logging.getLogger(__name__)
 
@@ -30,22 +33,19 @@ class FeatureStoreClient:
 
     This client allows registering, retrieving, and downloading configuration files,
     problem instances, and datasets related to an EnerGNN project. It manages metadata
-    and data storage through HTTP requests to a remote feature store and a storage backend.
+    and data storage through HTTP requests to a remote feature store
 
-    :param storage: Where the bulk of the data is stored.
     :param project_name: Identifies the EnerGNN project, for HTTP requests to the feature store and storage location.
     :param feature_store_url: Where to send the requests to.
     """
 
-    storage: Storage
     project_name: str
     feature_store_url: str
     config_url: str
     instance_url: str
     dataset_url: str
 
-    def __init__(self, *, storage: Storage, project_name: str, feature_store_url: str):
-        self.storage = storage
+    def __init__(self, *, project_name: str, feature_store_url: str):
         self.project_name = project_name
         self.feature_store_url = feature_store_url
         self.config_url = self.feature_store_url + "/config"
@@ -62,47 +62,24 @@ class FeatureStoreClient:
         :param config_id: Identifier to reference the configuration.
         :return: True if the configuration is registered successfully, False otherwise.
         """
-        # Check identity of the config to store
-        hash_func = hashlib.new("md5")
 
         with open(config_path, "rb") as file:
+            hash_func = hashlib.new("md5")
             hash_func.update(file.read())
             local_hash: str = hash_func.hexdigest()
-        already_stored = self._check_config_identity(config_id, local_hash)
+        storage_uuid = uuid.uuid4()
+        register_info = {"config_id": config_id, "hash": local_hash, "tags": {}, "storage_path": str(storage_uuid)}
 
-        if not already_stored:
-            # Send the config to the storage (with UUID name)
-            storage_uuid = uuid.uuid4()
-            target_path = self.project_name + "/config/" + str(storage_uuid)
-            self.storage.upload(source_path=config_path, target_path=target_path)
-
-            # Reference the config in the database
-            register_info = {"config_id": config_id, "hash": local_hash, "tags": {}, "storage_path": str(storage_uuid)}
-            response = requests.post(url=self.config_url, params={"project_name": self.project_name}, json=register_info)
-            if response.status_code != 200:
-                logger.error(response.json())
-                return False
-        return True
-
-    def _check_config_identity(self, config_id: str, local_hash: str) -> bool:
-        """
-        Checks whether a given configuration hash matches the stored one.
-
-        :param config_id: Configuration identifier.
-        :param local_hash: Hash of the local configuration.
-        :return: True if hashes match or no previous config exists; False if config not found.
-        :raises RuntimeError: If the hash does not match the stored configuration.
-        """
-        stored_config: ProblemGenerationConfigInfo | None = self.get_config_metadata(config_id)
-        if stored_config is None:
+        zip_files_to_send(config_path)
+        with open(config_path + ".zip", "rb") as file:
+            response = requests.post(url=self.config_url,
+                                     params={"project_name": self.project_name},
+                                     files={"config_file": file,
+                                            "config": (None, json.dumps(register_info), "application/json")})
+        if response.status_code != 200:
+            logger.error(response.json())
             return False
-        else:
-            expected_hash = stored_config["hash"]
-            if local_hash != expected_hash:
-                raise RuntimeError(
-                    "Configuration file does not match the stored one for this config id,"
-                    + " change the id if real changes have been made to the file."
-                )
+        os.remove(config_path + ".zip")
         return True
 
     def get_configs_metadata(self) -> list[ProblemGenerationConfigInfo]:
@@ -133,15 +110,19 @@ class FeatureStoreClient:
         :param config_id: Configuration identifier.
         :return: True if the configuration has been removed, False instead.
         """
-        stored_config: ProblemGenerationConfigInfo | None = self.get_config_metadata(config_id)
-        if stored_config is None:
-            return False
         response = requests.delete(url=self.config_url, params={"project_name": self.project_name, "config_id": config_id})
         if response.status_code != 200:
             logger.error(response.json())
             return False
-        self.storage.delete(self.project_name + "/config/" + str(stored_config["storage_path"]))
         return True
+
+    def download_config(self, config_id: str, output_dir: Path, unzip: bool = True) -> Path:
+        response = requests.get(url=self.config_url + "/download",
+                                params={"project_name": self.project_name, "config_id": config_id})
+        if response.status_code != 200:
+            raise Exception(f"Error while trying to download configuration {config_id} for project {self.project_name}"
+                            f" : {response.json()['message']}.")
+        return write_zip_from_response(response, output_dir, unzip)
 
     def register_instance(self, instance: Problem) -> bool:
         """
@@ -157,15 +138,15 @@ class FeatureStoreClient:
             tmp_dir_path = Path(tmp_dir_name)
             instance_path = tmp_dir_path / instance_infos.name
             instance.save(path=instance_path)
-            self.storage.upload(
-                source_path=str(instance_path), target_path=self.project_name + "/instances/" + distant_storage_name
-            )
-            response = requests.post(url=self.instance_url, json=instance_infos, params={"project_name": self.project_name})
+            zip_files_to_send(str(instance_path))
+            with open(str(instance_path) + ".zip", "rb") as file:
+                response = requests.post(url=self.instance_url,
+                                         params={"project_name": self.project_name},
+                                         files={"instance_file": file,
+                                                "instance": (None, json.dumps(instance_infos), "application/json")})
             if response.status_code != 200:
                 logger.error(response.json())
-                self.storage.delete(target_path=self.project_name + "/instances/" + distant_storage_name)
                 return False
-
         return True
 
     def get_instances_metadata(
@@ -214,7 +195,7 @@ class FeatureStoreClient:
             return None
         return response.json()
 
-    def download_instance(self, name: str, config_id: str, code_version: int, output_dir: Path) -> Path:
+    def download_instance(self, name: str, config_id: str, code_version: int, output_dir: Path, unzip: bool = True) -> Path:
         """
         Downloads a registered problem instance if not already available locally.
 
@@ -222,16 +203,22 @@ class FeatureStoreClient:
         :param config_id: Configuration identifier.
         :param code_version: Code version.
         :param output_dir: Directory where to save the instance.
+        :param unzip: If True, unzip the downloaded file.
         :return: Local path of the downloaded instance.
         :raises Exception: If the instance does not exist in the feature store.
         """
         metadata = self.get_instance_metadata(name, config_id, code_version)
         if metadata is None:
-            raise Exception(f"Instance with name '{name}', config ID '{config_id}' and version {code_version} does not exist")
+            raise Exception(f"Instance with name '{name}', config ID '{config_id}' and version {code_version} does not exist.")
         storage_path = metadata["storage_path"]
         local_path = output_dir / storage_path
         if not local_path.exists():
-            self.storage.download(source_path=self.project_name + "/instances/" + storage_path, target_path=str(local_path))
+            instance_key = {"project_name": self.project_name, "name": name,
+                            "config_id": config_id, "code_version": code_version}
+            response = requests.get(url=self.instance_url + "/download", params=instance_key)
+            if response.status_code != 200:
+                raise Exception(f"Error while trying to download instance : {response.json()['message']}.")
+            return write_zip_from_response(response, output_dir, unzip)
         else:
             logger.info(f"Instance with name '{name}', config ID '{config_id}' and version {code_version} already downloaded")
         return local_path
@@ -245,10 +232,6 @@ class FeatureStoreClient:
         :param code_version: Code version of the problem to retrieve.
         :return: True if the instance was cleanly removed, False otherwise.
         """
-        metadata: ProblemMetadata = self.get_instance_metadata(name, config_id, code_version)
-        if metadata is None:
-            return False
-        self.storage.delete(target_path=self.project_name + "/instances/" + metadata["storage_path"])
         instance_key = {"project_name": self.project_name, "name": name, "config_id": config_id, "code_version": code_version}
         response = requests.delete(url=self.instance_url, params=instance_key)
         if response.status_code != 200:
@@ -270,19 +253,19 @@ class FeatureStoreClient:
         storage_path = str(uuid.uuid4())
         dataset_infos = dataset.get_infos_for_feature_store()
         dataset_infos["storage_path"] = storage_path
-        response = requests.post(url=self.dataset_url, json=dataset_infos, params={"project_name": self.project_name})
-        if response.status_code != 200:
-            logger.error(response.json())
-            return False
-
         with TemporaryDirectory() as tmp_dir_name:
             tmp_dir_path = Path(tmp_dir_name)
             dataset_file_path = tmp_dir_path / dataset_file_name
             dataset.to_pickle(str(dataset_file_path))
-            self.storage.upload(
-                source_path=str(dataset_file_path), target_path=self.project_name + "/datasets/" + storage_path
-            )
-
+            zip_files_to_send(str(dataset_file_path))
+            with open(str(dataset_file_path) + ".zip", "rb") as file:
+                response = requests.post(url=self.dataset_url,
+                                         params={"project_name": self.project_name},
+                                         files={"dataset_file": file,
+                                                "dataset": (None, json.dumps(dataset_infos), "application/json")})
+            if response.status_code != 200:
+                logger.error(response.json())
+                return False
         return True
 
     def get_datasets_metadata(self):
@@ -318,13 +301,14 @@ class FeatureStoreClient:
     ) -> ProblemDataset:
         """
         Downloads a dataset from the feature store, using its unique identifier (name, split, version).
-        All Problem instances of the dataset are downloaded locally if they are not already available.
+        All Problem instances of the dataset are downloaded locally (if they are not already available) if the
+        download_instances parameter is set to True.
 
         :param name: Dataset name.
         :param split: Dataset split.
         :param version: Dataset version
         :param output_dir: Local directory to store the dataset and its instances.
-        :param download_instances: If True, downloads missing instances of the dataset.
+        :param download_instances: If True, downloads instances of the dataset not already available locally.
         :return: A ProblemDataset object, containing the metadata of the downloaded dataset and its instances' ProblemMetadata.
         :raises MissingDatasetError: If the dataset does not exist in the feature store.
         """
@@ -335,7 +319,11 @@ class FeatureStoreClient:
         storage_path = metadata["storage_path"]
         local_path = output_dir / storage_path
         if not local_path.exists():
-            self.storage.download(source_path=f"{self.project_name}/datasets/{storage_path}", target_path=str(local_path))
+            dataset_key = {"project_name": self.project_name, "name": name, "split": split, "version": version}
+            response = requests.get(url=self.dataset_url + "/download", params=dataset_key)
+            if response.status_code != 200:
+                raise Exception(f"Error while trying to download dataset : {response.json()['message']}.")
+            write_zip_from_response(response, output_dir, unzip=False)
         else:
             logger.info(f"Dataset file for {key} already downloaded")
         dataset: ProblemDataset = ProblemDataset.from_pickle(local_path / key)
@@ -347,33 +335,22 @@ class FeatureStoreClient:
                 logger.info(f"All of {key} instances already downloaded")
             else:
                 logger.info(f"Downloading problem instances of {key} missing locally ({len(to_download)} instances).")
-            for path in to_download:
-                if storage_almost_full(str(output_dir)):
-                    dataset.remove_instance(path=path)
-                    logger.info(f"Removing problem instance {path} from dataset because disk is almost full.")
-                else:
-                    try:
-                        self.storage.download(
-                            source_path=f"{self.project_name}/instances/{path}",
-                            target_path=str(output_dir / path),
-                            unzip=False,
-                        )
-                    except Exception as e:
-                        logger.error(e)
-                        dataset.remove_instance(path=path)
-                        logger.info(f"Removing problem instance {path} from dataset.")
+            for instance in to_download:
+                try:
+                    self.download_instance(name=instance.name, config_id=instance.config_id,
+                                           code_version=instance.code_version, output_dir=output_dir,
+                                           unzip=False)
+                except OSError as exc:
+                    logger.error(f"Error while downloading instances : {exc} "
+                                 f"(still {len(to_download) - to_download.index(instance)} to download).")
+                    break
 
         return dataset
 
     def remove_dataset(self, name: str, split: str, version: int) -> bool:
         str_key = f"{name}_{split}_{version}"
         dataset_key = {"project_name": self.project_name, "name": name, "split": split, "version": version}
-        metadata = self.get_dataset_metadata(name, split, version)
-        if metadata is None:
-            logger.error(f"Dataset {str_key} does not exist")
-            return False
-        self.storage.delete(target_path=f"{self.project_name}/instances/{metadata['storage_path']}")
-        response = requests.get(url=self.dataset_url, params=dataset_key)
+        response = requests.delete(url=self.dataset_url, params=dataset_key)
         if response.status_code != 200:
             logger.error(response.json())
             return False
@@ -381,12 +358,24 @@ class FeatureStoreClient:
         return True
 
 
-def storage_almost_full(path: str):
-    stat = shutil.disk_usage(path)
-    if stat.used / stat.total > 0.9:
-        return True
+def write_zip_from_response(response: requests.Response, output_dir: Path, unzip: bool) -> Path:
+    filename = response.headers["Content-Disposition"].split("filename=")[1][1:-1]
+    local_path = output_dir / filename
+    if not unzip:
+        with open(local_path, "wb") as file:
+            file.write(response.content)
     else:
-        return False
+        with zipfile.ZipFile(io.BytesIO(response.content)) as zip_file:
+            os.mkdir(local_path)
+            zip_file.extractall(local_path)
+    return local_path
+
+
+def zip_files_to_send(source_path: str):
+    if os.path.isdir(source_path):
+        shutil.make_archive(source_path, "zip", source_path)
+    else:
+        zipfile.ZipFile(source_path + ".zip", mode="w").write(source_path, os.path.basename(source_path))
 
 
 class MissingDatasetError(Exception):
