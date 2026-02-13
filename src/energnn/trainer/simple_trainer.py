@@ -155,8 +155,7 @@ class SimpleTrainer:
 
         for _ in tqdm(range(1, n_epochs + 1), desc="Training", unit="epoch", disable=not progress_bar):
 
-            for problem_batch in tqdm(train_loader, desc="Current epoch", unit="batch", disable=not progress_bar):
-                # for problem_batch in tqdm(train_loader, desc="Current epoch", leave=False, unit="batch", disable=not progress_bar):
+            for problem_batch in tqdm(train_loader, desc="Current epoch", leave=False, unit="batch", disable=not progress_bar):
 
                 # Perform one training step
                 if (log_period is not None) and (self.train_step % log_period == 0) and (tracker is not None):
