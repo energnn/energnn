@@ -24,7 +24,7 @@ dependencies = [
     "cloudpickle<3",
     "neptune==1.13.0",
     "neptune-scale==0.13.0",
-    "flatdict==4.0.1",
+    "flatdict==4.0.0",
     "fastdigest==0.8.3",
 ]
 
