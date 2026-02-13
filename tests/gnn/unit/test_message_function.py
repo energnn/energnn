@@ -8,7 +8,6 @@ import chex
 import jax
 import jax.numpy as jnp
 import numpy as np
-from flax.core.frozen_dict import unfreeze, freeze
 
 from energnn.gnn.coupler.coupling_function import (
     EmptyLocalMessageFunction,
@@ -17,17 +16,14 @@ from energnn.gnn.coupler.coupling_function import (
     IdentityLocalMessageFunction,
     IdentityRemoteMessageFunction,
     IdentitySelfMessageFunction,
-    LocalMessageFunction,
     MLPSelfMessageFunction,
-    RemoteMessageFunction,
-    SelfMessageFunction,
     SumLocalMessageFunction,
 )
 from energnn.gnn.utils import gather, scatter_add
 from energnn.graph import separate_graphs
-from energnn.graph.jax import JaxGraph, JaxEdge
-from tests.utils import TestProblemLoader
+from energnn.graph.jax import JaxEdge, JaxGraph
 from tests.gnn.utils import set_dense_layers_to_identity_or_zero
+from tests.utils import TestProblemLoader
 
 # deterministic
 np.random.seed(0)
