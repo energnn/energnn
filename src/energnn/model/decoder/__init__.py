@@ -7,7 +7,6 @@
 from .decoder import Decoder
 from .equivariant_decoder import EquivariantDecoder, MLPEquivariantDecoder
 from .invariant_decoder import (
-    AttentionInvariantDecoder,
     InvariantDecoder,
     MeanInvariantDecoder,
     SumInvariantDecoder,
@@ -19,6 +18,5 @@ __all__ = [
     "InvariantDecoder",
     "SumInvariantDecoder",
     "MeanInvariantDecoder",
-    "AttentionInvariantDecoder",
     "Decoder",
 ]

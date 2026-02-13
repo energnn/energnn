@@ -3,7 +3,10 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 # SPDX-License-Identifier: MPL-2.0
-#
+
+from functools import partial
+from typing import Any, Sequence
+
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -12,34 +15,14 @@ from flax import nnx
 from jax import ShapeDtypeStruct
 from jax.experimental import io_callback
 
+from energnn.graph import GraphStructure
 from energnn.graph.jax import JaxEdge, JaxGraph
 from .normalizer import Normalizer
-
-# Public registries used by host callbacks to store TDigest instances and per-digest locks.
-GLOBAL_DIGEST_REGISTRY: dict[int, TDigest] = {}
-
-
-def _ensure_digest(key: int, max_centroids: int):
-    """
-    Ensure a TDigest instance and its per-digest lock exist for the given `key`.
-
-    This function is thread-safe: it acquires a global registry lock for the
-    creation step to avoid a race where multiple threads create/overwrite the
-    same registry entry concurrently.
-
-    :param key: Integer key identifying the TDigest instance in the global registry.
-    :param max_centroids: Maximum number of centroids to allocate when constructing
-        a new TDigest.
-    :return: None
-    """
-
-    if key not in GLOBAL_DIGEST_REGISTRY:
-        GLOBAL_DIGEST_REGISTRY[key] = TDigest(max_centroids=max_centroids)
 
 
 def _merge_equal_quantiles_host(p: np.ndarray, q: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """
-    Resolve equal-quantile conflicts by averaging probabilities for identical quantile values.
+    Resolves equal-quantile conflicts by averaging probabilities for identical quantile values.
 
     When some adjacent quantiles in `q` are equal (zero slope), this function
     computes a merged probability vector per feature so the piecewise-linear CDF
@@ -47,289 +30,313 @@ def _merge_equal_quantiles_host(p: np.ndarray, q: np.ndarray) -> tuple[np.ndarra
     algorithm groups identical quantile values per column and averages the
     corresponding probabilities.
 
-    :param p: Probability grid as a 1-D array of length K (values in [0,1]).
-    :param q: Quantiles matrix of shape (K, F), where K = len(p) and F is the
-        number of features. Each column q[:, f] contains quantiles for feature f.
+    :param p: Probability grid as a 2-D array of shape (K, F) (values in [0,1]).
+    :param q: Quantiles matrix of shape (K, F).
+        Each column q[:, f] contains quantiles for feature f.
     :return: Tuple (p_merged, q_merged) where both have shape (K, F) and p_merged
         contains the merged/averaged probabilities per unique quantile value
         per feature, and q_merged is equal to `q` (cast to float32).
     """
     K, F = q.shape
-    p_vec = np.asarray(p).reshape(K)
     p_out = np.zeros((K, F), dtype=np.float32)
     q_out = q.astype(np.float32)
     for f in range(F):
         qf = q_out[:, f]
+        pf = p[:, f]
         vals, inv, counts = np.unique(qf, return_inverse=True, return_counts=True)
         sum_p_per_unique = np.zeros_like(vals, dtype=np.float64)
-        np.add.at(sum_p_per_unique, inv, p_vec)
+        np.add.at(sum_p_per_unique, inv, pf)
         avg_p_per_unique = sum_p_per_unique / counts
         p_out[:, f] = avg_p_per_unique[inv].astype(np.float32)
     return p_out, q_out
 
 
-def _host_update_and_extract_multi(
-    batch_np: np.ndarray, digest_keys_np: np.ndarray, p_grid_np: np.ndarray, max_centroids_np: np.ndarray
-):
+def _ingest_new_data(
+    max_centroids: Sequence[int],
+    min_val: Sequence[float],
+    max_val: Sequence[float],
+    centroids_m: np.ndarray,
+    centroids_c: np.ndarray,
+    fp: np.ndarray,
+    xp: np.ndarray,
+    array: np.ndarray,
+    mask: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
-    Host-side callback: update TDigests with provided samples and extract quantiles.
+    Host-side callback to update T-Digest statistics using the fastdigest library.
 
-    This function is intended to be called via `jax.experimental.io_callback`. It:
-      - ensures a TDigest exists for each feature key,
-      - updates each TDigest with the samples for that feature (column),
-      - extracts quantiles at the requested probability grid,
-      - merges equal quantiles (resolve zero-slope segments) per feature,
-      - returns xp and fp arrays suitable to be stored as device-side BatchStat fields.
+    This function processes a batch of data, updates the underlying T-Digest structures,
+    and extracts new interpolation points (xp, fp) for the normalization.
 
-    The expected shapes and types:
-      - `batch_np`: 2-D array of shape (N, F) containing samples (N = B * n_items, F features).
-      - `digest_keys_np`: 1-D integer array of shape (F,) giving the registry key per feature.
-      - `p_grid_np`: 1-D float array of shape (K,) giving the probability grid in [0,1].
-      - `max_centroids_np`: scalar int specifying max centroids for creation (if needed).
-
-    The returned values are `(xp, fp)` where:
-      - `xp` has shape (K, F) and contains quantile values for each p in the grid,
-      - `fp` has shape (K, F) and contains mapped probabilities scaled to [-1, 1]
-        (calculated as `-1 + 2 * p_merged`).
-
-    :param batch_np: Numpy array shape (N, F) with samples flattened across batch & items.
-    :param digest_keys_np: Numpy array shape (F,) of integer digest registry keys.
-    :param p_grid_np: Numpy array shape (K,) of probability points in ascending order.
-    :param max_centroids_np: Scalar (or length-1 array) specifying maximum centroids.
-    :return: Tuple (xp, fp) both numpy arrays with shape (K, F) and dtype float32.
+    :param max_centroids: Maximum number of centroids allowed for each feature.
+    :param min_val: Current minimum value for each feature.
+    :param max_val: Current maximum value for each feature.
+    :param centroids_m: Centroid means for each feature.
+    :param centroids_c: Centroid counts for each feature.
+    :param fp: Interpolation probabilities (mapped to [-1, 1]).
+    :param xp: Interpolation quantiles.
+    :param array: New data batch of shape (N, F) or (B, N, F).
+    :param mask: Mask for valid data.
+    :return: Updated state variables for the TDigest modules.
     """
-    batch = np.asarray(batch_np)
-    digest_keys = np.asarray(digest_keys_np).astype(int)
-    p_grid = np.asarray(p_grid_np).astype(np.float32)
-    max_centroids = int(np.asarray(max_centroids_np).item())
-    K = p_grid.shape[0]
-    F = batch.shape[1]
-    q_matrix = np.zeros((K, F), dtype=np.float32)
+    # Variables are individual numpy arrays
+    # array has shape (N, F) or (B, N, F)
+    # mask has shape (N, 1) or (B, N, 1)
 
-    # Ensure all digests exist
-    for k in digest_keys.tolist():
-        _ensure_digest(int(k), max_centroids)
+    if array.ndim == 3:
+        # Batched: (B, N, F)
+        B, N, F = array.shape
+        array = array.reshape(B * N, F)
+        mask = mask.reshape(B * N, 1)
+    else:
+        N, F = array.shape
 
-    # Update & extract per-feature using the per-feature digest (host-side)
-    for f in range(F):
-        key = int(digest_keys[f])
-        d = GLOBAL_DIGEST_REGISTRY[key]
-        col = batch[:, f].reshape(-1)
-        d.batch_update(col)
-        q_list = [d.quantile(float(p)) for p in p_grid]
-        q_matrix[:, f] = np.asarray(q_list).reshape(K)
+    # Apply mask
+    mask = mask.flatten().astype(bool)
+    array = array[mask]
 
-    # merge equal quantiles column-wise and compute fp
-    p_merged, q_merged = _merge_equal_quantiles_host(p_grid, q_matrix)
-    xp = q_merged.astype(np.float32)
-    fp = (-1.0 + 2.0 * p_merged).astype(np.float32)
-    return xp, fp
+    n_features = array.shape[-1]
+    K = fp.shape[0]
+
+    new_max_centroids = []
+    new_min_list = []
+    new_max_list = []
+    new_c_c_list = []
+    new_c_m_list = []
+    new_p_matrix = []
+    new_q_matrix = []
+
+    for i in range(n_features):
+        feature_array = array[:, i]
+        _max_centroids = int(max_centroids[i])
+        _min = float(min_val[i])
+        _max = float(max_val[i])
+        _c_m = centroids_m[:, i]
+        _c_c = centroids_c[:, i]
+
+        tdigest_dict = {
+            "max_centroids": _max_centroids,
+            "min": _min,
+            "max": _max,
+            "centroids": [{"m": float(m), "c": float(c)} for m, c in zip(_c_m, _c_c) if c > 0.0],
+        }
+
+        # Handle NaNs from initialization
+        if np.isnan(tdigest_dict["min"]):
+            tdigest_dict["min"] = 0.0
+        if np.isnan(tdigest_dict["max"]):
+            tdigest_dict["max"] = 0.0
+
+        tdigest = TDigest.from_dict(tdigest_dict)
+        if len(feature_array) > 0:
+            tdigest.batch_update(np.array(feature_array))
+
+        new_tdigest_dict = tdigest.to_dict()
+
+        new_max_centroids.append(new_tdigest_dict["max_centroids"])
+        new_min_list.append(new_tdigest_dict["min"])
+        new_max_list.append(new_tdigest_dict["max"])
+
+        c_c = np.array([centroid["c"] for centroid in new_tdigest_dict["centroids"]])
+        c_c = np.pad(c_c, (0, _max_centroids - len(c_c)), mode="constant", constant_values=0.0)
+        new_c_c_list.append(c_c)
+        c_m = np.array([centroid["m"] for centroid in new_tdigest_dict["centroids"]])
+        c_m = np.pad(c_m, (0, _max_centroids - len(c_m)), mode="constant", constant_values=0.0)
+        new_c_m_list.append(c_m)
+
+        p_list = np.linspace(0, 1, K)
+        q_list = [tdigest.quantile(float(p)) for p in p_list]
+        new_p_matrix.append(p_list)
+        new_q_matrix.append(np.asarray(q_list))
+
+    new_p_matrix = np.stack(new_p_matrix, axis=0)  # (F, K)
+    new_q_matrix = np.stack(new_q_matrix, axis=0)  # (F, K)
+
+    p_merged, q_merged = _merge_equal_quantiles_host(new_p_matrix.T, new_q_matrix.T)
+    new_xp = q_merged.astype(np.float32)
+    new_fp = (-1.0 + 2.0 * p_merged).astype(np.float32)
+
+    return (
+        np.array(new_max_centroids, dtype=np.int32),
+        np.array(new_min_list, dtype=np.float32),
+        np.array(new_max_list, dtype=np.float32),
+        np.stack(new_c_m_list, axis=1).astype(np.float32),
+        np.stack(new_c_c_list, axis=1).astype(np.float32),
+        new_fp,
+        new_xp,
+    )
 
 
-class MultiFeatureTDigestNorm(nnx.Module):
+@partial(jax.custom_vjp, nondiff_argnums=(4, 5, 6))
+def _tdigest_apply(
+    array: jax.Array,
+    non_fictitious: jax.Array,
+    should_update: jax.Array,
+    module_state: tuple[jax.Array, ...],
+    in_size: int,
+    max_centroids: int,
+    n_breakpoints: int,
+) -> tuple[jax.Array, ...]:
     """
-    Module that maintains one TDigest per feature and provides a piecewise-linear
-    mapping of values to the interval [-1, 1] based on estimated quantiles.
+    Applies normalization and optionally updates T-Digest statistics.
+    This function is wrapped in custom_vjp to handle the non-differentiable io_callback.
+    """
+    (
+        max_centroids_val,
+        min_val,
+        max_val,
+        centroids_m,
+        centroids_c,
+        fp,
+        xp,
+    ) = module_state
 
-    The module:
-      - keeps host-side TDigest instances per feature (stored in a global registry),
-      - updates these digests via `io_callback` during the forward pass (batched),
-      - stores a device-side summary (xp/fp, centroids, mins/maxs) in BatchStat fields
-        so that the state can be checkpointed and reconstructed later,
-      - applies a piecewise-linear forward mapping using xp/fp.
+    def update_fn(array: jax.Array, non_fictitious: jax.Array) -> tuple[jax.Array, ...]:
+        result_shapes = (
+            ShapeDtypeStruct((in_size,), jnp.int32),  # max_centroids
+            ShapeDtypeStruct((in_size,), jnp.float32),  # min
+            ShapeDtypeStruct((in_size,), jnp.float32),  # max
+            ShapeDtypeStruct((max_centroids, in_size), jnp.float32),  # centroids_m
+            ShapeDtypeStruct((max_centroids, in_size), jnp.float32),  # centroids_c
+            ShapeDtypeStruct((n_breakpoints, in_size), jnp.float32),  # fp
+            ShapeDtypeStruct((n_breakpoints, in_size), jnp.float32),  # xp
+        )
 
-    Note:
-      - On the first calls the TDigest objects will be created and updated.
+        return io_callback(
+            _ingest_new_data,
+            result_shapes,
+            max_centroids_val,
+            min_val,
+            max_val,
+            centroids_m,
+            centroids_c,
+            fp,
+            xp,
+            array,
+            non_fictitious,
+        )
+
+    new_vars = jax.lax.cond(
+        should_update,
+        lambda a, m: update_fn(a, m),
+        lambda a, m: (max_centroids_val, min_val, max_val, centroids_m, centroids_c, fp, xp),
+        array,
+        non_fictitious,
+    )
+    return new_vars
+
+
+def _tdigest_apply_fwd(
+    array: jax.Array,
+    non_fictitious: jax.Array,
+    should_update: jax.Array,
+    module_state: tuple[jax.Array, ...],
+    in_size: int,
+    max_centroids: int,
+    n_breakpoints: int,
+) -> tuple[tuple[jax.Array, ...], tuple[jax.Array, ...]]:
+    new_vars = _tdigest_apply(array, non_fictitious, should_update, module_state, in_size, max_centroids, n_breakpoints)
+    return (new_vars), (array, non_fictitious, new_vars[6], new_vars[5])
+
+
+def _tdigest_apply_bwd(
+    in_size: int, max_centroids: int, n_breakpoints: int, res: tuple[jax.Array, ...], grads: Any
+) -> tuple[jax.Array, ...]:
+    array, non_fictitious, xp, fp = res
+    return 0 * array, None, None, None
+
+
+_tdigest_apply.defvjp(_tdigest_apply_fwd, _tdigest_apply_bwd)
+
+
+class TDigestModule(nnx.Module):
+    """
+    Maintains and applies T-Digest normalization for a set of features.
+
+    This module uses the T-Digest algorithm to estimate quantiles and map input
+    features to a target distribution (piecewise linear interpolation).
+    It supports batch updates via an IO callback and provides a fast inference path.
     """
 
     def __init__(
         self,
-        features: int,
+        in_size: int,
         update_limit: int,
-        n_breakpoints: int = 20,
-        digest_base_key: int = 1000,
-        max_centroids: int = 1000,
-        use_running_average: bool = False,
+        n_breakpoints: int,
+        max_centroids: int,
+        use_running_average: bool,
     ):
         """
-        Initialize the MultiFeatureTDigestNorm module.
+        Initializes the TDigestModule.
 
-        :param features: Number of features (F, number of columns).
-        :param update_limit: Number of forward calls that will cause digest updates. After
-            `update_limit` updates, if `use_running_average` is True, the module will stop
-            updating TDigest and reuse running xp/fp values.
-        :param n_breakpoints: Number of evenly spaced quantile breakpoints minus one
-            (so K = n_breakpoints + 1 quantile points in total).
-        :param digest_base_key: Base integer key used to compute per-feature digest keys:
-            digest_key[f] = digest_base_key + f.
-        :param max_centroids: Maximum centroids used when constructing TDigest instances.
-        :param use_running_average: If True, stop updating host digests and reuse the last
-            xp/fp. Automatically set to True in `eval` mode and to `False` in `train` mode.
+        :param in_size: Number of features to normalize.
+        :param update_limit: Maximum number of update steps allowed.
+        :param n_breakpoints: Number of points for the interpolation grid.
+        :param max_centroids: Maximum number of centroids for the T-Digest.
+        :param use_running_average: If True, skips updates and uses current state (inference mode).
         """
-        self.features = int(features)
-        self.n_breakpoints = int(n_breakpoints)
-        self.K = self.n_breakpoints + 1
-        self.max_centroids = int(max_centroids)
-        self.p_grid = jnp.linspace(0.0, 1.0, self.K, dtype=jnp.float32)
-        self.digest_keys = np.arange(digest_base_key, digest_base_key + self.features, dtype=np.int32)
-        self.update_limit = int(update_limit)
-        self.updates = 0
+        self.in_size = in_size
+        self.update_limit = update_limit
+        self.n_breakpoints = n_breakpoints
+        self.max_centroids = max_centroids
         self.use_running_average = use_running_average
 
-        # xp/fp BatchStat device-side shape (K, F)
-        self.xp = nnx.BatchStat(jnp.zeros((self.K, self.features), dtype=jnp.float32))
-        fp_init = (-1.0 + 2.0 * self.p_grid)[:, None] * np.ones((1, self.features), dtype=np.float32)
-        self.fp = nnx.BatchStat(jnp.array(fp_init, dtype=jnp.float32))
+        self.updates = nnx.Variable(jnp.array([0], dtype=jnp.int32))
 
-        # TDigest state stored as BatchStat for checkpointing
-        # scalars per-feature: min and max
-        self.digest_min = nnx.BatchStat(jnp.zeros((self.features,), dtype=jnp.float32))
-        self.digest_max = nnx.BatchStat(jnp.zeros((self.features,), dtype=jnp.float32))
-        # number of centroids currently stored per feature
-        self.digest_n_centroids = nnx.BatchStat(jnp.zeros((self.features,), dtype=jnp.int32))
-        # centroids arrays fixed-size: shape (F, max_centroids)
-        self.centroids_m = nnx.BatchStat(jnp.zeros((self.features, self.max_centroids), dtype=jnp.float32))
-        self.centroids_c = nnx.BatchStat(jnp.zeros((self.features, self.max_centroids), dtype=jnp.float32))
-        # store max_centroids
-        self.digest_max_centroids = nnx.BatchStat(jnp.array(self.max_centroids, dtype=jnp.int32))
+        self.max_centroids_var = nnx.Variable(jnp.array([self.max_centroids] * self.in_size, dtype=jnp.int32))
+        self.min_var = nnx.Variable(jnp.array([jnp.nan] * self.in_size, dtype=jnp.float32))
+        self.max_var = nnx.Variable(jnp.array([jnp.nan] * self.in_size, dtype=jnp.float32))
+        self.centroids_m_var = nnx.Variable(jnp.zeros([self.max_centroids, self.in_size], dtype=jnp.float32))
+        self.centroids_c_var = nnx.Variable(jnp.zeros([self.max_centroids, self.in_size], dtype=jnp.float32))
+        self.fp_var = nnx.Variable(jnp.linspace(-1, 1, self.n_breakpoints)[:, None] + jnp.zeros([1, self.in_size]))
+        self.xp_var = nnx.Variable(jnp.zeros([self.n_breakpoints, self.in_size]))
 
-        # register all digests in registry
-        for k in self.digest_keys.tolist():
-            _ensure_digest(int(k), self.max_centroids)
-
-    def _sync_state_from_registry(self):
+    def __call__(self, array: jax.Array, non_fictitious: jax.Array) -> jax.Array:
         """
-        Synchronize device-side BatchStat fields from host-side TDigest registry.
+        Normalizes the input array using the current T-Digest state.
 
-        This method should be called after host digests have been updated (for example after an `io_callback`).
+        If in training mode and under the update limit, it also triggers a state update.
+
+        :param array: Input array of shape (..., in_size).
+        :param non_fictitious: Mask for valid (non-fictitious) items.
+        :return: Normalized array of the same shape as input.
         """
-        F = self.features
-        M = self.max_centroids
+        is_training = not self.use_running_average
+        should_update = is_training & (self.updates[...] < self.update_limit)[0]
 
-        mins = np.zeros((F,), dtype=np.float32)
-        maxs = np.zeros((F,), dtype=np.float32)
-        n_centroids = np.zeros((F,), dtype=np.int32)
-        m_arr = np.zeros((F, M), dtype=np.float32)
-        c_arr = np.zeros((F, M), dtype=np.float32)
-
-        for f, key in enumerate(self.digest_keys.tolist()):
-            key = int(key)
-            if key not in GLOBAL_DIGEST_REGISTRY:
-                # keep zeros if digest missing
-                continue
-            d = GLOBAL_DIGEST_REGISTRY[key]
-            td = d.to_dict()
-
-            mins[f] = float(td.get("min", 0.0))
-            maxs[f] = float(td.get("max", 0.0))
-            centroids = td.get("centroids", []) or []
-            n = min(len(centroids), M)
-            n_centroids[f] = int(n)
-            for i in range(n):
-                cent_i = centroids[i]
-                m_arr[f, i] = float(cent_i.get("m", 0.0))
-                c_arr[f, i] = float(cent_i.get("c", 0.0))
-
-        # assign to BatchStat values (convert to jnp arrays)
-        self.digest_min.value = jnp.array(mins, dtype=jnp.float32)
-        self.digest_max.value = jnp.array(maxs, dtype=jnp.float32)
-        self.digest_n_centroids.value = jnp.array(n_centroids, dtype=jnp.int32)
-        self.centroids_m.value = jnp.array(m_arr, dtype=jnp.float32)
-        self.centroids_c.value = jnp.array(c_arr, dtype=jnp.float32)
-        self.digest_max_centroids.value = jnp.array(self.max_centroids, dtype=jnp.int32)
-
-    def _reconstruct_digests_from_state(self):
-        """
-        Recreate host-side TDigest objects from checkpointed BatchStat fields.
-
-        This method reconstructs a TDigest-like dictionary per feature and uses
-        the TDigest's `from_dict` to restore host digest state. Call this on the
-        host after loading variables from a checkpoint to ensure `GLOBAL_DIGEST_REGISTRY`
-        contains TDigest instances consistent with the saved BatchStat values.
-        """
-
-        mins = np.asarray(self.digest_min.value).astype(np.float32)
-        maxs = np.asarray(self.digest_max.value).astype(np.float32)
-        n_centroids = np.asarray(self.digest_n_centroids.value).astype(np.int32)
-        m_arr = np.asarray(self.centroids_m.value).astype(np.float32)
-        c_arr = np.asarray(self.centroids_c.value).astype(np.float32)
-        max_centroids_saved = int(np.asarray(self.digest_max_centroids.value).item())
-
-        for f, key in enumerate(self.digest_keys.tolist()):
-            key = int(key)
-            td_dict = {
-                "max_centroids": max_centroids_saved,
-                "min": float(mins[f]) if mins is not None else 0.0,
-                "max": float(maxs[f]) if maxs is not None else 0.0,
-                "centroids": [{"m": float(m_arr[f, i]), "c": float(c_arr[f, i])} for i in range(int(n_centroids[f]))],
-            }
-
-            _ensure_digest(key, max_centroids_saved)
-            GLOBAL_DIGEST_REGISTRY[key].from_dict(td_dict)
-
-    def __call__(self, x: jax.Array):
-        """
-        Apply normalization to input values and optionally update host TDigest state.
-
-        The input `x` can be either:
-          - single array with shape (n_items, F), or
-          - batched array with shape (B, n_items, F).
-
-        On each forward call (while `updates < update_limit` or when `use_running_average`
-        is False), the module will:
-          - update host TDigest objects and extract xp/fp arrays,
-          - store xp/fp to device BatchStat fields and synchronize digest centroids into
-            BatchStat for checkpointing.
-
-        After obtaining xp/fp, the module applies the piecewise-linear mapping to
-        all features and returns an array of the same shape as input with values
-        mapped to approximately [-1, 1].
-
-        :param x: JAX array with shape (n_items, F) or (B, n_items, F).
-        :return: JAX array with same shape as `x` containing normalized values.
-        """
-        # detect batch dim
-        if x.ndim == 2:
-            # single-graph: make into batch of size 1 for uniform handling
-            is_batched = False
-            x_batch = x[None, ...]  # shape (1, n_items, F)
-        elif x.ndim == 3:
-            is_batched = True
-            x_batch = x  # shape (B, n_items, F)
-        else:
-            raise ValueError("Input x must be shape (n_items,F) or (B,n_items,F)")
-
-        F = x_batch.shape[2]
-        assert F == self.features
-
-        if (self.updates < self.update_limit) or (not self.use_running_average):
-            self.updates += 1
-
-            B = x_batch.shape[0]
-            n_items = x_batch.shape[1]
-
-            flattened = jnp.reshape(x_batch, (B * n_items, F))
-
-            result_shapes = (
-                ShapeDtypeStruct((self.K, F), jnp.float32),
-                ShapeDtypeStruct((self.K, F), jnp.float32),
+        if is_training:
+            module_state = (
+                self.max_centroids_var[...],
+                self.min_var[...],
+                self.max_var[...],
+                self.centroids_m_var[...],
+                self.centroids_c_var[...],
+                self.fp_var[...],
+                self.xp_var[...],
             )
 
-            xp_jax, fp_jax = io_callback(
-                _host_update_and_extract_multi,
-                result_shapes,
-                flattened,  # (N, F) on host
-                jnp.array(self.digest_keys, dtype=jnp.int32),
-                self.p_grid,
-                jnp.array(self.max_centroids, dtype=jnp.int32),
-                ordered=True,
+            new_vars = _tdigest_apply(
+                array,
+                non_fictitious,
+                should_update,
+                module_state,
+                self.in_size,
+                self.max_centroids,
+                self.n_breakpoints,
             )
 
-            self.xp.value = xp_jax
-            self.fp.value = fp_jax
+            # Update state variables (side effects)
+            self.updates[...] = jnp.where(should_update, self.updates[...] + 1, self.updates[...])
+            self.max_centroids_var[...] = jax.lax.stop_gradient(new_vars[0])
+            self.min_var[...] = jax.lax.stop_gradient(new_vars[1])
+            self.max_var[...] = jax.lax.stop_gradient(new_vars[2])
+            self.centroids_m_var[...] = jax.lax.stop_gradient(new_vars[3])
+            self.centroids_c_var[...] = jax.lax.stop_gradient(new_vars[4])
+            self.fp_var[...] = jax.lax.stop_gradient(new_vars[5])
+            self.xp_var[...] = jax.lax.stop_gradient(new_vars[6])
 
-            # Sync host digest states into BatchStat so checkpoints include centroids
-            self._sync_state_from_registry()
+        xp = self.xp_var[...]
+        fp = self.fp_var[...]
 
         def forward_local(x_feat, xp_feat, fp_feat):
             EPS = 1e-6
@@ -342,132 +349,97 @@ class MultiFeatureTDigestNorm(nnx.Module):
             )
             return interp_term + left_term + right_term
 
-        def per_graph_fn(graph_x):
-            return jax.vmap(forward_local, in_axes=(1, 1, 1), out_axes=1)(graph_x, self.xp.value, self.fp.value)
+        if array.ndim == 3:
+            out = jax.vmap(
+                lambda a: jax.vmap(forward_local, in_axes=(1, 1, 1), out_axes=1)(a, xp, fp),
+                in_axes=0,
+                out_axes=0,
+            )(array)
+        else:
+            out = jax.vmap(forward_local, in_axes=(1, 1, 1), out_axes=1)(array, xp, fp)
 
-        out_batch = jax.vmap(per_graph_fn)(x_batch)  # shape (B, n_items, F)
-
-        if not is_batched:
-            return out_batch[0]
-        return out_batch
+        out = out * non_fictitious
+        return out
 
 
 class TDigestNormalizer(Normalizer):
     """
-    Graph-level wrapper that maintains a MultiFeatureTDigestNorm for each edge key.
+    Graph-level normalizer that maintains a TDigestModule for each edge type.
 
-    This module dynamically instantiates, on host, a `MultiFeatureTDigestNorm` per
-    graph edge type encountered in the provided `JaxGraph`.
+    This normalizer uses T-Digests to map feature distributions to a target grid
+    (usually [-1, 1]), providing a non-parametric alternative to standard normalization.
     """
 
     def __init__(
         self,
+        in_structure: GraphStructure,
         update_limit: int,
         n_breakpoints: int = 20,
-        digest_base_key: int = 1000,
         max_centroids: int = 1000,
-        max_per_edge_features: int = 10000,
         use_running_average: bool = False,
     ):
         """
-        Initialize GraphTDigestNorm.
+        Initializes the TDigestNormalizer.
 
-        :param update_limit: Number of host-update steps allowed per MultiFeatureTDigestNorm.
-        :param n_breakpoints: Number of breakpoints for quantile estimation.
-        :param digest_base_key: Base integer used to compute per-edge digest base keys.
-        :param max_centroids: Maximum centroids for each TDigest.
-        :param max_per_edge_features: Maximum number of features for an edge.
-        :param use_running_average: If True, stop updating host digests and reuse the last xp/fp.
-            Automatically set to True in `eval` mode and to `False` in `train` mode.
+        :param in_structure: Structure of the input graph.
+        :param update_limit: Maximum number of updates allowed for the T-Digests.
+        :param n_breakpoints: Number of breakpoints for the interpolation grid.
+        :param max_centroids: Maximum number of centroids for each T-Digest.
+        :param use_running_average: Initial state for the running average flag.
         """
-        # store general hyperparams
-        self.n_breakpoints = int(n_breakpoints)
-        self.digest_base_key = int(digest_base_key)
-        self.max_centroids = int(max_centroids)
-        self.edge_keys = tuple()
+        self.in_structure = in_structure
         self.update_limit = update_limit
+        self.n_breakpoints = n_breakpoints
+        self.max_centroids = max_centroids
         self.use_running_average = use_running_average
-        self.max_per_edge_features = max(max_per_edge_features, 10000)
 
-    def _make_module_for_edge(self, edge_key: str, n_features: int, edge_index: int):
+        self.module_dict = self._build_module_dict()
+
+    def _build_module_dict(self) -> dict[str, dict[str, TDigestModule]]:
+        """Creates a TDigest module for each edge key in the graph structure."""
+        module_dict = {}
+        for edge_key, edge_structure in self.in_structure.edges.items():
+            if edge_structure.feature_list is not None:  # and len(edge_structure.feature_list) > 0:
+                in_size = len(edge_structure.feature_list)
+                module_dict[edge_key] = TDigestModule(
+                    in_size=in_size,
+                    update_limit=self.update_limit,
+                    n_breakpoints=self.n_breakpoints,
+                    max_centroids=self.max_centroids,
+                    use_running_average=self.use_running_average,
+                )
+        return nnx.data(module_dict)
+
+    def set_running_average(self, use: bool):
         """
-        Create and attach a MultiFeatureTDigestNorm submodule for the given edge key.
+        Sets the running average flag for the normalizer and all its sub-modules.
 
-        This helper attaches the created submodule as an attribute named
-        `norm_{edge_key}` so that Flax's module discovery will include it in
-        the variables tree and checkpoints.
-
-        :param edge_key: String key identifying the graph edge type.
-        :param n_features: Number of features (columns) for this edge.
-        :param edge_index: Integer index used to deterministically compute the digest base key.
-        :return: The created MultiFeatureTDigestNorm instance.
+        :param use: If True, enables inference mode (no updates).
         """
-        base = self.digest_base_key + edge_index * self.max_per_edge_features
-        mod = MultiFeatureTDigestNorm(
-            update_limit=self.update_limit,
-            features=n_features,
-            n_breakpoints=self.n_breakpoints,
-            digest_base_key=base,
-            max_centroids=self.max_centroids,
-            use_running_average=self.use_running_average,
-        )
-        setattr(self, f"norm_{edge_key}", mod)
-        return mod
-
-    def initialize_from_example(self, context_example: JaxGraph):
-        """
-        Initialize and attach per-edge normalizers based on a JaxGraph example.
-
-        This method inspects `context_example.edges` and for every edge with a non-empty
-        feature array instantiates a corresponding `MultiFeatureTDigestNorm` with
-        the appropriate number of features.
-
-        :param context_example: Example `JaxGraph` used to infer edge keys and feature counts.
-        :return: None
-        """
-        keys = list(context_example.edges.keys())
-        for i, edge_key in enumerate(keys):
-            edge = context_example.edges[edge_key]
-            if edge.feature_array is not None:
-                if edge.feature_array.shape[-2] > 0:
-                    if not hasattr(self, f"norm_{edge_key}"):
-                        n_features = int(edge.feature_array.shape[-1])
-                        self._make_module_for_edge(edge_key, n_features, edge_index=i)
-
-        self.edge_keys = tuple(keys)
+        self.use_running_average = use
+        # module_dict is wrapped in nnx.data
+        for module in self.module_dict.values():
+            module.use_running_average = use
 
     def __call__(self, *, graph: JaxGraph, get_info: bool = False) -> tuple[JaxGraph, dict]:
         """
-        Apply per-edge normalization to a `JaxGraph` instance.
+        Apply normalization to edges within a JaxGraph context using TDigest modules. This method normalizes the
+        edges' feature arrays and updates the associated context graph accordingly.
 
-        For every edge found in `context.edges`, this method will locate the
-        corresponding `MultiFeatureTDigestNorm` submodule (created previously)
-        and apply it to the edge's `feature_array`. If a submodule does not exist
-        yet and the edge contains features, the submodule is lazily instantiated.
-
-        The function returns a new `JaxGraph` with normalized edge features and
-        (optionally) a small info dictionary containing input/output quantiles.
-
-        :param context: `JaxGraph` instance containing edges to normalize.
-        :param get_info: If True, return quantile info for input and output graphs.
-        :return: Tuple (normalized_context, info_dict). `info_dict` is empty if `get_info` is False.
+        :param graph: JaxGraph representing the graph structure containing edges with feature arrays to be normalized.
+        :param get_info: Boolean flag that indicates whether to return additional information about input and output graphs.
+        :return: A tuple containing the normalized JaxGraph and an optional dictionary holding quantile information
+                 about the input and output graphs.
         """
 
-        info: dict = {}
+        edge_norm_dict = {k: (edge, self.module_dict[k]) for k, edge in graph.edges.items() if k in self.module_dict.keys()}
 
-        def apply_norm(edge, normalizer):
-            """
-            Apply the MultiFeatureTDigestNorm to a single JaxEdge.
-
-            :param edge: JaxEdge instance.
-            :param normalizer: Callable or nnx.Module implementing normalization for the edge.
-            :return: JaxEdge with normalized feature_array (or identical JaxEdge if no features).
-            """
-
+        def apply_norm(edge_norm: tuple[JaxEdge, TDigestModule]) -> JaxEdge:
+            edge, normalizer = edge_norm
             array = edge.feature_array
             if edge.feature_array is not None:
                 if edge.feature_array.shape[-2] > 0:
-                    array = normalizer(edge.feature_array) * jnp.expand_dims(edge.non_fictitious, -1)
+                    array = normalizer(array, jnp.expand_dims(edge.non_fictitious, -1))
             return JaxEdge(
                 feature_array=array,
                 feature_names=edge.feature_names,
@@ -475,26 +447,7 @@ class TDigestNormalizer(Normalizer):
                 address_dict=edge.address_dict,
             )
 
-        incoming_keys = list(graph.edges.keys())
-        norm_dict = {}
-        for edge_key in incoming_keys:
-            attr_name = f"norm_{edge_key}"
-            if graph.edges[edge_key].feature_array is not None:
-                if graph.edges[edge_key].feature_array.shape[-2] > 0:
-                    if not hasattr(self, attr_name):
-                        edge_index = len(self.edge_keys)
-                        n_features = int(graph.edges[edge_key].feature_array.shape[-1])
-                        self._make_module_for_edge(edge_key, n_features, edge_index=edge_index)
-                        self.edge_keys = tuple(list(self.edge_keys) + [edge_key])
-
-            norm_dict[edge_key] = getattr(self, attr_name, None)
-
-        normalized_edge_dict = jax.tree.map(
-            apply_norm,
-            graph.edges,
-            norm_dict,
-            is_leaf=(lambda x: isinstance(x, JaxEdge)),
-        )
+        normalized_edge_dict = jax.tree.map(apply_norm, edge_norm_dict, is_leaf=(lambda x: isinstance(x, tuple)))
 
         normalized_context = JaxGraph(
             edges=normalized_edge_dict,
@@ -505,5 +458,7 @@ class TDigestNormalizer(Normalizer):
 
         if get_info:
             info = {"input_graph": graph.quantiles(), "output_graph": normalized_context.quantiles()}
+        else:
+            info = {}
 
         return normalized_context, info

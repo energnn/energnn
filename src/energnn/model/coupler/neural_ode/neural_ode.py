@@ -1,5 +1,10 @@
+# Copyright (c) 2025, RTE (http://www.rte-france.com)
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+# SPDX-License-Identifier: MPL-2.0
+#
 import logging
-from typing import Callable
 
 import diffrax
 import jax
@@ -21,12 +26,17 @@ class NeuralODECoupler(Coupler):
     The following ordinary differential equation is integrated between 0 and 1:
 
     .. math::
-        \frac{dh}{dt}=F_{\theta}(h;x).
+        \forall a \in \mathcal{A}_x, \frac{dh_a}{dt} = \phi_\theta(\psi^1_\theta(h;x)_a, \dots, \psi^n_\theta(h;x)_a),
+
+    with the following initial condition:
+
+    .. math::
+        \forall a \in \mathcal{A}_x, h_a(t=0) = [0, \dots, 0].
 
     Implementation relies on Patrick Kidger's `Diffrax <https://docs.kidger.site/diffrax/>`_.
 
     :param phi: Outer MLP :math:`\phi_\theta`.
-    :param message_functions: List of message functions :math:`\xi_\theta`.
+    :param message_functions: List of message functions :math:`(\psi^i_\theta)_i`.
     :param latent_dimension: Dimension of address latent coordinates.
     :param dt: Initial step size value.
     :param stepsize_controller: Controller for adaptive step size methods.
@@ -37,29 +47,17 @@ class NeuralODECoupler(Coupler):
 
     def __init__(
         self,
-        phi_hidden_size: list[int],
-        phi_activation: Callable[[jax.Array], jax.Array],
-        phi_final_activation: Callable[[jax.Array], jax.Array],
+        phi: MLP,
         message_functions: list[MessageFunction],
-        latent_dimension: int,
         dt: float,
         stepsize_controller: diffrax.AbstractStepSizeController,
         adjoint: diffrax.AbstractAdjoint,
         solver: diffrax.AbstractSolver,
         max_steps: int,
-        seed: int = 0,
     ):
-        super().__init__(seed=seed)
-        self.phi = MLP(
-            hidden_size=phi_hidden_size,
-            out_size=latent_dimension,
-            activation=phi_activation,
-            final_activation=phi_final_activation,
-            rngs=self.rngs,
-        )
-        # self.message_functions = message_functions
+        super().__init__()
+        self.phi = phi
         self.message_functions = nnx.List(message_functions)
-        self.latent_dimension = latent_dimension
         self.dt = dt
         self.stepsize_controller = stepsize_controller
         self.solver = solver
@@ -77,9 +75,7 @@ class NeuralODECoupler(Coupler):
             messages = jnp.concatenate(messages, axis=-1)
             return self.phi(messages)
 
-        h_0 = jnp.zeros([jnp.shape(graph.non_fictitious_addresses)[0], self.latent_dimension])
-
-        _ = F(0.0, h_0, graph)
+        h_0 = jnp.zeros([jnp.shape(graph.non_fictitious_addresses)[0], self.phi.out_size])
 
         solution = diffrax.diffeqsolve(
             terms=diffrax.ODETerm(F),
@@ -94,7 +90,6 @@ class NeuralODECoupler(Coupler):
             adjoint=self.adjoint,
             max_steps=self.max_steps,
         )
-        jax.debug.callback(NeuralODECoupler.log_solved)
         return solution.ys[-1], {}
 
     @staticmethod

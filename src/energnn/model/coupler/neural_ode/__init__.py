@@ -1,4 +1,5 @@
+from .message_function import IdentityMessageFunction, LocalSumMessageFunction, MessageFunction
 from .neural_ode import NeuralODECoupler
-from .message_function import MessageFunction, LocalSumMessageFunction, IdentityMessageFunction
+from .recurrent import RecurrentCoupler
 
-__all__ = ["NeuralODECoupler", "LocalSumMessageFunction", "IdentityMessageFunction", "MessageFunction"]
+__all__ = ["NeuralODECoupler", "LocalSumMessageFunction", "IdentityMessageFunction", "MessageFunction", "RecurrentCoupler"]

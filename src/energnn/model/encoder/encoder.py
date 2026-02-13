@@ -5,45 +5,36 @@
 # SPDX-License-Identifier: MPL-2.0
 #
 from __future__ import annotations
+
 from abc import ABC, abstractmethod
-from typing import Callable
 
 from flax import nnx
-from flax.typing import Array
 
-from energnn.graph.jax import JaxGraph
-
-Activation = Callable[[Array], Array]
+from energnn.graph import JaxGraph
 
 
 class Encoder(nnx.Module, ABC):
 
-    def __init__(self, *, seed: int = 0):
-        self.rngs = nnx.Rngs(seed)
-
     @abstractmethod
     def __call__(self, graph: JaxGraph, get_info: bool = False) -> tuple[JaxGraph, dict]:
-        """
-        Should encode the input graph into a graph with the same edges classes and features.
+        """Encode the input graph into a graph with the same edge classes and features.
 
         :param graph: Input graph to encode.
         :param get_info: If True, returns additional info for tracking purpose.
-
-        :raises NotImplementedError: If the subclass does not override this constructor.
+        :return: A tuple containing:
+            - Encoded graph with transformed features
+            - A dictionary with additional information if get_info=True, empty dict otherwise
+        :raises NotImplementedError: If the subclass does not override this method.
         """
         raise NotImplementedError
 
 
 class IdentityEncoder(Encoder):
-    r"""
-    Identity encoder that returns the input graph unchanged.
+    r"""Identity encoder that returns the input graph unchanged.
 
     .. math::
         \tilde{x} = x
     """
-
-    def __init__(self):
-        super().__init__()
 
     def __call__(self, graph: JaxGraph, get_info: bool = False) -> tuple[JaxGraph, dict]:
         """Apply the identity encoder and return the input graph without changes.
