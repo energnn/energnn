@@ -71,7 +71,9 @@ class EdgeCenterReduceNormalizer(nnx.Module):
         if self.mean._can_update or self.var._can_update:
             stop_gradient = jax.lax.stop_gradient
         else:
-            stop_gradient = lambda x: x
+
+            def stop_gradient(_x):
+                return _x
 
         should_update = is_training & (self.updates[...] < self.update_limit[...])[0]
 

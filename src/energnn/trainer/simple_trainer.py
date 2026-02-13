@@ -238,7 +238,8 @@ class SimpleTrainer:
         :param metrics: Metrics obtained on the validation set.
 
         Returns:
-            str | None: Local path to the saved checkpoint directory, or None if the checkpoint manager did not save the checkpoint.
+            str | None: Local path to the saved checkpoint directory,
+             or None if the checkpoint manager did not save the checkpoint.
         """
         _, model_state = nnx.split(self.model)
         _, opt_state = nnx.split(self.optimizer)

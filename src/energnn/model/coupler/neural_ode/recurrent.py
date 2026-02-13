@@ -25,7 +25,8 @@ class RecurrentCoupler(Coupler):
     The following recurrent system is used.:
 
     .. math::
-        \forall a \in \mathcal{A}_x, h_a(t+\delta t) = h_a(t+\delta t) + \delta t \phi_\theta(\psi^1_\theta(h;x)_a, \dots, \psi^n_\theta(h;x)_a),
+        \forall a \in \mathcal{A}_x, h_a(t+\delta t) = h_a(t+\delta t) +
+        \delta t \times \phi_\theta(\psi^1_\theta(h;x)_a, \dots, \psi^n_\theta(h;x)_a),
 
     with the following initial condition:
 
