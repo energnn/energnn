@@ -220,7 +220,7 @@ class TestProblemLoader(ProblemLoader):
         return batch
 
     def __len__(self):
-        return max(self.dataset_size // self.n_batch, 1)
+        return max(self.dataset_size // self.batch_size, 1)
 
 
 def compare_single_graphs(a: JaxGraph, b: JaxGraph, rtol=1e-5, atol=1e-6):

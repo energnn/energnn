@@ -19,7 +19,6 @@ from tests.utils import TestProblemLoader, compare_batched_graphs
 np.random.seed(0)
 
 # Prepare a small TestProblemLoader and example graphs
-n = 10
 pb_loader = TestProblemLoader(seed=0)
 pb_batch = next(iter(pb_loader))
 jax_context_batch, _ = pb_batch.get_context()
@@ -65,7 +64,7 @@ def mlp_encoder():
     return MLPEncoder(in_structure=pb_loader.context_structure, hidden_sizes=[8], out_size=4, activation=None, seed=0)
 
 
-def test_mlp_encoder_init_is_deterministic_and_returns_graph(mlp_encoder):
+def test_mlp_encoder_init_is_deterministic_and_returns_graph():
     # Two encoders instantiated with the same seed should produce same outputs
     enc1 = MLPEncoder(in_structure=pb_loader.context_structure, hidden_sizes=[8], out_size=4, activation=None, seed=1)
     enc2 = MLPEncoder(in_structure=pb_loader.context_structure, hidden_sizes=[8], out_size=4, activation=None, seed=1)
@@ -142,30 +141,28 @@ def test_mlp_encoder_jit_and_vmap_compatibility(mlp_encoder):
 
 def test_mlp_encoder_multiple_edge_types_independent_processing():
     # create two different JaxEdges with specific feature sizes
-    node_edge = jax_context.edges["arrow"]
-    edge_edge = jax_context.edges["source"]
+    arrow_edge = jax_context.edges["arrow"]
+    source_edge = jax_context.edges["source"]
 
-    def _n_obj_from_jaxedge(e):
+    def _n_obj(e):
         if e.feature_array is not None:
             return int(e.feature_array.shape[0])
-        if e.non_fictitious is not None:
-            return int(jnp.array(e.non_fictitious).shape[0])
-        raise ValueError("Cannot infer n_obj for JaxEdge")
+        return int(jnp.array(e.non_fictitious).shape[0])
 
-    n_obj_node = _n_obj_from_jaxedge(node_edge)
-    n_obj_edge = _n_obj_from_jaxedge(edge_edge)
+    n_obj_arrow = _n_obj(arrow_edge)
+    n_obj_source = _n_obj(source_edge)
 
     e1 = JaxEdge(
-        address_dict=node_edge.address_dict,
-        feature_array=jnp.ones((n_obj_node, 2), dtype=jnp.float32),
+        address_dict=arrow_edge.address_dict,
+        feature_array=jnp.ones((n_obj_arrow, 2), dtype=jnp.float32),
         feature_names={"a": jnp.array(0), "b": jnp.array(1)},
-        non_fictitious=node_edge.non_fictitious,
+        non_fictitious=arrow_edge.non_fictitious,
     )
     e2 = JaxEdge(
-        address_dict=edge_edge.address_dict,
-        feature_array=jnp.ones((n_obj_edge, 3), dtype=jnp.float32),
+        address_dict=source_edge.address_dict,
+        feature_array=jnp.ones((n_obj_source, 3), dtype=jnp.float32),
         feature_names={"c": jnp.array(0), "d": jnp.array(1), "e": jnp.array(2)},
-        non_fictitious=edge_edge.non_fictitious,
+        non_fictitious=source_edge.non_fictitious,
     )
 
     custom_graph = JaxGraph(
@@ -193,71 +190,48 @@ def test_mlp_encoder_multiple_edge_types_independent_processing():
     assert set(out.edges["B"].feature_names.keys()) == expected_keys
 
 
-def test_mlp_encoder_numeric_identity_single_edge():
+def test_mlp_encoder_numeric_identity():
     """
-    Build a graph whose 'arrow' features dimension equals the encoder out_size.
-    Replace the MLP for 'arrow' by identity and expect exact equality.
+    Build a graph and replace the MLPs by identity functions to expect exact equality
+    (modulo fictitious masking).
     """
-    node_edge = jax_context.edges["arrow"]
-    n_obj_node = int(node_edge.feature_array.shape[0])
+    arrow_edge = jax_context.edges["arrow"]
+    source_edge = jax_context.edges["source"]
+
+    n_obj_arrow = int(arrow_edge.feature_array.shape[0])
+    n_obj_source = int(source_edge.feature_array.shape[0])
     d = 4
-    e_node = JaxEdge(
-        address_dict=node_edge.address_dict,
-        feature_array=jnp.linspace(0.0, 1.0, num=n_obj_node * d, dtype=jnp.float32).reshape((n_obj_node, d)),
-        feature_names={f"f{i}": jnp.array(i) for i in range(d)},
-        non_fictitious=node_edge.non_fictitious,
+
+    # Create edges with linear values to verify identity mapping
+    e_arrow = JaxEdge(
+        address_dict=arrow_edge.address_dict,
+        feature_array=jnp.linspace(0.0, 1.0, num=n_obj_arrow * d, dtype=jnp.float32).reshape((n_obj_arrow, d)),
+        feature_names={f"fa{i}": jnp.array(i) for i in range(d)},
+        non_fictitious=arrow_edge.non_fictitious,
     )
+    e_source = JaxEdge(
+        address_dict=source_edge.address_dict,
+        feature_array=jnp.linspace(0.0, 1.0, num=n_obj_source * d, dtype=jnp.float32).reshape((n_obj_source, d)),
+        feature_names={f"fs{i}": jnp.array(i) for i in range(d)},
+        non_fictitious=source_edge.non_fictitious,
+    )
+
     custom_graph = JaxGraph(
-        edges={"arrow": e_node, "source": jax_context.edges["source"]},
+        edges={"arrow": e_arrow, "source": e_source},
         non_fictitious_addresses=jax_context.non_fictitious_addresses,
         true_shape=jax_context.true_shape,
         current_shape=jax_context.current_shape,
     )
 
     enc = MLPEncoder(in_structure=pb_loader.context_structure, hidden_sizes=[], out_size=d, activation=None, seed=123)
-    # replace arrow-mlp by identity
-    enc.mlp_dict["arrow"] = lambda x: x
-
-    out, _ = enc(graph=custom_graph, get_info=False)
-    expected = e_node.feature_array * jnp.expand_dims(e_node.non_fictitious, -1)
-    np.testing.assert_allclose(np.array(out.edges["arrow"].feature_array), np.array(expected), rtol=0.0, atol=1e-6)
-
-
-def test_mlp_encoder_numeric_identity_multiple_edges():
-    node_edge = jax_context.edges["arrow"]
-    edge_edge = jax_context.edges["source"]
-
-    n_obj_node = int(node_edge.feature_array.shape[0])
-    n_obj_edge = int(edge_edge.feature_array.shape[0])
-    d = 3
-
-    eA = JaxEdge(
-        address_dict=node_edge.address_dict,
-        feature_array=jnp.arange(n_obj_node * d, dtype=jnp.float32).reshape((n_obj_node, d)) * 0.1,
-        feature_names={f"fa{i}": jnp.array(i) for i in range(d)},
-        non_fictitious=node_edge.non_fictitious,
-    )
-    eB = JaxEdge(
-        address_dict=edge_edge.address_dict,
-        feature_array=jnp.arange(n_obj_edge * d, dtype=jnp.float32).reshape((n_obj_edge, d)) * 0.2,
-        feature_names={f"fb{i}": jnp.array(i) for i in range(d)},
-        non_fictitious=edge_edge.non_fictitious,
-    )
-
-    custom_graph = JaxGraph(
-        edges={"arrow": eA, "source": eB},
-        non_fictitious_addresses=jax_context.non_fictitious_addresses,
-        true_shape=jax_context.true_shape,
-        current_shape=jax_context.current_shape,
-    )
-
-    enc = MLPEncoder(in_structure=pb_loader.context_structure, hidden_sizes=[], out_size=d, activation=None, seed=124)
-    # replace both MLPs by identity
+    # Replace both MLPs by identity
     enc.mlp_dict["arrow"] = lambda x: x
     enc.mlp_dict["source"] = lambda x: x
 
     out, _ = enc(graph=custom_graph, get_info=False)
-    expectedA = eA.feature_array * jnp.expand_dims(eA.non_fictitious, -1)
-    expectedB = eB.feature_array * jnp.expand_dims(eB.non_fictitious, -1)
-    np.testing.assert_allclose(np.array(out.edges["arrow"].feature_array), np.array(expectedA), rtol=0.0, atol=1e-6)
-    np.testing.assert_allclose(np.array(out.edges["source"].feature_array), np.array(expectedB), rtol=0.0, atol=1e-6)
+
+    expected_arrow = e_arrow.feature_array * jnp.expand_dims(e_arrow.non_fictitious, -1)
+    expected_source = e_source.feature_array * jnp.expand_dims(e_source.non_fictitious, -1)
+
+    np.testing.assert_allclose(np.array(out.edges["arrow"].feature_array), np.array(expected_arrow), rtol=0.0, atol=1e-6)
+    np.testing.assert_allclose(np.array(out.edges["source"].feature_array), np.array(expected_source), rtol=0.0, atol=1e-6)

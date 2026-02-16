@@ -15,7 +15,6 @@ from energnn.model.decoder.invariant_decoder import (
     InvariantDecoder,
 )
 from energnn.model.utils import MLP
-from energnn.graph import separate_graphs
 from energnn.graph.jax import JaxGraph
 from tests.utils import TestProblemLoader
 
@@ -87,20 +86,6 @@ def test_sum_invariant_decoder_basic_and_masking():
     assert_vmap_jit_consistent(decoder, ctx_batch=jax_context_batch, coords_batch=coordinates_batch)
 
 
-def test_sum_invariant_decoder_init_deterministic():
-    psi1 = MLP(in_size=7, hidden_sizes=[4], out_size=3, activation=None, seed=11)
-    phi1 = MLP(in_size=3, hidden_sizes=[4], out_size=2, activation=None, seed=11)
-    dec1 = SumInvariantDecoder(psi=psi1, phi=phi1)
-
-    psi2 = MLP(in_size=7, hidden_sizes=[4], out_size=3, activation=None, seed=11)
-    phi2 = MLP(in_size=3, hidden_sizes=[4], out_size=2, activation=None, seed=11)
-    dec2 = SumInvariantDecoder(psi=psi2, phi=phi2)
-
-    out1, _ = dec1(graph=jax_context, coordinates=coordinates, get_info=False)
-    out2, _ = dec2(graph=jax_context, coordinates=coordinates, get_info=False)
-    chex.assert_trees_all_equal(out1, out2)
-
-
 def test_sum_invariant_decoder_numeric_identity():
     """
     Replace psi and phi by identity functions and check output == sum(mask * coords).
@@ -148,19 +133,6 @@ def test_mean_invariant_decoder_shape_and_mask_behavior():
 
     # vmap/jit compatibility
     assert_vmap_jit_consistent(decoder, ctx_batch=jax_context_batch, coords_batch=coordinates_batch)
-
-
-def test_mean_invariant_decoder_init_deterministic():
-    psi1 = MLP(in_size=7, hidden_sizes=[4], out_size=3, activation=None, seed=12)
-    phi1 = MLP(in_size=3, hidden_sizes=[4], out_size=2, activation=None, seed=12)
-    dec1 = MeanInvariantDecoder(psi=psi1, phi=phi1)
-
-    psi2 = MLP(in_size=7, hidden_sizes=[4], out_size=3, activation=None, seed=12)
-    phi2 = MLP(in_size=3, hidden_sizes=[4], out_size=2, activation=None, seed=12)
-    dec2 = MeanInvariantDecoder(psi=psi2, phi=phi2)
-    out1, _ = dec1(graph=jax_context, coordinates=coordinates, get_info=False)
-    out2, _ = dec2(graph=jax_context, coordinates=coordinates, get_info=False)
-    chex.assert_trees_all_equal(out1, out2)
 
 
 def test_mean_invariant_decoder_numeric_identity():

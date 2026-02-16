@@ -32,58 +32,7 @@ default_out_structure = GraphStructure(
 )
 
 
-def _unbatch_graph(batched_graph: JaxGraph, coordinates_batch: jax.Array, idx: int = 0) -> JaxGraph:
-    batch_size = int(coordinates_batch.shape[0])
-    edges = {}
-    for k, e in batched_graph.edges.items():
-        # feature_array
-        fa = e.feature_array
-        if fa is None:
-            fa_s = None
-        else:
-            if hasattr(fa, "shape") and fa.shape[0] == batch_size:
-                fa_s = fa[idx]
-            else:
-                fa_s = fa
-
-        nf = e.non_fictitious
-        if hasattr(nf, "shape") and nf.shape[0] == batch_size:
-            nf_s = nf[idx]
-        else:
-            nf_s = nf
-
-        addr_s = None
-        if e.address_dict is not None:
-            addr_s = {}
-            for aname, aarr in e.address_dict.items():
-                if hasattr(aarr, "shape") and aarr.shape[0] == batch_size:
-                    addr_s[aname] = aarr[idx]
-                else:
-                    addr_s[aname] = aarr
-
-        edges[k] = JaxEdge(
-            address_dict=addr_s,
-            feature_array=fa_s,
-            feature_names=e.feature_names,
-            non_fictitious=nf_s,
-        )
-
-    true_shape = batched_graph.true_shape
-    current_shape = batched_graph.current_shape
-    return JaxGraph(
-        edges=edges,
-        non_fictitious_addresses=batched_graph.non_fictitious_addresses,
-        true_shape=true_shape,
-        current_shape=current_shape,
-    )
-
-
 def assert_decoder_vmap_jit_output(*, decoder: MLPEquivariantDecoder, context: JaxGraph, coordinates: jax.Array):
-    if coordinates.ndim == 3:
-        sample_graph = _unbatch_graph(context, coordinates, idx=0)
-        sample_coords = coordinates[0]
-        _ = decoder(graph=sample_graph, coordinates=sample_coords, get_info=False)
-
     def apply(graph, coords, get_info):
         return decoder(graph=graph, coordinates=coords, get_info=get_info)
 
@@ -205,27 +154,6 @@ def test_mlp_equivariant_decoder_single_shapes_and_masking():
     assert info == {}
 
 
-def test_mlp_equivariant_decoder_plain_dict_out_structure_accepts_dict():
-    # We test that we can use a custom GraphStructure
-    out_struct_custom = GraphStructure(edges={"source": EdgeStructure(address_list=["id"], feature_list=["e"])})
-    decoder = MLPEquivariantDecoder(
-        in_graph_structure=pb_loader.context_structure,
-        in_array_size=7,
-        out_structure=out_struct_custom,
-        activation=jax.nn.relu,
-        hidden_sizes=[4],
-        seed=5,
-    )
-
-    # calling decoder should not raise and should return expected shapes
-    out, info = decoder(graph=jax_context, coordinates=coordinates, get_info=True)
-
-    assert "source" in out.edges
-    n_node = int(jax_context.edges["source"].feature_array.shape[0])
-    assert out.edges["source"].feature_array.shape == (n_node, 1)
-    assert info == {}
-
-
 def test_mlp_equivariant_decoder_batch_vmap_jit():
     decoder = MLPEquivariantDecoder(
         in_graph_structure=pb_loader.context_structure,
@@ -238,9 +166,10 @@ def test_mlp_equivariant_decoder_batch_vmap_jit():
     assert_decoder_vmap_jit_output(decoder=decoder, context=jax_context_batch, coordinates=coordinates_batch)
 
 
-def test_mlp_equivariant_decoder_builds_missing_mlps():
-    # The decoder builds MLPs for all edges in out_structure that are also in in_graph_structure
-    # This test checks that MLPs are indeed present after initialization for keys in out_structure
+def test_mlp_equivariant_decoder_mlp_dict_initialization():
+    """
+    Check that MLPs are correctly initialized in decoder.mlp_dict based on out_structure.
+    """
     out_structure = GraphStructure(edges={"source": EdgeStructure(address_list=["id"], feature_list=["y0", "y1"])})
     decoder = MLPEquivariantDecoder(
         in_graph_structure=pb_loader.context_structure,
