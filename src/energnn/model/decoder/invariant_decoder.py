@@ -45,14 +45,8 @@ class SumInvariantDecoder(InvariantDecoder):
 
     where :math:`\phi_\theta` (outer) and :math:`\psi_\theta` (inner) are both trainable MLPs.
 
-    :param psi_hidden_size: List of hidden sizes of inner MLP :math:`\psi_\theta`.
-    :param psi_out_size: Output size of inner MLP :math:`\psi_\theta`.
-    :param psi_activation: Activation function of inner MLP :math:`\psi_\theta`.
-    :param phi_hidden_size: List of hidden sizes of outer MLP :math:`\phi_\theta`.
-    :param phi_activation: Activation function of outer MLP :math:`\phi_\theta`.
-    :param out_size: Output size of the decoder.
-    :param built: Boolean to indicate whether the decoder is built.
-    :param rngs: ``nnx.Rngs`` or integer seed used to initialize MLPs.
+    :param psi: Inner MLP :math:`\psi_\theta`.
+    :param phi: Outer MLP :math:`\phi_\theta`.
     """
 
     def __init__(self, *, psi: MLP, phi: MLP) -> None:
@@ -77,12 +71,8 @@ class MeanInvariantDecoder(InvariantDecoder):
 
     where :math:`\phi_\theta` (outer) and :math:`\psi_\theta` (inner) are both trainable MLPs.
 
-    :param psi_hidden_size: List of hidden sizes of inner MLP :math:`\psi_\theta`.
-    :param psi_activation: Activation function of inner MLP :math:`\psi_\theta`.
-    :param psi_out_size: Output size of inner MLP :math:`\psi_\theta`.
-    :param phi_hidden_size: List of hidden sizes of outer MLP :math:`\phi_\theta`.
-    :param phi_activation: Activation function of outer MLP :math:`\phi_\theta`.
-    :param out_size: Output size of the decoder.
+    :param psi: Inner MLP :math:`\psi_\theta`.
+    :param phi: Outer MLP :math:`\phi_\theta`.
     """
 
     def __init__(self, *, psi: MLP, phi: MLP) -> None:
