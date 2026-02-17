@@ -18,6 +18,10 @@ from energnn.model.normalizer.tdigest_normalizer import (
 from energnn.graph.jax import JaxEdge, JaxGraph
 from tests.utils import TestProblemLoader
 
+# TDigestNormalizer relies on float32 explicitly in some places (result_shapes in io_callback).
+# We must ensure x64 is disabled to avoid type mismatches when previous tests enabled it.
+jax.config.update("jax_enable_x64", False)
+
 # make deterministic
 np.random.seed(0)
 

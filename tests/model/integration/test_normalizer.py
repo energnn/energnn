@@ -3,6 +3,8 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
+import jax
+import jax.numpy as jnp
 from flax import nnx
 
 from energnn.model import (
@@ -10,6 +12,8 @@ from energnn.model import (
     TDigestNormalizer,
 )
 from tests.utils import TestProblemLoader
+
+jax.config.update("jax_enable_x64", False)
 
 
 def test_center_reduce_normalizer():
