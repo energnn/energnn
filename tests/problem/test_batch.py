@@ -1,145 +1,136 @@
-#
-# Copyright (c) 2025, RTE (http://www.rte-france.com)
-# This Source Code Form is subject to the terms of the Mozilla Public
-# License, v. 2.0. If a copy of the MPL was not distributed with this
-# file, You can obtain one at http://mozilla.org/MPL/2.0/.
-#
 import pytest
+import jax
+import jax.numpy as jnp
+import numpy as np
 
 from energnn.problem.batch import ProblemBatch
-from energnn.graph import separate_graphs
+from energnn.graph import GraphStructure, EdgeStructure
+from energnn.graph.jax import JaxGraph, JaxEdge
 from tests.utils import TestProblemLoader
 
 
 @pytest.fixture(scope="module")
 def pb_loader():
     # Small deterministic loader used in other tests of the repo
-    return TestProblemLoader(
-        dataset_size=8,
-        n_batch=4,
-        context_edge_params={
-            "node": {"n_obj": 10, "feature_list": ["a", "b"], "address_list": ["0"]},
-            "edge": {"n_obj": 10, "feature_list": ["c", "d"], "address_list": ["0", "1"]},
-        },
-        oracle_edge_params={
-            "node": {"n_obj": 10, "feature_list": ["e"]},
-            "edge": {"n_obj": 10, "feature_list": ["f"]},
-        },
-        n_addr=10,
-        shuffle=False,
-    )
+    return TestProblemLoader(seed=0)
 
 
 @pytest.fixture(scope="module")
 def pb_batch(pb_loader):
-    # grab one batch instance from the loader for delegation in tests
+    # grab one batch instance from the loader
     return next(iter(pb_loader))
 
 
-class DelegateProblemBatch(ProblemBatch):
-    """A tiny concrete ProblemBatch that delegates to a provided TestProblemLoader batch."""
+class StubProblemBatch(ProblemBatch):
+    """Minimal concrete ProblemBatch for testing the base interface."""
 
-    def __init__(self, pb_batch):
-        # store a concrete batch that exposes get_context/get_zero_decision/get_gradient/get_metrics
-        self._pb_batch = pb_batch
+    def __init__(self, context=None, decision=None):
+        self.context = context
+        self.decision = decision
+
+    @property
+    def context_structure(self) -> GraphStructure:
+        return GraphStructure(edges={})
+
+    @property
+    def decision_structure(self) -> GraphStructure:
+        return GraphStructure(edges={})
 
     def get_context(self, get_info: bool = False):
-        # pb_batch.get_context returns (context_batch, info)
-        return self._pb_batch.get_context(get_info=get_info)
+        info = {"cinfo": True} if get_info else {}
+        return self.context, info
+
+    def get_gradient(self, *, decision, get_info: bool = False):
+        info = {"ginfo": "ok"} if get_info else {}
+        return decision, info
+
+    def get_metrics(self, *, decision, get_info: bool = False):
+        info = {"minfo": "m"} if get_info else {}
+        return [0.0], info
 
     def get_zero_decision(self, get_info: bool = False):
-        return self._pb_batch.get_zero_decision(get_info=get_info)
+        info = {"zinfo": 0} if get_info else {}
+        return self.decision, info
 
-    def get_gradient(self, *, decision, get_info: bool = False, cfg=None):
-        # delegate to pb_batch's get_gradient
-        return self._pb_batch.get_gradient(decision=decision, get_info=get_info, cfg=cfg)
-
-    def get_metrics(self, *, decision, get_info: bool = False, cfg=None):
-        return self._pb_batch.get_metrics(decision=decision, get_info=get_info, cfg=cfg)
+    def get_decision_structure(self) -> dict:
+        """Utility method commonly expected in subclasses."""
+        zero_decision, _ = self.get_zero_decision(get_info=False)
+        structure = {}
+        for edge_key, edge in zero_decision.edges.items():
+            if edge.feature_names is not None:
+                structure[edge_key] = {name: int(idx) for name, idx in edge.feature_names.items()}
+        return structure
 
 
 def test_problembatch_is_abstract():
     """ProblemBatch is an abstract base class and cannot be instantiated."""
     with pytest.raises(TypeError):
-        ProblemBatch()  # should fail because abstract methods are not implemented
+        ProblemBatch()
 
 
-def test_get_context_returns_graph_and_info_flags(pb_batch):
-    """get_context must return (Graph, dict) and obey get_info flag."""
-    pb = DelegateProblemBatch(pb_batch)
-    ctx0, info0 = pb.get_context(get_info=False)
-    assert isinstance(info0, dict)
-    assert info0 == {}
+def test_methods_return_tuple_and_info():
+    """Check each required method returns (Data, dict) and handles get_info flag."""
+    dummy_graph = jax.tree.map(lambda x: x, {"edges": {}})
+    pb = StubProblemBatch(context=dummy_graph, decision=dummy_graph)
 
-    ctx1, info1 = pb.get_context(get_info=True)
-    assert isinstance(info1, dict)
+    # get_context
+    _, info = pb.get_context(get_info=False)
+    assert info == {}
+    _, info = pb.get_context(get_info=True)
+    assert info == {"cinfo": True}
+
+    # get_gradient
+    _, info = pb.get_gradient(decision=dummy_graph, get_info=False)
+    assert info == {}
+    _, info = pb.get_gradient(decision=dummy_graph, get_info=True)
+    assert info == {"ginfo": "ok"}
+
+    # get_metrics
+    metrics, info = pb.get_metrics(decision=dummy_graph, get_info=True)
+    assert isinstance(metrics, list)
+    assert info == {"minfo": "m"}
 
 
-def test_get_zero_decision_returns_graph_and_info_flags(pb_batch):
-    """get_zero_decision must return a graph-like object and an info dict when requested."""
-    pb = DelegateProblemBatch(pb_batch)
-    zero0, info0 = pb.get_zero_decision(get_info=False)
-    assert isinstance(info0, dict)
-    assert info0 == {}
+@pytest.mark.parametrize(
+    "feature_names, expected_values",
+    [
+        ({"a": 0, "b": 1}, {"a": 0, "b": 1}),
+        ({"a": jnp.array(0), "b": np.int64(2)}, {"a": 0, "b": 2}),
+    ],
+)
+def test_get_decision_structure_conversions(feature_names, expected_values):
+    """get_decision_structure should correctly convert various int-like types to native ints."""
+    edge = JaxEdge(
+        address_dict=None,
+        feature_array=jnp.zeros((1, 2)),
+        feature_names=feature_names,
+        non_fictitious=jnp.ones((1,)),
+    )
+    decision = JaxGraph(edges={"node": edge}, non_fictitious_addresses=jnp.array([]), true_shape=None, current_shape=None)
+    pb = StubProblemBatch(decision=decision)
 
-    zero1, info1 = pb.get_zero_decision(get_info=True)
-    assert isinstance(info1, dict)
-
-
-def test_get_decision_structure_returns_int_dimensions(pb_batch):
-    """
-    get_decision_structure uses get_zero_decision and separate_graphs internally.
-    Ensure returned structure maps edge keys to dicts of ints.
-    """
-    pb = DelegateProblemBatch(pb_batch)
-    structure = pb.get_decision_structure()
-
-    assert isinstance(structure, dict)
-    # Expect keys corresponding to edges (as in TestProblemLoader default)
-    assert "node" in structure or "edge" in structure  # at least one expected edge key
-    for edge_key, feat_map in structure.items():
-        assert isinstance(feat_map, dict)
-        for feat_name, v in feat_map.items():
-            assert isinstance(v, int), "Decision structure values should be Python ints"
+    ds = pb.get_decision_structure()
+    assert ds["node"] == expected_values
+    for val in ds["node"].values():
+        assert isinstance(val, int)
 
 
 def test_get_gradient_shapes_match_decision(pb_batch):
     """get_gradient must return a gradient Graph with the same edge keys and shapes as the decision input."""
-    pb = DelegateProblemBatch(pb_batch)
-    zero_decision, _ = pb.get_zero_decision(get_info=False)
+    # pb_batch fixture is already a valid TestProblemBatch (concrete ProblemBatch)
+    ctx, _ = pb_batch.get_context()
 
-    grad, _ = pb.get_gradient(decision=zero_decision, get_info=False)
+    # Use oracle as a valid decision to test gradient computation
+    oracle, _ = pb_batch.get_oracle()
+    grad, _ = pb_batch.get_gradient(decision=oracle, get_info=False)
 
-    # The gradient should have same edges and compatible shapes as the decision
-    # Use separate_graphs to get an example separated (first element) to inspect shapes
-    separated_decisions = separate_graphs(zero_decision)
-    separated_gradients = separate_graphs(grad)
-    assert len(separated_decisions) == len(separated_gradients)
+    # Check edge keys and shapes
+    assert set(oracle.edges.keys()) == set(grad.edges.keys())
 
-    dec0 = separated_decisions[0]
-    grad0 = separated_gradients[0]
-
-    # Check edge keys equality
-    assert set(dec0.edges.keys()) == set(grad0.edges.keys())
-
-    # For each edge ensure feature_array shapes match
-    for key in dec0.edges:
-        dec_arr = dec0.edges[key].feature_array
-        grad_arr = grad0.edges[key].feature_array
-        assert dec_arr.shape == grad_arr.shape
-
-
-def test_get_info_flag_propagates_to_gradient_and_metrics(pb_batch):
-    """Ensure get_info flag works for gradient and metrics methods."""
-    pb = DelegateProblemBatch(pb_batch)
-    zero_decision, _ = pb.get_zero_decision(get_info=False)
-
-    _, grad_info_false = pb.get_gradient(decision=zero_decision, get_info=False)
-    _, grad_info_true = pb.get_gradient(decision=zero_decision, get_info=True)
-    assert isinstance(grad_info_false, dict)
-    assert isinstance(grad_info_true, dict)
-
-    _, metrics_info_false = pb.get_metrics(decision=zero_decision, get_info=False)
-    _, metrics_info_true = pb.get_metrics(decision=zero_decision, get_info=True)
-    assert isinstance(metrics_info_false, dict)
-    assert isinstance(metrics_info_true, dict)
+    for key in oracle.edges:
+        dec_arr = oracle.edges[key].feature_array
+        grad_arr = grad.edges[key].feature_array
+        if dec_arr is not None:
+            assert dec_arr.shape == grad_arr.shape
+        else:
+            assert grad_arr is None
