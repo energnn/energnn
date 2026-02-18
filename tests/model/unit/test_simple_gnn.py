@@ -10,7 +10,6 @@ import jax
 import jax.numpy as jnp
 
 from energnn.model.simple_gnn import SimpleGNN
-from energnn.graph.jax import JaxGraph
 from tests.utils import TestProblemLoader
 from flax import nnx
 

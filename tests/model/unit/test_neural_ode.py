@@ -13,7 +13,6 @@ from flax import nnx
 
 from energnn.model.coupler.neural_ode.neural_ode import NeuralODECoupler
 from energnn.model.utils import MLP
-from energnn.graph.jax import JaxGraph
 from tests.utils import TestProblemLoader
 
 # deterministic RNG for reproducibility in tests
@@ -28,9 +27,6 @@ jax_context_batch, _ = pb_batch.get_context()
 jax_context = jax.tree.map(lambda x: x[0], jax_context_batch)
 
 
-# -----------------------
-# Helpers for tests
-# -----------------------
 class ConstantMessage:
     """A simple callable message function that returns a constant vector (per-address)."""
 

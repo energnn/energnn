@@ -16,10 +16,6 @@ from energnn.model import SimpleGNN, IdentityEncoder
 from energnn.graph import JaxGraph, JaxEdge
 from tests.utils import TestProblemLoader
 
-# -------------------------
-# Helpers & Mocks
-# -------------------------
-
 
 class IdentityNormalizer(nnx.Module):
     def __call__(self, graph, get_info=False):
@@ -60,11 +56,6 @@ def create_tiny_model(context_structure):
         coupler=SimpleCoupler(),
         decoder=SimpleDecoder(),
     )
-
-
-# -------------------------
-# Unit Tests
-# -------------------------
 
 
 def test_cast_cotangent_to_primal_dtype():

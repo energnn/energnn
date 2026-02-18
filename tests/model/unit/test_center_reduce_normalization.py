@@ -9,7 +9,6 @@ import jax
 import jax.numpy as jnp
 import pytest
 
-from energnn.graph import separate_graphs
 from energnn.graph.jax import JaxGraph, JaxEdge, JaxGraphShape
 from energnn.gnn.normalizer.center_reduce_normalization import GraphCenterReduceNorm, EdgeCenterReduceNorm
 from tests.utils import TestProblemLoader
@@ -50,8 +49,6 @@ def test_edge_center_reduce_norm_batched_normalizes_across_batch_and_items():
     out = mod(x)
     out_np = np.array(out)
 
-    # For batched, the module computes current_mean/current_var across axes (0,1),
-    # and then updates mod.mean.value and mod.var.value and increments mod.updates.
     # Compute mean_hat/var_hat same way as the module uses them:
     mean_hat = np.array(mod.mean[...]) / (1.0 - mod.beta_1**mod.updates)
     var_hat = np.array(mod.var[...]) / (1.0 - mod.beta_2**mod.updates)
@@ -112,9 +109,7 @@ def test_edge_center_reduce_norm_raises_on_invalid_input_dim():
         mod(jnp.zeros((1, 2, 3, 4)))
 
 
-# -----------------------------
 # GraphCenterReduceNorm integration
-# -----------------------------
 def test_initialize_from_example_creates_modules_for_edges_with_features():
     gnorm = GraphCenterReduceNorm(update_limit=10)
     # context has edges with feature_arrays -> initialize
@@ -142,7 +137,6 @@ def test_graph_center_reduce_norm_applies_per_edge_and_preserves_masks_and_shape
     gnorm = GraphCenterReduceNorm(update_limit=10)
     # use context with an actual non_fict mask
     ctx = jax_context
-    # ensure some fictitious addresses exist by toggling mask (but our loader uses non_fictitious default all ones)
     # call normalization
     normalized_ctx, _ = gnorm(context=ctx, get_info=False)
     # shapes preserved
@@ -164,7 +158,6 @@ def test_graph_center_reduce_norm_applies_per_edge_and_preserves_masks_and_shape
 
 def test_graph_center_reduce_norm_noop_for_none_or_empty_edges():
     # Build a JaxGraph with one edge having feature_array = None and another with empty feature rows shape[-2]==0
-    # We'll reuse shapes from existing context to construct shapes
     # edge_none should be preserved and no module created for it.
     edge_none = JaxEdge(feature_array=None, feature_names=None, non_fictitious=jnp.array([]), address_dict=None)
     # empty feature array: shape (0, F)
@@ -210,9 +203,6 @@ def test_graph_center_reduce_norm_batched_forward_compatibility():
         assert normalized_batch.edges[k].feature_array.shape == jax_context_batch.edges[k].feature_array.shape
 
 
-# -------------------------
-# state and keys tests
-# -------------------------
 def test_edge_keys_and_updates_increment_when_adding_edges():
     gnorm = GraphCenterReduceNorm(update_limit=5)
     # initially empty
@@ -246,9 +236,6 @@ def test_initialize_from_example_ignores_zero_length_edges():
     assert not hasattr(gnorm, "norm_empty")
 
 
-# -------------------------
-# small robustness tests
-# -------------------------
 def test_multiple_edges_initialization_and_call_applies_each():
     # Use real jax_context which has multiple edges
     gnorm = GraphCenterReduceNorm(update_limit=10)

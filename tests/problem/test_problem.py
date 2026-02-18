@@ -16,9 +16,6 @@ from energnn.graph.graph import Graph
 from energnn.problem.problem import Problem
 
 
-# -------------------------
-# Helpers & Stub Classes
-# -------------------------
 def make_dummy_edge_mock(feature_names, feature_array=None):
     m = MagicMock(spec=Edge)
     m.feature_names = feature_names
@@ -74,9 +71,6 @@ class StubProblem(Problem):
         return structure
 
 
-# -------------------------
-# Tests
-# -------------------------
 def test_problem_is_abstract():
     """Problem is abstract: instantiating it directly should raise TypeError."""
     with pytest.raises(TypeError):

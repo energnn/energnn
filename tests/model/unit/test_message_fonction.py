@@ -28,9 +28,6 @@ coordinates = jnp.array(np.random.uniform(size=(10, 7)))
 coordinates_batch = jnp.array(np.random.uniform(size=(4, 10, 7)))
 
 
-# -------------------------
-# Helpers
-# -------------------------
 def _unbatch_graph(batched_graph: JaxGraph, coordinates_batch: jax.Array, idx: int = 0) -> JaxGraph:
     """
     Extract a single graph from a batched JaxGraph by taking index `idx` on leading batch axis
@@ -159,9 +156,7 @@ def _assert_vmap_jit_consistent(mf, ctx_batch: JaxGraph, coords_batch: jnp.ndarr
     return out1, info1
 
 
-# -------------------------
 # Tests for IdentityMessageFunction
-# -------------------------
 def test_identity_returns_coordinates():
     imf = IdentityMessageFunction()
     out, info = imf(graph=jax_context, coordinates=coordinates, get_info=True)
@@ -190,9 +185,7 @@ def test_identity_dtype_and_shape():
     assert out.shape == coordinates.shape
 
 
-# -------------------------
 # Tests for LocalSumMessageFunction
-# -------------------------
 def test_mlp_tree_initialization_from_structure():
     mf = LocalSumMessageFunction(
         in_graph_structure=pb_loader.context_structure,
