@@ -17,16 +17,19 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import requests
+from energnn.amortizer import SimpleAmortizer
+from energnn.amortizer.metadata import TrainerMetadata
 
 from energnn.feature_store.config_info import ProblemGenerationConfigInfo
 from energnn.problem import Problem
 from energnn.problem import ProblemDataset
 from energnn.problem.metadata import ProblemMetadata
+from energnn.trainer_registry import TrainerRegistry
 
 logger = logging.getLogger(__name__)
 
 
-class FeatureStoreClient:
+class FeatureStoreClient(TrainerRegistry):
     r"""
 
     Client interface for interacting with an EnerGNN Feature Store server.
@@ -44,6 +47,7 @@ class FeatureStoreClient:
     config_url: str
     instance_url: str
     dataset_url: str
+    trainer_url: str
 
     def __init__(self, *, project_name: str, feature_store_url: str):
         self.project_name = project_name
@@ -51,6 +55,7 @@ class FeatureStoreClient:
         self.config_url = self.feature_store_url + "/config"
         self.instance_url = self.feature_store_url + "/instance"
         self.dataset_url = self.feature_store_url + "/dataset"
+        self.trainer_url = self.feature_store_url + "/trainer"
 
     def register_config(self, config_path: str, config_id: str) -> bool:
         """
@@ -348,6 +353,14 @@ class FeatureStoreClient:
         return dataset
 
     def remove_dataset(self, name: str, split: str, version: int) -> bool:
+        """
+        Remove a dataset from the feature store.
+
+        :param name: Dataset name.
+        :param split: Dataset split.
+        :param version: Dataset version.
+        :return: True if the dataset was cleanly removed, False otherwise.
+        """
         str_key = f"{name}_{split}_{version}"
         dataset_key = {"project_name": self.project_name, "name": name, "split": split, "version": version}
         response = requests.delete(url=self.dataset_url, params=dataset_key)
@@ -356,6 +369,77 @@ class FeatureStoreClient:
             return False
         logger.info(f"Successfully removed dataset {str_key} from feature store.")
         return True
+
+    def register_trainer(self, trainer: SimpleAmortizer, best: bool = False, last: bool = False) -> bool:
+        """
+        Register a trainer in the feature store.
+
+        :param trainer: Trainer to register.
+        :param best: Whether the trainer is the best one for the given run.
+        :param last: Whether the trainer is the last one for the given run.
+        :return: True if the trainer was cleanly registered, False otherwise.
+        """
+        metadata: TrainerMetadata = trainer.get_metadata()
+        metadata["best"] = best
+        metadata["last"] = last
+        storage_path = str(uuid.uuid4())
+        metadata["storage_path"] = storage_path
+
+        trainer_name = f"{metadata['project_name']}_{metadata['run_id']}_{metadata['training_step']}"
+        with TemporaryDirectory() as tmp_dir_name:
+            tmp_dir_path = Path(tmp_dir_name)
+            trainer_file_path = tmp_dir_path / f"{metadata['run_id']}_{metadata['training_step']}"
+            trainer.to_pickle(str(trainer_file_path))
+            zip_files_to_send(str(trainer_file_path))
+            with open(str(trainer_file_path) + ".zip", "rb") as file:
+                response = requests.post(url=self.trainer_url,
+                                         files={"trainer_file": file,
+                                                "trainer": (None, json.dumps(metadata), "application/json")})
+            if response.status_code != 200:
+                logger.error(response.json())
+                return False
+        logger.info(f"Successfully registered trainer {trainer_name}")
+        return True
+
+    def get_trainer_metadata(self, run_id: str, step: int, **kwargs) -> TrainerMetadata | None:
+        """
+        Retrieves metadata of a specific trainer from the feature store by run_id and step.
+
+        :param run_id: Identifier of the run during which the trainer was generated.
+        :param step: Training step of the run at which the trainer was registered.
+        :return: The corresponding metadata if it exists, None otherwise.
+        """
+        trainer_key = {"project_name": self.project_name, "run_id": run_id, "training_step": step}
+        response = requests.get(url=self.trainer_url, params=trainer_key)
+        if response.status_code != 200:
+            logger.error(response.json())
+            return None
+        return response.json()
+
+    def download_trainer(self, run_id: str, step: int) -> SimpleAmortizer:
+        """
+        Downloads a trainer from the feature store by run_id and step.
+
+        :param run_id: Identifier of the run during which the trainer was generated.
+        :param step: Training step of the run at which the trainer was registered.
+        :return: The corresponding SimpleAmortizer instance if it exists, None otherwise.
+        """
+        metadata = self.get_trainer_metadata(run_id, step)
+        if metadata is None:
+            raise Exception(f"Trainer generated on step {step} during run {run_id} does not exist.")
+        storage_path = metadata["storage_path"]
+        with TemporaryDirectory() as output_dir_name:
+            output_dir = Path(output_dir_name)
+            local_path = output_dir / storage_path
+            if not local_path.exists():
+                trainer_key = {"project_name": self.project_name, "run_id": run_id, "training_step": step}
+                response = requests.get(url=self.trainer_url + "/download", params=trainer_key)
+                if response.status_code != 200:
+                    raise Exception(f"Error while trying to download trainer : {response.json()['message']}.")
+                write_zip_from_response(response, output_dir, unzip=True)
+            else:
+                logger.info(f"Trainer generated on step {step} during run {run_id} already downloaded")
+            return SimpleAmortizer.load(local_path / f"{metadata['run_id']}_{metadata['training_step']}")
 
 
 def write_zip_from_response(response: requests.Response, output_dir: Path, unzip: bool) -> Path:

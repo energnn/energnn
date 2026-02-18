@@ -26,6 +26,7 @@ store database.
     FeatureStoreClient.register_config
     FeatureStoreClient.get_configs_metadata
     FeatureStoreClient.get_config_metadata
+    FeatureStoreClient.download_config
     FeatureStoreClient.register_instance
     FeatureStoreClient.get_instances_metadata
     FeatureStoreClient.get_instance_metadata

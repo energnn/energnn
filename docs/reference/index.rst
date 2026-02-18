@@ -12,6 +12,6 @@ of energnn classes and methods.
     amortizer/index
     normalizer/index
     graph_neural_network/index
-    storage/index
     tracker/index
     feature_store/index
+    trainer_registry/index

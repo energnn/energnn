@@ -6,5 +6,6 @@
 #
 from .simple_amortizer import SimpleAmortizer
 from .utils import numpify_info_dict, append_metrics_and_infos, TaskLogger
+from .metadata import TrainerMetadata
 
-__all__ = ["SimpleAmortizer", "numpify_info_dict", "append_metrics_and_infos", "TaskLogger"]
+__all__ = ["SimpleAmortizer", "TrainerMetadata", "numpify_info_dict", "append_metrics_and_infos", "TaskLogger"]

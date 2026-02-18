@@ -8,7 +8,6 @@ import os
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-import cloudpickle
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -16,8 +15,7 @@ import optax
 import pytest
 
 from energnn.amortizer.simple_amortizer import SimpleAmortizer
-from energnn.graph.jax import JaxEdge, JaxGraph
-from energnn.graph import separate_graphs
+from energnn.graph.jax import JaxGraph
 from energnn.normalizer import Preprocessor, Postprocessor
 
 from tests.utils import TestProblemLoader
@@ -25,12 +23,12 @@ from tests.amortizer.unit.utils import (
     Decision,
     FakeJaxGraph,
     FakeGNN,
-    FakeStorage,
     FakeTracker,
     FakePostprocessor,
     FakePreprocessor,
     FakeProblemLoader,
     FakeProblemBatch,
+    FakeRegistry
 )
 
 
@@ -75,7 +73,8 @@ def build_amortizer_with_fakes(**kwargs):
     pre = kwargs.get("pre", FakePreprocessor())
     post = kwargs.get("post", FakePostprocessor())
     optimizer = kwargs.get("optimizer", optax.sgd(learning_rate=0.01))
-    amort = SimpleAmortizer(gnn=gnn, preprocessor=pre, postprocessor=post, optimizer=optimizer, progress_bar=False)
+    amort = SimpleAmortizer(gnn=gnn, preprocessor=pre, postprocessor=post, optimizer=optimizer, progress_bar=False,
+                            project_name="test_project", run_id="test_run")
     return amort, {"gnn": gnn, "pre": pre, "post": post, "optimizer": optimizer}
 
 
@@ -107,10 +106,7 @@ def test_train_raises_if_not_initialized():
             val_loader=None,
             problem_cfg=None,
             n_epochs=1,
-            out_dir="../..",
-            last_id="last",
-            best_id="best",
-            storage=FakeStorage(),
+            registry=FakeRegistry(),
             tracker=FakeTracker(),
         )
 
@@ -119,7 +115,8 @@ def test_forward_delegates_to_pre_and_post_and_gnn():
     gnn = FakeGNN(apply_return=(FakeJaxGraph(feature_flat_array=[[5.0, 6.0]]), {"g": 1}))
     pre = FakePreprocessor(preprocess_return=(FakeJaxGraph(feature_flat_array=[[1.0, 2.0]]), {"p": 1}))
     post = FakePostprocessor(postprocess_return=(FakeJaxGraph(feature_flat_array=[[7.0, 8.0]]), {"pp": 1}))
-    amort = SimpleAmortizer(gnn=gnn, preprocessor=pre, postprocessor=post, optimizer=optax.sgd(0.01), progress_bar=False)
+    amort = SimpleAmortizer(gnn=gnn, preprocessor=pre, postprocessor=post, optimizer=optax.sgd(0.01), progress_bar=False,
+                            project_name="test_project", run_id="test_run")
 
     # Create a fake context (any object)
     context = SimpleNamespace(feature_flat_array=[[0.0]])
@@ -189,7 +186,7 @@ def test_infer_and_infer_batch_delegate_to_forward_without_jit():
 
 def test_run_evaluation_saves_on_improvement(monkeypatch, tmp_path):
     amort, _ = build_amortizer_with_fakes()
-    storage = FakeStorage()
+    registry = FakeRegistry()
     tracker = FakeTracker()
 
     # monkeypatch eval to return a metric better than best_metrics
@@ -197,11 +194,10 @@ def test_run_evaluation_saves_on_improvement(monkeypatch, tmp_path):
     amort.save = MagicMock()
     amort.eval = MagicMock(return_value=(0.5, {"dummy": np.array([0.0])}))
 
-    amort.run_evaluation(val_loader=None, cfg=None, tracker=tracker, storage=storage, out_dir=str(tmp_path), best_id="best123")
+    amort.run_evaluation(val_loader=None, cfg=None, tracker=tracker, registry=registry)
 
-    # since metric improved, save and upload should have been called
-    amort.save.assert_called()
-    storage.upload.assert_called_with(source_path=os.path.join(str(tmp_path), "best"), target_path="amortizers/" + "best123")
+    # since metric improved, register_trainer should have been called
+    registry.register_trainer.assert_called_with(trainer=amort, best=True)
     assert amort.best_metrics == 0.5
 
 
@@ -209,7 +205,6 @@ def test_save_and_load_roundtrip(tmp_path):
     amort, _ = build_amortizer_with_fakes()
     # set an attribute to check roundtrip
     amort.progress_bar = False
-    path = tmp_path / "amort.pkl"
     amort.save(name="tmp_amort", directory=str(tmp_path))
     # saved file name should exist
     file_path = os.path.join(str(tmp_path), "tmp_amort")
@@ -228,7 +223,8 @@ def test_training_step_returns_flat_numpy_infos(monkeypatch):
     gnn = FakeGNN(apply_return=(FakeJaxGraph(feature_flat_array=[[2.0, 2.0]]), {"g": 1}))
     pre = FakePreprocessor(preprocess_return=(FakeJaxGraph(feature_flat_array=[[1.0, 1.0]]), {"p": 1}))
     post = FakePostprocessor(postprocess_return=(FakeJaxGraph(feature_flat_array=[[0.0, 0.0]]), {"pp": 1}))
-    amort = SimpleAmortizer(gnn=gnn, preprocessor=pre, postprocessor=post, optimizer=optax.sgd(0.01), progress_bar=False)
+    amort = SimpleAmortizer(gnn=gnn, preprocessor=pre, postprocessor=post, optimizer=optax.sgd(0.01), progress_bar=False,
+                            project_name="test_project", run_id="test_run")
 
     # create a fake problem batch with simple numpy-like context and gradient
     context = SimpleNamespace(feature_flat_array=[[0.0]])
@@ -291,7 +287,8 @@ def test_update_params_numeric_gradient_application():
     pre = Preprocessor.__new__(Preprocessor)
     post = Postprocessor.__new__(Postprocessor)
 
-    amort = SimpleAmortizer(gnn=None, preprocessor=pre, postprocessor=post, optimizer=optax.sgd(0.1), progress_bar=False)
+    amort = SimpleAmortizer(gnn=None, preprocessor=pre, postprocessor=post, optimizer=optax.sgd(0.1), progress_bar=False,
+                            project_name="test_project", run_id="test_run")
 
     # Monkeypatch preprocessor.preprocess_batch to return our batched contexts (B=2, D=2).
     # This function must return (norm_context, info). norm_context will be iterated by vmap axis=0.

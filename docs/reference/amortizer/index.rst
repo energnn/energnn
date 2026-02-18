@@ -34,7 +34,6 @@ optimization problem,
     SimpleAmortizer.init
     SimpleAmortizer.train
     SimpleAmortizer.run_evaluation
-    SimpleAmortizer.save_latest
     SimpleAmortizer.eval
     SimpleAmortizer.training_step
     SimpleAmortizer.eval_step

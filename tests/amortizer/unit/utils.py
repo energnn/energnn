@@ -4,10 +4,14 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
+from abc import ABC
+
 import jax
 import jax.numpy as jnp
 import numpy as np
 from unittest.mock import MagicMock
+
+from energnn.trainer_registry import TrainerRegistry
 
 
 class FakeJaxGraph:
@@ -123,13 +127,9 @@ class FakePostprocessor:
             side_effect=lambda out_graph, grad_graph, get_info=False: self.prec_batch_return
         )
 
-
-class FakeStorage:
+class FakeRegistry:
     def __init__(self):
-        self.upload = MagicMock()
-        self.download = MagicMock()
-        self.delete = MagicMock()
-
+        self.register_trainer = MagicMock()
 
 class FakeTracker:
     def __init__(self):
