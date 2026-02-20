@@ -120,8 +120,8 @@ class SimpleTrainer:
         checkpoint_manager: CheckpointManager | None = None,
         n_epochs: int,
         tracker: Tracker | None = None,
-        log_period: int | None = 1,
-        eval_period: int | None = 1,
+        log_period: int | None = None,
+        eval_period: int | None = None,
         eval_before_training: bool = False,
         eval_after_epoch: bool = True,
         progress_bar: bool = True,
@@ -153,28 +153,44 @@ class SimpleTrainer:
                 storage=storage,
             )
 
-        for _ in tqdm(range(1, n_epochs + 1), desc="Training", unit="epoch", disable=not progress_bar):
+        for epoch in (
+            pbar := tqdm(range(1, n_epochs + 1), desc="Training", unit="epoch", disable=not progress_bar, position=0)
+        ):
 
-            for problem_batch in tqdm(train_loader, desc="Current epoch", leave=False, unit="batch", disable=not progress_bar):
+            epoch_loss = []
+            inner_pbar = tqdm(
+                train_loader, desc=f"Epoch {epoch}", leave=False, unit="batch", disable=not progress_bar, position=1
+            )
+            for problem_batch in inner_pbar:
 
                 # Perform one training step
                 if (log_period is not None) and (self.train_step % log_period == 0) and (tracker is not None):
                     infos = self.training_step(problem_batch, get_info=True)
                     tracker.run_append(infos={"train": infos}, step=self.train_step)
                 else:
-                    _ = self.training_step(problem_batch, get_info=False)
+                    infos = self.training_step(problem_batch, get_info=True)
+
+                if "4_update/loss" in infos:
+                    loss = float(infos["4_update/loss"])
+                    epoch_loss.append(loss)
+                    inner_pbar.set_postfix(loss=f"{loss:.4e}")
 
                 # If True, run evaluation
                 if (eval_period is not None) and (self.train_step % eval_period == 0):
-                    _ = self.run_evaluation(
+                    val_metrics = self.run_evaluation(
                         val_loader=val_loader,
                         progress_bar=progress_bar,
                         tracker=tracker,
                         checkpoint_manager=checkpoint_manager,
                         storage=storage,
+                        position=2,
                     )
+                    pbar.set_postfix(best_val=f"{self.best_metrics:.4e}", last_val=f"{val_metrics:.4e}")
 
                 self.train_step += 1
+
+            if epoch_loss:
+                pbar.set_postfix(best_val=f"{self.best_metrics:.4e}", avg_loss=f"{np.mean(epoch_loss):.4e}")
 
             # At the end of each epoch, save latest model and perform an evaluation, unless evaluation was just run.
             if (eval_period is not None) and (self.train_step % eval_period == 0):
@@ -200,6 +216,7 @@ class SimpleTrainer:
         tracker: Tracker = None,
         storage: Storage | None = None,
         checkpoint_manager: CheckpointManager | None = None,
+        position: int = 1,
     ) -> float:
         """
         Runs an evaluation and checkpoints if needed.
@@ -209,11 +226,12 @@ class SimpleTrainer:
         :param tracker: Experiment tracker.
         :param storage: Remote storage manager for saving checkpoints.
         :param checkpoint_manager: Checkpoint manager for saving checkpoints.
+        :param position: Position of the progress bar if shown.
         :return: Average metrics obtained on the validation set.
         """
         self.model.eval()  # Set model to eval mode
 
-        metrics, infos = self.eval(val_loader, progress_bar=progress_bar)
+        metrics, infos = self.eval(val_loader, progress_bar=progress_bar, position=position)
         if metrics < self.best_metrics:
             self.best_metrics = metrics
 
@@ -280,21 +298,23 @@ class SimpleTrainer:
         nnx.update(self.optimizer, restored["optimizer"])
         self.train_step = restored["step"]
 
-    def eval(self, loader: ProblemLoader, progress_bar: bool = False) -> tuple[float, dict]:
+    def eval(self, loader: ProblemLoader, progress_bar: bool = False, position: int = 1) -> tuple[float, dict]:
         """
         Evaluates the amortizer over a problem loader by averaging the metrics scalar.
 
         :param loader: Problem loader over which the amortizer is evaluated.
         :param progress_bar: If true, display a progress bar during evaluation.
+        :param position: Position of the progress bar if shown.
         :return: Average metrics obtained over the problem loader.
         """
         metrics_list, infos_list = [], []
-        for step, problem_batch in enumerate(
-            tqdm(loader, desc="Validation", unit="batch", leave=False, disable=not progress_bar)
-        ):
+        pbar = tqdm(loader, desc="Validation", unit="batch", leave=False, disable=not progress_bar, position=position)
+        for step, problem_batch in enumerate(pbar):
             metrics_batch, info_batch = self.eval_step(step, problem_batch)
             metrics_list.append(metrics_batch)
             infos_list.append(info_batch)
+            if progress_bar:
+                pbar.set_postfix(metrics=f"{np.nanmean(np.concatenate(metrics_list)):.4e}")
 
         metrics = np.nanmean(np.concatenate(metrics_list)).astype(float)
 

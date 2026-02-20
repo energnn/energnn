@@ -105,13 +105,15 @@ def test_simple_trainer(tmp_path):
     )
     metrics_2 = trainer.run_evaluation(val_loader=val_loader, progress_bar=True)
 
-    trainer.load_checkpoint(ckpt_manager, step=4)
+    new_ckpt_manager = ocp.CheckpointManager(directory=tmp_path / "test_trainer")
+
+    trainer.load_checkpoint(new_ckpt_manager, step=4)
     metrics_3 = trainer.run_evaluation(val_loader=val_loader, progress_bar=True)
 
     _ = trainer.train(
         train_loader=train_loader,
         val_loader=val_loader,
-        checkpoint_manager=ckpt_manager,
+        checkpoint_manager=new_ckpt_manager,
         n_epochs=1,
         log_period=None,
         eval_period=None,
