@@ -11,7 +11,7 @@ import jax.numpy as jnp
 
 from energnn.model.decoder.equivariant_decoder import MLPEquivariantDecoder
 from energnn.graph import GraphStructure, EdgeStructure
-from energnn.graph.jax import JaxGraph, JaxEdge, JaxGraphShape
+from energnn.graph.jax import JaxGraph, JaxEdge
 from tests.utils import TestProblemLoader
 
 # Prepare deterministic data and loader
@@ -52,11 +52,7 @@ def assert_decoder_vmap_jit_output(*, decoder: MLPEquivariantDecoder, context: J
     assert infos_3 == {}
 
 
-# -------------------------
 # MLPEquivariantDecoder tests
-# -------------------------
-
-
 def test_mlp_equivariant_decoder_init_deterministic():
     """
     Two decoders created with the same seed must produce the same outputs on the same input.

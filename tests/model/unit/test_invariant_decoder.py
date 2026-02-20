@@ -5,7 +5,6 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
 import numpy as np
-import chex
 import jax
 import jax.numpy as jnp
 
@@ -57,9 +56,7 @@ def assert_vmap_jit_consistent(decoder: InvariantDecoder, ctx_batch: JaxGraph, c
     assert info2 == info4
 
 
-# -------------------------
 # SumInvariantDecoder tests
-# -------------------------
 def test_sum_invariant_decoder_basic_and_masking():
     psi = MLP(in_size=7, hidden_sizes=[8], out_size=6, activation=None, seed=2)
     phi = MLP(in_size=6, hidden_sizes=[8], out_size=4, activation=None, seed=2)
@@ -106,9 +103,7 @@ def test_sum_invariant_decoder_numeric_identity():
     np.testing.assert_allclose(np.array(out), expected, rtol=0.0, atol=1e-6)
 
 
-# -------------------------
-# MeanInvariantDecoder tests (nnx returns a global vector)
-# -------------------------
+# MeanInvariantDecoder tests
 def test_mean_invariant_decoder_shape_and_mask_behavior():
     psi = MLP(in_size=7, hidden_sizes=[8], out_size=5, activation=None, seed=3)
     phi = MLP(in_size=5, hidden_sizes=[8], out_size=6, activation=None, seed=3)

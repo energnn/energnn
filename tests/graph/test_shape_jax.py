@@ -30,17 +30,20 @@ def test_from_numpy_and_to_numpy_roundtrip():
 
 def test_dtype_preservation_float64():
     jax.config.update("jax_enable_x64", True)
-    gs = get_fixed_graphshape()
-    jgs = JaxGraphShape.from_numpy_shape(gs, dtype="float64")
-    # jax arrays should be float64
-    for v in jgs.edges.values():
-        assert v.dtype == jnp.float64
-    assert jgs.addresses.dtype == jnp.float64
+    try:
+        gs = get_fixed_graphshape()
+        jgs = JaxGraphShape.from_numpy_shape(gs, dtype="float64")
+        # jax arrays should be float64
+        for v in jgs.edges.values():
+            assert v.dtype == jnp.float64
+        assert jgs.addresses.dtype == jnp.float64
 
-    back = jgs.to_numpy_shape()
-    for v in back.edges.values():
-        assert v.dtype == np.float64
-    assert back.addresses.dtype == np.float64
+        back = jgs.to_numpy_shape()
+        for v in back.edges.values():
+            assert v.dtype == np.float64
+        assert back.addresses.dtype == np.float64
+    finally:
+        jax.config.update("jax_enable_x64", False)
 
 
 def test_dtype_preservation_float32():

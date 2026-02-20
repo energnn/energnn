@@ -33,13 +33,16 @@ def test_from_numpy_edge_and_to_numpy_edge_roundtrip():
 
 def test_from_numpy_edge_dtypes_64():
     jax.config.update("jax_enable_x64", True)
-    np_edge = get_fixed_edge()
-    jax_edge = JaxEdge.from_numpy_edge(np_edge, dtype="float64")
-    # feature_array should have dtype float64 in JAX
-    assert jax_edge.feature_array.dtype == jnp.float64
-    # and back to numpy: dtype preserved as float64
-    back = jax_edge.to_numpy_edge()
-    assert back.feature_array.dtype == np.float64
+    try:
+        np_edge = get_fixed_edge()
+        jax_edge = JaxEdge.from_numpy_edge(np_edge, dtype="float64")
+        # feature_array should have dtype float64 in JAX
+        assert jax_edge.feature_array.dtype == jnp.float64
+        # and back to numpy: dtype preserved as float64
+        back = jax_edge.to_numpy_edge()
+        assert back.feature_array.dtype == np.float64
+    finally:
+        jax.config.update("jax_enable_x64", False)
 
 
 def test_from_numpy_edge_dtypes_32():

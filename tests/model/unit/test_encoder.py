@@ -25,9 +25,7 @@ jax_context_batch, _ = pb_batch.get_context()
 jax_context = jax.tree.map(lambda x: x[0], jax_context_batch)
 
 
-# -------------------------
 # IdentityEncoder tests
-# -------------------------
 def test_identity_encoder_single_roundtrip():
     enc = IdentityEncoder()
     out, info = enc(graph=jax_context, get_info=True)
@@ -55,9 +53,7 @@ def test_identity_encoder_batch_vmap_jit_consistency():
     assert info2 == info4
 
 
-# -------------------------
 # MLPEncoder tests
-# -------------------------
 @pytest.fixture(scope="module")
 def mlp_encoder():
     # give an explicit seed for deterministic behavior in tests

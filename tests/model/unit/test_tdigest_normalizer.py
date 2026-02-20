@@ -5,10 +5,8 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
 import numpy as np
-import pytest
 import jax
 import jax.numpy as jnp
-from fastdigest import TDigest
 
 import energnn.model.normalizer.tdigest_normalizer as tdn
 from energnn.model.normalizer.tdigest_normalizer import (
@@ -17,6 +15,9 @@ from energnn.model.normalizer.tdigest_normalizer import (
 )
 from energnn.graph.jax import JaxEdge, JaxGraph
 from tests.utils import TestProblemLoader
+
+# TDigestNormalizer relies on float32 explicitly in io_callback.
+jax.config.update("jax_enable_x64", False)
 
 # make deterministic
 np.random.seed(0)
