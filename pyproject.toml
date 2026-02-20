@@ -26,6 +26,7 @@ dependencies = [
     "neptune-scale==0.13.0",
     "flatdict==4.0.0",
     "fastdigest==0.8.3",
+    "ipykernel",
 ]
 
 [project.optional-dependencies]
@@ -34,6 +35,9 @@ gpu = ["jax[cuda12]"]
 docs = [
     "sphinx==8.1.3",
     "furo==2025.12.19",
+    "sphinx-copybutton",
+    "nbsphinx",
+    "ipykernel",
 ]
 
 [dependency-groups]

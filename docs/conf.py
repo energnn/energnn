@@ -28,7 +28,15 @@ author = "Balthazar Donon, Hugo Kulesza"
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
 
-extensions = ["sphinx.ext.autodoc", "sphinx.ext.autosummary", "sphinx.ext.viewcode", "sphinx.ext.todo", "sphinx.ext.mathjax"]
+extensions = [
+    "sphinx.ext.autodoc",
+    "sphinx.ext.autosummary",
+    "sphinx.ext.viewcode",
+    "sphinx.ext.todo",
+    "sphinx.ext.mathjax",
+    "sphinx_copybutton",
+    "nbsphinx",
+]
 
 templates_path = ["_templates"]
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
@@ -76,10 +84,21 @@ todo_include_todos = True
 # Generate one file per method
 autosummary_generate = True
 
-# Pour modifier l'affichage dans autosummary
+# To modify the display in autosummary
 modindex_common_prefix = ["energnn."]
 
-# Utilise les templates personnalisés
+# Uses custom templates
 autosummary_context = {
     "add_module_names": False,
 }
+
+# ------------------------------
+# Syntax highlighting configuration
+# ------------------------------
+# Default highlight language for code blocks without an explicit language
+highlight_language = "python"
+
+# Pygments styles (light and dark) used by the theme for syntax highlighting
+# See https://www.sphinx-doc.org/en/master/usage/configuration.html#confval-pygments_style
+pygments_style = "sphinx"  # light mode
+pygments_dark_style = "native"  # dark mode (works well with Furo)
