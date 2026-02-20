@@ -11,7 +11,4 @@ of energnn classes and methods.
     problem/index
     amortizer/index
     normalizer/index
-    graph_neural_network/index
-    storage/index
     tracker/index
-    feature_store/index
