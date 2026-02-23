@@ -50,7 +50,8 @@ class MLPEncoder(Encoder):
         kernel_init: Initializer = initializers.lecun_normal(),
         bias_init: Initializer = initializers.zeros_init(),
         final_activation: Activation | None = None,
-        seed: int = 0,
+        seed: int | None = None,
+        rngs: nnx.Rngs | None = None,
     ) -> None:
         super().__init__()
 
@@ -68,12 +69,15 @@ class MLPEncoder(Encoder):
         self.bias_init = bias_init
         self.final_activation = final_activation
 
-        self.mlp_dict = self._build_mlp_dict(seed=seed)
+        self.mlp_dict = self._build_mlp_dict(seed=seed, rngs=rngs)
         self.feature_names = nnx.data({f"lat_{i}": jnp.array(i) for i in range(self.out_size)})
 
-    def _build_mlp_dict(self, seed: int = 0) -> dict[str, MLP]:
+    def _build_mlp_dict(self, seed: int = 0, rngs: nnx.Rngs | None = None) -> dict[str, MLP]:
         """Creates an MLP for each edge class appearing in the input structure, initialized with the given seed."""
-        rngs = nnx.Rngs(seed)  # Create a single rng stream and pass it to all MLP blocks.
+        if rngs is None:
+            rngs = nnx.Rngs(seed)
+        elif seed is not None:
+            raise ValueError("Seed must be None when rngs are provided.")
         mlp_dict = {}
         for edge_key, edge_structure in self.in_structure.edges.items():
             if edge_structure.feature_list is not None and len(edge_structure.feature_list) > 0:

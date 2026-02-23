@@ -65,7 +65,8 @@ class LocalSumMessageFunction(MessageFunction):
         outer_activation: Activation = nnx.tanh,
         encoded_feature_size: int | None = None,
         port_scatter_blacklist: dict[str, list[str]] | None = None,
-        seed: int = 0,
+        seed: int | None = None,
+        rngs: nnx.Rngs | None = None,
     ):
         self.in_graph_structure = in_graph_structure
         self.in_array_size = in_array_size
@@ -83,10 +84,13 @@ class LocalSumMessageFunction(MessageFunction):
         else:
             self.port_scatter_blacklist = port_scatter_blacklist
 
-        self.mlp_tree = self._build_mlp_tree(seed=seed)
+        self.mlp_tree = self._build_mlp_tree(seed=seed, rngs=rngs)
 
-    def _build_mlp_tree(self, seed: int = 0) -> dict[str, dict[str, MLP]]:
-        rngs = nnx.Rngs(seed)
+    def _build_mlp_tree(self, seed: int = 0, rngs: nnx.Rngs | None = None) -> dict[str, dict[str, MLP]]:
+        if rngs is None:
+            rngs = nnx.Rngs(seed)
+        elif seed is not None:
+            raise ValueError("Seed must be None when rngs are provided.")
         mlp_tree = {}
 
         for edge_key, edge_structure in self.in_graph_structure.edges.items():

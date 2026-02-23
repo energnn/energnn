@@ -64,7 +64,8 @@ class MLPEquivariantDecoder(EquivariantDecoder):
         bias_init: Initializer = initializers.zeros_init(),
         final_activation: Activation | None = None,
         encoded_feature_size: int | None = None,
-        seed: int = 0,
+        seed: int | None = None,
+        rngs: nnx.Rngs | None = None,
     ):
         super().__init__(out_structure=out_structure)
 
@@ -86,7 +87,7 @@ class MLPEquivariantDecoder(EquivariantDecoder):
         self.final_activation = final_activation
         self.encoded_feature_size = encoded_feature_size
 
-        self.mlp_dict = self._build_mlp_dict(seed=seed)
+        self.mlp_dict = self._build_mlp_dict(seed=seed, rngs=rngs)
         self.feature_names_dict = nnx.data(
             {
                 k: {kk: jnp.array([i]) for i, kk in enumerate(v.feature_list)}
@@ -95,8 +96,11 @@ class MLPEquivariantDecoder(EquivariantDecoder):
             }
         )
 
-    def _build_mlp_dict(self, seed: int = 0) -> dict[str, MLP]:
-        rngs = nnx.Rngs(seed)
+    def _build_mlp_dict(self, seed: int = 0, rngs: nnx.Rngs | None = None) -> dict[str, MLP]:
+        if rngs is None:
+            rngs = nnx.Rngs(seed)
+        elif seed is not None:
+            raise ValueError("Seed must be None when rngs are provided.")
         mlp_dict = {}
 
         for edge_key, out_edge_structure in self.out_structure.edges.items():
