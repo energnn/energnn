@@ -115,7 +115,7 @@ class SimpleTrainer:
         self,
         *,
         train_loader: ProblemLoader,
-        val_loader: ProblemLoader,
+        val_loader: ProblemLoader | None = None,
         storage: Storage | None = None,
         checkpoint_manager: CheckpointManager | None = None,
         n_epochs: int,
@@ -144,7 +144,7 @@ class SimpleTrainer:
         """
 
         # Evaluation over the full validation loader before training.
-        if eval_before_training:
+        if eval_before_training and (val_loader is not None):
             _ = self.run_evaluation(
                 val_loader=val_loader,
                 progress_bar=progress_bar,
@@ -176,7 +176,7 @@ class SimpleTrainer:
                     inner_pbar.set_postfix(loss=f"{loss:.4e}")
 
                 # If True, run evaluation
-                if (eval_period is not None) and (self.train_step % eval_period == 0):
+                if (eval_period is not None) and (self.train_step % eval_period == 0) and (val_loader is not None):
                     val_metrics = self.run_evaluation(
                         val_loader=val_loader,
                         progress_bar=progress_bar,
@@ -195,7 +195,7 @@ class SimpleTrainer:
             # At the end of each epoch, save latest model and perform an evaluation, unless evaluation was just run.
             if (eval_period is not None) and (self.train_step % eval_period == 0):
                 continue
-            elif eval_after_epoch:
+            elif eval_after_epoch and (val_loader is not None):
                 _ = self.run_evaluation(
                     val_loader=val_loader,
                     progress_bar=progress_bar,
