@@ -3,7 +3,9 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 # SPDX-License-Identifier: MPL-2.0
-#
+
+import pandas as pd
+
 EDGES = "edges"
 FEATURE_LIST = "feature_list"
 ADDRESS_LIST = "address_list"
@@ -44,3 +46,12 @@ class GraphStructure(dict):
     @property
     def edges(self) -> dict[str, EdgeStructure]:
         return self[EDGES]
+
+    def __str__(self):
+        data = {
+            "Name": [edge_name for edge_name in self.edges.keys()],
+            "Addresses": [edge_structure.address_list for edge_structure in self.edges.values()],
+            "Features": [edge_structure.feature_list for edge_structure in self.edges.values()],
+        }
+        df = pd.DataFrame(data).set_index("Name")
+        return df.to_string()
