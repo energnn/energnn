@@ -1,7 +1,17 @@
-EnerGNN Basics
-==============
+Basics
+======
 
 This page introduces the general framework of the **EnerGNN** library.
+
+- It introduces **Amortized Optimization** [1], which encompasses traditional supervised learning.
+- It explains how to implement your own use case using the :mod:`energnn.problem` interface.
+- It outlines the core features of our :mod:`energnn.graph` data representation module.
+- It gives some details about the GNN architectures implemented in :mod:`energnn.model`.
+- It shows how to train a GNN model over your own use case using the :mod:`energnn.train` module.
+
+[1] Brandon Amos, *Tutorial on Amortized Optimization*, 2022.
+
+-----
 
 Amortized Optimization
 ----------------------
@@ -20,152 +30,172 @@ where:
 - :math:`y` is a **decision** graph (output data),
 - :math:`f` is the **objective** function to minimize.
 
-Here, :math:`f` is common to an entire class of problems, while :math:`x` is specific to a given instance.
-We seek to solve this problem for a distribution of contexts :math:`x \sim p`, using a trainable GNN model :math:`\hat{y}_\theta`, parameterized by :math:`\theta`.
-This leads to the following **Amortized Optimization** problem:
+We seek to solve this problem for a distribution of contexts :math:`x \sim p`,
+using a trainable GNN model :math:`\hat{y}_\theta`, parameterized by :math:`\theta`.
+This leads to the following **Amortized Optimization** [1] problem:
 
 .. math::
 
     \begin{align}
-        \theta^\star \in \arg \min _\theta \ \mathbb{E}_{x \sim p} [f(\hat{y}_\theta;x)].
+        \theta^\star \in \arg \min _\theta \ \mathbb{E}_{x \sim p} [f(\hat{y}_\theta(x);x)].
     \end{align}
 
-This problem is addressed via the following training loop:
+**EnerGNN** addresses this learning problem via the following general training loop:
 
 .. math::
 
     \begin{align}
-        x &\sim p & & (1) \text{Context sampling}\\
-        \hat{y} &\gets \hat{y}_\theta(x) & & (2) \text{Decision inference} \\
-        \hat{g} &\gets \nabla_y f(\hat{y};x) & & (3) \text{Gradient estimation} \\
-        \theta &\gets \theta - \alpha J_\theta[\hat{y}_\theta]^\top.\hat{g} & & (4) \text{Back-propagation}
+        x &\sim p & & \text{(1) Context sampling}\\
+        \hat{y} &\gets \hat{y}_\theta(x) & & \text{(2) Decision inference} \\
+        \hat{g} &\gets \nabla_y f(\hat{y};x) & & \text{(3) Gradient estimation} \\
+        \theta &\gets \theta - \alpha J_\theta[\hat{y}_\theta]^\top.\hat{g} & & \text{(4) Back-propagation}
     \end{align}
 
-**EnerGNN** handles steps (2) and (4), which are independent of the use case. Steps (1) and (3) are handled by specific implementations of :class:`energnn.problem.Problem`.
+**EnerGNN** handles steps (2) and (4), which are independent of the use case, while
+steps (1) and (3) are use case specific and should respect the provided :mod:`energnn.problem` interface.
 
 -------------------------
 
-Data Representation using H2MG
--------------------------
+Implementing your own Use Case
+------------------------------
 
-Contexts :math:`x`, decisions :math:`\hat{y}`, and gradients :math:`\hat{g}` are all represented as graphs within the **H2MG** (*Hyper Heterogeneous Multi Graph*) structure.
+.. attention:: **Should you use EnerGNN?**
 
-- **Hyper**: Edges can connect more than two entities (hyper-edges) using an address system.
-- **Heterogeneous**: The graph can contain different types of edges, each with its own features.
-- **Multi**: Multiple edges can exist between the same entities.
-
-In practice, an :class:`energnn.graph.Graph` is a dictionary of :class:`energnn.graph.Edge` objects. Each edge type defines:
-- `address_list`: The entities connected by this edge.
-- `feature_list`: The features associated with this edge.
-
-.. code-block:: python
-
-    from energnn.graph import Graph, Edge
-
-    # Simplified example of H2MG structure
-    graph = Graph.from_dict(edge_dict={
-        "nodes": Edge(features=node_features),
-        "lines": Edge(features=line_features, addresses=line_indices),
-    })
-
-For computations with JAX, we use :class:`energnn.graph.JaxGraph`, which is an optimized version compatible with automatic differentiation.
-
---------------------------
+    **EnerGNN** has been designed for Amortized Optimization
+    problems where the objective function :math:`f` is
+    permutation-invariant (i.e., for any permutation :math:`\sigma`,
+    :math:`f(\sigma(y); \sigma(x)) = f(y; x)`).
+    This entails that the solution :math:`y^\star` is
+    permutation-equivariant (i.e., for any permutation :math:`\sigma`,
+    :math:`y^\star(\sigma(x)) = \sigma(y^\star(x))`).
+    If this property is not satisfied, then resorting to a GNN is probably not a good idea.
 
 
-Implementing a Problem
-----------------------
-
-The :mod:`energnn.problem` API provides the interface to integrate your own use cases.
+The :mod:`energnn.problem` API provides an interface to integrate your own use cases.
+A general overview is provided below, and an in-depth guide is available in :doc:`custom_use_case`.
 
 Problem
 .......
 
-The :class:`energnn.problem.Problem` class defines a single instance of the problem. It must implement:
-- :meth:`get_context`: Returns the input graph :math:`x`.
-- :meth:`get_gradient`: Computes the gradient :math:`\nabla_y f` for a given decision. Depending on the use-case, the
+The :class:`~energnn.problem.Problem` class defines a single instance of the optimization problem.
+It must implement:
+
+- :attr:`~energnn.problem.Problem.context_structure`: General structure of contexts :math:`x`.
+- :attr:`~energnn.problem.Problem.decision_structure`: General structure that decisions :math:`y` should respect.
+  Notice that gradients :math:`\nabla_y f` share the same structure.
+- :meth:`~energnn.problem.Problem.get_context`: Returns the context graph :math:`x`.
+- :meth:`~energnn.problem.Problem.get_gradient`: Computes the gradient :math:`\nabla_y f` for a given decision :math:`y`.
+  Depending on the use-case, the
   gradient can either be straightforward to compute, or require more expensive Monte-Carlo computations.
-- :meth:`get_metrics`: Evaluates the quality of a decision (e.g., value of the cost function).
+- :meth:`~energnn.problem.Problem.get_metrics`: Evaluates the quality of a decision
+  (which may or may not coincide with the objective function).
 
-Il faut aussi déclarer les propriétés context_structure et decision_structure, qui permettent de construire un GNN
-compatible.
+ProblemBatch
+............
 
-ProblemBatch & Loader
-.....................
+For training, problems are grouped into a :class:`~energnn.problem.ProblemBatch`.
+The interface is the same as for :class:`~energnn.problem.Problem`, but contexts, decisions and
+gradients are batched together.
 
-For training, problems are grouped into a :class:`energnn.problem.ProblemBatch`. The :class:`energnn.problem.ProblemLoader` is the iterator that provides these batches to the training engine.
+ProblemLoader
+.............
+
+The :class:`~energnn.problem.ProblemLoader` is the iterator that provides these batches to the training engine.
 
 .. code-block:: python
 
-    for batch in train_loader:
-        context, _ = batch.get_context()
-        # The batch efficiently handles GPU computations
+    for problem_batch in train_loader:
+        context, _ = problem_batch.get_context()
+        # Do stuff.
         ...
 
 ------------------------
 
+Data Representation using H2MG
+-------------------------
+
+Contexts :math:`x`, decisions :math:`y`, and gradients :math:`\nabla_y f`
+are all represented as **H2MGs** (*Hyper Heterogeneous Multi Graphs*).
+
+- **Hyper graphs.** Made of hyper-edges that can connect more than 2 entities.
+- **Heterogeneous graphs.** Multiple component types (e.g., lines, transformers, etc.).
+- **Multi graphs.** Multiple components can be collocated.
+
+.. image:: _static/energnn_h2mg_black.png
+    :class: only-light
+
+.. image:: _static/energnn_h2mg_white.png
+    :class: only-dark
+
+In practice, a :class:`~energnn.graph.Graph` is a dictionary of :class:`~energnn.graph.Edge` objects, one per object class.
+For computations with JAX, we use :class:`energnn.graph.JaxGraph`,
+which is an optimized version compatible with automatic differentiation.
+
+See the :doc:`tutorial_notebook` for an example of H2MG data.
+
+--------------------------
+
 Graph Neural Network Models
 ----------
 
-**EnerGNN** provides GNN models designed to natively process H2MG structures.
-The main model, :class:`energnn.model.SimpleGNN`, follows a modular pipeline:
+**EnerGNN** provides a modular and parametrizable GNN library designed to natively process H2MG data.
+The main model, :class:`~energnn.model.SimpleGNN`, follows a modular pipeline:
 
-1. **Normalizer**: Adjusts the distribution of input features (e.g., uniformly distributed between -1 and 1).
-2. **Encoder**: Embeds features into a latent space.
-3. **Coupler**: Handles information propagation (e.g., via Message Passing or Neural ODE) over the graph structure.
-4. **Decoder**: Produces the final decision from latent representations.
+1. **Normalizer**. Adjusts the distribution of input features (e.g., uniformly distributed between -1 and 1).
+2. **Encoder**. Embeds input features into a latent space.
+3. **Coupler**. Handles information propagation (e.g., via Message Passing or Neural ODE) over the graph structure.
+4. **Decoder**. Produces the final decision from coupled latent representations.
 
-All modules inherit from `flax.nnx.Module`, allowing great flexibility and perfect integration with the JAX ecosystem.
+All modules inherit from :class:`flax.nnx.Module`, allowing great flexibility and perfect integration with the JAX ecosystem.
 
-Pour pouvoir instancier un modèle, il est nécessaire de savoir quelle est la structure des contextes (input) et
-quelle est la structure des décisions (output).
+Ready-to-use GNN implementations are available in :mod:`energnn.model.ready_to_use`.
 
-Quelques implémentations standards sont disponibles dans TODO, et peuvent s'instancier comme suit:
-Code snippet pour montrer comment le créer.
+.. code-block:: python
+
+    from energnn.model.ready_to_use import TinyRecurrentEquivariantGNN
+
+    model = TinyRecurrentEquivariantGNN(
+        in_structure=problem.context_structure,
+        out_structure=problem.decision_structure
+    )
+    context, _ = problem.get_context()
+    decision, _ = model(context)
+
+Notice that the GNN needs to know about the context and decision structures defined by the use-case.
 
 -------------------
 
 Trainer
 -------
 
-The :class:`energnn.trainer.SimpleTrainer` orchestrates the learning process.
-It takes as input the model, a gradient transformation (via `optax`), and handles:
-
-- The training and evaluation loop.
-- Checkpoint saving.
-- Metric tracking (via :mod:`energnn.tracker`).
+The :class:`~energnn.trainer.SimpleTrainer` orchestrates the learning process.
+It takes as input a model, a gradient transformation (via `optax`), and handles the training loop.
 
 .. code-block:: python
+
+    import optax
 
     trainer = SimpleTrainer(model=model, gradient_transformation=optax.adam(1e-3))
-    trainer.train(train_loader=train_loader, val_loader=val_loader, n_epochs=10)
+    trainer.train(train_loader=loader, n_epochs=10)
 
------------------------------
-
-Experiment Tracking & Storage
------------------------------
-
-EnerGNN provides interfaces to track experiments and persist data.
-
-Tracking
-........
-
-The :class:`energnn.tracker.Tracker` interface allows logging metrics, configurations, and artifacts to external platforms (e.g., Neptune). You can pass a tracker to the :meth:`SimpleTrainer.train` method.
+Additionally, evaluation can be periodically run,
+checkpoints can be saved using `orbax`,
+and metrics / infos can be monitored using an experiment tracker.
 
 .. code-block:: python
 
-    from energnn.tracker import MyCustomTracker # hypothetical implementation
+    import orbax.checkpoint as ocp
 
-    tracker = MyCustomTracker()
-    trainer.train(..., tracker=tracker)
+    checkpoint_manager = ocp.CheckpointManager(directory="tmp")
+    my_tracker = ...  # Implement your own
 
-Storage & Checkpointing
-.......................
-
-Models and datasets can be persisted using the :class:`energnn.storage.Storage` interface. The :class:`SimpleTrainer` also supports checkpointing via `Orbax`:
-
-- **Checkpoints**: Use :meth:`save_checkpoint` and :meth:`load_checkpoint` to manage model states.
-- **Storage**: The :class:`energnn.storage.Storage` interface (e.g., local or S3) handles the physical upload/download of these artifacts.
+    trainer.train(
+        train_loader=train_loader,
+        val_loader=val_loader,
+        checkpoint_manager=checkpoint_manager,
+        tracker=my_tracker,
+        n_epochs=10
+    )
 
 -----------------------------
 
@@ -174,6 +204,6 @@ Next Steps
 
 Now that you are familiar with the basics, you can:
 
-- Follow the :doc:`tutorial` for a hands-on example.
+- Follow the :doc:`tutorial_notebook` for a hands-on example.
 - Learn how to implement a :doc:`custom_use_case`.
 - Explore the :doc:`reference/index` for detailed API information.

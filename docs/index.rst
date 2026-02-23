@@ -40,25 +40,31 @@ Or to install the GPU version.
 Basic Usage
 ===========
 
-Let's train a tiny GNN model on a simplistic use case.
+This package considers the training of GNN models to solve distributions of optimization problems
+(which encompasses traditional supervised learning).
 
 .. code-block:: python
 
     from energnn.tests.utils import TestProblemLoader
-    from energnn.model import TinyGNN
+    from energnn.model.ready_to_use import TinyRecurrentEquivariantGNN
     from energnn.trainer import SimpleTrainer
     import optax
 
-    train_loader = TestProblemLoader(seed=1)
-    val_loader = TestProblemLoader(seed=2)
-    model = TinyGNN(
+    problem_loader = TestProblemLoader(seed=1)
+    model = TinyRecurrentEquivariantGNN(
         in_structure=train_loader.context_structure,
         out_structure=train_loader.decision_structure,
     )
     trainer = SimpleTrainer(model=model, gradient_transformation=optax.adam(1e-3))
-    trainer.train(train_loader=train_loader, val_loader=val_loader, n_epochs=10)
+    trainer.train(train_loader=problem_loader, n_epochs=10)
 
-Once the model has been trained on a problem loader, it can be applied on a test problem loader as follows.
+- The loader `TestProblemLoader` allows to iterate over multiple instances of the optimization problem class,
+  which encapsulate the business logic (input, output, objective, etc.).
+- The model processes graph data whose structure should match `in_structure` and returns graphs whose structure is
+  defined as `out_structure`.
+- The `trainer` iterates over the loader and updates the model weights to improve the model performance.
+
+Once trained, the model can be applied on new problem instances as follows.
 
 .. code-block:: python
 
@@ -79,12 +85,10 @@ User guides
     basics
     tutorial_notebook
     custom_use_case
-    concepts
-    contribute
 
 -------------
 
-API reference
+API Reference
 =============
 
 For detailed description of energnn classes and methods, check out the API reference documentation.
