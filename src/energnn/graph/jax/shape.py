@@ -5,12 +5,13 @@
 # SPDX-License-Identifier: MPL-2.0
 #
 from __future__ import annotations
+
 import jax
 from jax import Device
 from jax.tree_util import register_pytree_node_class
 
-from energnn.graph import GraphShape
 from energnn.graph.jax.utils import jnp_to_np, np_to_jnp
+from energnn.graph.shape import GraphShape
 
 EDGES = "edges"
 ADDRESSES = "addresses"

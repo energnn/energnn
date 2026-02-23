@@ -14,7 +14,6 @@ from energnn.graph.shape import (
     max_shape,
     sum_shapes,
 )
-from energnn.graph.edge import Edge
 from tests.graph.utils import get_fixed_edge
 
 

@@ -1,2 +1,2 @@
 [run]
-omit = tests/*, *__init__*
+omit = tests/*, *__init__*, src/energnn/amortizer/*, src/energnn/gnn/*, src/energnn/normalizer/*

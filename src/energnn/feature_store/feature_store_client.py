@@ -72,10 +72,11 @@ class FeatureStoreClient:
 
         zip_files_to_send(config_path)
         with open(config_path + ".zip", "rb") as file:
-            response = requests.post(url=self.config_url,
-                                     params={"project_name": self.project_name},
-                                     files={"config_file": file,
-                                            "config": (None, json.dumps(register_info), "application/json")})
+            response = requests.post(
+                url=self.config_url,
+                params={"project_name": self.project_name},
+                files={"config_file": file, "config": (None, json.dumps(register_info), "application/json")},
+            )
         if response.status_code != 200:
             logger.error(response.json())
             return False
@@ -117,11 +118,14 @@ class FeatureStoreClient:
         return True
 
     def download_config(self, config_id: str, output_dir: Path, unzip: bool = True) -> Path:
-        response = requests.get(url=self.config_url + "/download",
-                                params={"project_name": self.project_name, "config_id": config_id})
+        response = requests.get(
+            url=self.config_url + "/download", params={"project_name": self.project_name, "config_id": config_id}
+        )
         if response.status_code != 200:
-            raise Exception(f"Error while trying to download configuration {config_id} for project {self.project_name}"
-                            f" : {response.json()['message']}.")
+            raise Exception(
+                f"Error while trying to download configuration {config_id} for project {self.project_name}"
+                f" : {response.json()['message']}."
+            )
         return write_zip_from_response(response, output_dir, unzip)
 
     def register_instance(self, instance: Problem) -> bool:
@@ -140,10 +144,11 @@ class FeatureStoreClient:
             instance.save(path=instance_path)
             zip_files_to_send(str(instance_path))
             with open(str(instance_path) + ".zip", "rb") as file:
-                response = requests.post(url=self.instance_url,
-                                         params={"project_name": self.project_name},
-                                         files={"instance_file": file,
-                                                "instance": (None, json.dumps(instance_infos), "application/json")})
+                response = requests.post(
+                    url=self.instance_url,
+                    params={"project_name": self.project_name},
+                    files={"instance_file": file, "instance": (None, json.dumps(instance_infos), "application/json")},
+                )
             if response.status_code != 200:
                 logger.error(response.json())
                 return False
@@ -213,8 +218,12 @@ class FeatureStoreClient:
         storage_path = metadata["storage_path"]
         local_path = output_dir / storage_path
         if not local_path.exists():
-            instance_key = {"project_name": self.project_name, "name": name,
-                            "config_id": config_id, "code_version": code_version}
+            instance_key = {
+                "project_name": self.project_name,
+                "name": name,
+                "config_id": config_id,
+                "code_version": code_version,
+            }
             response = requests.get(url=self.instance_url + "/download", params=instance_key)
             if response.status_code != 200:
                 raise Exception(f"Error while trying to download instance : {response.json()['message']}.")
@@ -259,10 +268,11 @@ class FeatureStoreClient:
             dataset.to_pickle(str(dataset_file_path))
             zip_files_to_send(str(dataset_file_path))
             with open(str(dataset_file_path) + ".zip", "rb") as file:
-                response = requests.post(url=self.dataset_url,
-                                         params={"project_name": self.project_name},
-                                         files={"dataset_file": file,
-                                                "dataset": (None, json.dumps(dataset_infos), "application/json")})
+                response = requests.post(
+                    url=self.dataset_url,
+                    params={"project_name": self.project_name},
+                    files={"dataset_file": file, "dataset": (None, json.dumps(dataset_infos), "application/json")},
+                )
             if response.status_code != 200:
                 logger.error(response.json())
                 return False
@@ -337,12 +347,18 @@ class FeatureStoreClient:
                 logger.info(f"Downloading problem instances of {key} missing locally ({len(to_download)} instances).")
             for instance in to_download:
                 try:
-                    self.download_instance(name=instance.name, config_id=instance.config_id,
-                                           code_version=instance.code_version, output_dir=output_dir,
-                                           unzip=False)
+                    self.download_instance(
+                        name=instance.name,
+                        config_id=instance.config_id,
+                        code_version=instance.code_version,
+                        output_dir=output_dir,
+                        unzip=False,
+                    )
                 except OSError as exc:
-                    logger.error(f"Error while downloading instances : {exc} "
-                                 f"(still {len(to_download) - to_download.index(instance)} to download).")
+                    logger.error(
+                        f"Error while downloading instances : {exc} "
+                        f"(still {len(to_download) - to_download.index(instance)} to download)."
+                    )
                     break
 
         return dataset

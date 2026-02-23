@@ -78,11 +78,7 @@ class ProblemDataset(dict):
         :param path: Base directory where instance files should be stored.
         :returns: List of metadata of instances not present under `path`.
         """
-        return [
-            instance
-            for instance in self.instances
-            if not os.path.exists(os.path.join(path, instance.storage_path))
-        ]
+        return [instance for instance in self.instances if not os.path.exists(os.path.join(path, instance.storage_path))]
 
     def get_instance_paths(self) -> list[str]:
         """

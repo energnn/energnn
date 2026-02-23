@@ -36,9 +36,10 @@ Problem
 
    Problem.__init__
    Problem.get_context
-   Problem.get_zero_decision
    Problem.get_gradient
    Problem.get_metrics
+   Problem.decision_structure
+   Problem.context_structure
 
 
 Batch
@@ -54,10 +55,10 @@ Batch
 
    ProblemBatch.__init__
    ProblemBatch.get_context
-   ProblemBatch.get_zero_decision
    ProblemBatch.get_gradient
    ProblemBatch.get_metrics
-   ProblemBatch.get_decision_structure
+   ProblemBatch.decision_structure
+   ProblemBatch.context_structure
 
 
 Dataset
@@ -100,3 +101,5 @@ Loader
    ProblemLoader.__iter__
    ProblemLoader.__next__
    ProblemLoader.__len__
+   ProblemLoader.context_structure
+   ProblemLoader.decision_structure

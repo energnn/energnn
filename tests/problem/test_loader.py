@@ -13,6 +13,7 @@ from datetime import datetime
 from energnn.problem.dataset import ProblemDataset
 from energnn.problem.metadata import ProblemMetadata
 from energnn.problem.batch import ProblemBatch
+from energnn.graph import GraphStructure
 
 
 class FakeProblemBatch(ProblemBatch):
@@ -24,6 +25,16 @@ class FakeProblemBatch(ProblemBatch):
     def __init__(self, instances):
         # instances is a list of ProblemMetadata
         self._instances = instances
+
+    @property
+    def context_structure(self) -> GraphStructure:
+        # Dummy empty structure for compatibility with abstract base class
+        return GraphStructure(edges={})
+
+    @property
+    def decision_structure(self) -> GraphStructure:
+        # Dummy empty structure for compatibility with abstract base class
+        return GraphStructure(edges={})
 
     def get_context(self, get_info: bool = False):
         # For testing we simply return the list as "context" and an empty info dict

@@ -5,10 +5,11 @@
 # SPDX-License-Identifier: MPL-2.0
 #
 from abc import ABC, abstractmethod
-from typing import Sized, Iterator
+from typing import Iterator, Sized
 
-from .dataset import ProblemDataset
+from energnn.graph import GraphStructure
 from .batch import ProblemBatch
+from .dataset import ProblemDataset
 
 
 class ProblemLoader(ABC, Sized, Iterator[ProblemBatch]):
@@ -64,4 +65,16 @@ class ProblemLoader(ABC, Sized, Iterator[ProblemBatch]):
 
         :raises NotImplementedError: if subclass does not override this constructor.
         """
+        raise NotImplementedError
+
+    @property
+    @abstractmethod
+    def context_structure(self) -> GraphStructure:
+        """Should define the structure of all context graphs."""
+        raise NotImplementedError
+
+    @property
+    @abstractmethod
+    def decision_structure(self) -> GraphStructure:
+        """Should define the structure of all decision graphs."""
         raise NotImplementedError
