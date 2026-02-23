@@ -151,46 +151,35 @@ class SimpleTrainer:
                 tracker=tracker,
                 checkpoint_manager=checkpoint_manager,
                 storage=storage,
+                position=0,
             )
 
-        for epoch in (
-            pbar := tqdm(range(1, n_epochs + 1), desc="Training", unit="epoch", disable=not progress_bar, position=0)
-        ):
+        for epoch in range(1, n_epochs + 1):
 
-            epoch_loss = []
-            inner_pbar = tqdm(
-                train_loader, desc=f"Epoch {epoch}", leave=False, unit="batch", disable=not progress_bar, position=1
+            pbar = tqdm(
+                train_loader, desc=f"Epoch {epoch}/{n_epochs}", leave=True, unit="batch", disable=not progress_bar, position=0
             )
-            for problem_batch in inner_pbar:
+            for problem_batch in pbar:
 
                 # Perform one training step
                 if (log_period is not None) and (self.train_step % log_period == 0) and (tracker is not None):
                     infos = self.training_step(problem_batch, get_info=True)
                     tracker.run_append(infos={"train": infos}, step=self.train_step)
                 else:
-                    infos = self.training_step(problem_batch, get_info=True)
-
-                if "4_update/loss" in infos:
-                    loss = float(infos["4_update/loss"])
-                    epoch_loss.append(loss)
-                    inner_pbar.set_postfix(loss=f"{loss:.4e}")
+                    _ = self.training_step(problem_batch, get_info=True)
 
                 # If True, run evaluation
                 if (eval_period is not None) and (self.train_step % eval_period == 0) and (val_loader is not None):
-                    val_metrics = self.run_evaluation(
+                    _ = self.run_evaluation(
                         val_loader=val_loader,
                         progress_bar=progress_bar,
                         tracker=tracker,
                         checkpoint_manager=checkpoint_manager,
                         storage=storage,
-                        position=2,
+                        position=0,
                     )
-                    pbar.set_postfix(best_val=f"{self.best_metrics:.4e}", last_val=f"{val_metrics:.4e}")
 
                 self.train_step += 1
-
-            if epoch_loss:
-                pbar.set_postfix(best_val=f"{self.best_metrics:.4e}", avg_loss=f"{np.mean(epoch_loss):.4e}")
 
             # At the end of each epoch, save latest model and perform an evaluation, unless evaluation was just run.
             if (eval_period is not None) and (self.train_step % eval_period == 0):
@@ -202,6 +191,7 @@ class SimpleTrainer:
                     tracker=tracker,
                     checkpoint_manager=checkpoint_manager,
                     storage=storage,
+                    position=0,
                 )
 
         if checkpoint_manager is not None:
@@ -216,7 +206,7 @@ class SimpleTrainer:
         tracker: Tracker = None,
         storage: Storage | None = None,
         checkpoint_manager: CheckpointManager | None = None,
-        position: int = 1,
+        position: int = 0,
     ) -> float:
         """
         Runs an evaluation and checkpoints if needed.
@@ -298,7 +288,7 @@ class SimpleTrainer:
         nnx.update(self.optimizer, restored["optimizer"])
         self.train_step = restored["step"]
 
-    def eval(self, loader: ProblemLoader, progress_bar: bool = False, position: int = 1) -> tuple[float, dict]:
+    def eval(self, loader: ProblemLoader, progress_bar: bool = False, position: int = 0) -> tuple[float, dict]:
         """
         Evaluates the amortizer over a problem loader by averaging the metrics scalar.
 
@@ -308,7 +298,7 @@ class SimpleTrainer:
         :return: Average metrics obtained over the problem loader.
         """
         metrics_list, infos_list = [], []
-        pbar = tqdm(loader, desc="Validation", unit="batch", leave=False, disable=not progress_bar, position=position)
+        pbar = tqdm(loader, desc="Validation", unit="batch", leave=True, disable=not progress_bar, position=position)
         for step, problem_batch in enumerate(pbar):
             metrics_batch, info_batch = self.eval_step(step, problem_batch)
             metrics_list.append(metrics_batch)
