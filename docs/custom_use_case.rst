@@ -1,59 +1,111 @@
-Custom Use Case
-===============
+Use Case Implementation
+=======================
 
-This page explains how to plug your own optimization or learning problem into EnerGNN.
-To integrate a new use case, you need to define the graph data structures and implement the interfaces for single problem instances, batched computations, and data loading.
+This page explains how **EnerGNN** can be leveraged to address your own custom use cases.
+But first, make sure to check the :doc:`basics` and :doc:`tutorial_notebook` pages.
+
+Each use case implementation shall encompass their underlying business logic:
+
+- How input data (i.e., **contexts**) are defined and loaded in memory,
+- How output data (i.e., **decisions**) should look like,
+- How the gradient shall be estimated (closed-form for supervised learning vs.
+  Monte Carlo estimation for more complex cases).
+
+Depending on the use case, very different implementation choices can be made, but all should respect the interface
+defined in :mod:`energnn.problem`.
+
+The following guide walks you through the major steps in implementing your own **EnerGNN** use case.
 
 Overview
 --------
 
-In EnerGNN, a use case is defined by three main components:
+Implementing your custom use case requires the following class implementations.
 
-1. **Graph Structures**: Define the topology and features of your inputs (**context**) and outputs (**decision**).
-2. **Problem**: Implements the logic for a single instance (context, gradient, metrics).
-3. **ProblemBatch & Loader**: Handle batching and iteration over multiple instances for training and evaluation.
+1. :class:`~energnn.problem.Problem` -- Implements the logic for a single problem instance (context, gradient, metrics).
+2. :class:`~energnn.problem.ProblemBatch` -- Handles batching of multiple problem instances together. The implementation
+   can be optimized for parallel computation, and even leverage GPU parallelization.
+3. :class:`~energnn.problem.ProblemLoader` -- Iterates over a whole dataset of problems,
+   by returning a different :class:`~energnn.problem.ProblemBatch` at every iteration.
 
-The following sections guide you through implementing these components.
+All three classes should however share two common properties, :attr:`~energnn.problem.Problem.context_structure`
+and :attr:`~energnn.problem.Problem.decision_structure`, which define the name of the object classes and of their
+repective ports and features appearing in **contexts** and **decisions**.
 
-Step 1 — Define Graph Structures
+----------
+
+Step 0 — Define Graph Structures
 --------------------------------
 
-EnerGNN uses :class:`energnn.graph.GraphStructure` to understand the format of your data. You must define a structure
-for your context and for your decisions.
+**EnerGNN** uses the class :class:`~energnn.graph.GraphStructure` to understand the format of your data.
+You must define a structure
+for your **contexts** and your **decisions**.
+They are mandatory properties for your :class:`~energnn.problem.Problem`, :class:`~energnn.problem.ProblemBatch`
+and :class:`~energnn.problem.ProblemLoader` implementations.
 
 .. code-block:: python
 
     from energnn.graph import EdgeStructure, GraphStructure
 
-    # Example: a context graph with nodes and edges
-    # "nodes" have features ["x", "b"]
-    # "edges" connect "src" to "dst" and have feature ["w"]
+    # Example: a context graph with lines, switches, generators and loads
     CONTEXT_STRUCTURE: GraphStructure = GraphStructure.from_dict(edge_structure_dict={
-        "nodes": EdgeStructure.from_list(address_list=None, feature_list=["x", "b"]),
-        "edges": EdgeStructure.from_list(address_list=["src", "dst"], feature_list=["w"]),
+        "lines": EdgeStructure.from_list(address_list=["bus1", "bus2"], feature_list=["r", "x"]),
+        "switches": EdgeStructure.from_list(address_list=["bus1", "bus2"], feature_list=None),
+        "generators": EdgeStructure.from_list(address_list=["bus"], feature_list=["p0", "q0"]),
+        "loads": EdgeStructure.from_list(address_list=["bus"], feature_list=["p", "q"]),
     })
 
-    # Decisions often have a simpler structure, e.g., only node outputs
+    # Let us say that we wish to predict a log-probability for each switch to be open,
+    # along with a generation variation.
     DECISION_STRUCTURE: GraphStructure = GraphStructure.from_dict(edge_structure_dict={
-        "nodes": EdgeStructure.from_list(address_list=None, feature_list=["y"]),
+        "switches": EdgeStructure.from_list(address_list=None, feature_list=["log_prob"]),
+        "generators": EdgeStructure.from_list(address_list=None, feature_list=["delta_p"]),
     })
 
-Important constraints:
+**Important constraints:**
 
-- **Gradient matching**: The gradient graph (returned by ``get_gradient``) must have the exact same structure
-  (edge types and address lists) as the decision graph.
-- **Consistency**: All instances in a dataset must adhere to the same structures.
+1. All classes in the **context** shall be at least of order 1 (i.e., have 1 or more ports);
+2. All classes appearing in the **decision** shall also be appearing in the **context**;
+3. No port can be predicted by the GNN, so all attributes :code:`address_list` in the decision structure shall be None;
 
-Step 2 — Implement the Problem Interface
+For now, there is no support for global features (i.e., that would not be borne by a specific object),
+but feel free to reach out if that's something you would like to see included.
+
+------------------
+
+Step 1 — Implement the Problem Interface
 ----------------------------------------
 
-The :class:`energnn.problem.Problem` class represents a single optimization instance. You must implement the following methods:
+Your implementation of the class :class:`~energnn.problem.Problem` should represent a single problem instance.
+You must implement the following properties:
 
-- ``get_context()``: Returns the input graph :math:`x`, referred to as the **context**.
-- ``get_gradient(decision)``: Computes :math:`\nabla_y f(y;x)` for a given **decision** :math:`y`.
-- ``get_metrics(decision)``: Evaluates the **decision** (e.g., returns the objective value).
-- ``get_metadata()``: Provides metadata like problem name and shapes.
-- ``get_zero_decision()`` (Optional but recommended): Returns an initial decision (usually zeros).
+- :attr:`~energnn.problem.Problem.context_structure`,
+- :attr:`~energnn.problem.Problem.decision_structure`,
+
+And the following methods:
+
+- :meth:`~energnn.problem.Problem.get_context`: Returns the **context** graph :math:`x`,
+  instantiated as a :class:`~energnn.graph.JaxGraph`,
+- :meth:`~energnn.problem.Problem.get_gradient`: Computes :math:`\nabla_y f(y;x)` for a given **decision** :math:`y`,
+  instantiated as a :class:`~energnn.graph.JaxGraph`,
+- :meth:`~energnn.problem.Problem.get_metrics`: Computes :math:`f(y;x)` for a given **decision** :math:`y` as a :code:`float`.
+
+**Tracking relevant quantities**:
+All three methods have a key word argument :attr:`get_info` to trigger an optional behavior.
+If :code:`True`, these methods return optional dictionaries that are passed to your experiment tracker.
+It's useful for debugging and tracking, but not necessary in your first implementation.
+
+**Data representation**:
+Contexts, decisions and gradients are all instantiated as :class:`~energnn.graph.JaxGraph`, which is a version of
+:class:`~energnn.graph.Graph` designed to work seamlessly with JAX.
+
+**Decoupling gradients and metrics**:
+You can use different objective functions in :meth:`~energnn.problem.Problem.get_metrics`
+and in :meth:`~energnn.problem.Problem.get_gradient`.
+For instance, you can use a non-differentiable function :math:`f` as a metrics, and a differentiable function :math:`f'`
+in :meth:`~energnn.problem.Problem.get_gradient`.
+Loosely speaking, :meth:`~energnn.problem.Problem.get_metrics` just has to return a scalar value that quantifies how good
+a decision is, and :meth:`~energnn.problem.Problem.get_gradient` just has to return the opposite of a direction of
+improvement for a decision.
 
 .. code-block:: python
 
@@ -64,8 +116,9 @@ The :class:`energnn.problem.Problem` class represents a single optimization inst
     from energnn.problem.metadata import ProblemMetadata
 
     class MyProblem(Problem):
-        def __init__(self, data_params: Any):
-            self.params = data_params
+        def __init__(self, path: Any):
+            # Implement your own data import, and store relevant state data
+            self.context, self.state: tuple[JaxGraph, Any] = self._import_from_pypowsybl(path)
 
         @property
         def context_structure(self) -> GraphStructure:
@@ -76,57 +129,91 @@ The :class:`energnn.problem.Problem` class represents a single optimization inst
             return DECISION_STRUCTURE
 
         def get_context(self, get_info: bool = False) -> tuple[JaxGraph, dict[str, Any]]:
-            # 1. Create a standard Graph (NumPy-based)
-            g: Graph = Graph.from_dict(edge_dict={
-                "nodes": {"features": {"x": self.params.x, "b": self.params.b}},
-                "edges": {
-                    "addresses": {"src": self.params.src, "dst": self.params.dst},
-                    "features": {"w": self.params.w}
-                }
-            })
-            # 2. Convert to JaxGraph for the engine
-            return JaxGraph.from_numpy_graph(g), {}
+            return self.context, {}
 
         def get_gradient(self, *, decision: JaxGraph, get_info: bool = False) -> tuple[JaxGraph, dict[str, Any]]:
-            # Example: gradient for MSE 0.5 * (y - target)^2 => y - target
-            # Convert decision back to NumPy for easier manipulation if needed,
-            # OR manipulate JAX arrays directly on JaxGraph edges.
-            
-            y: jnp.ndarray = decision["nodes"].feature_array[..., 0] # Example: first feature
-            target: jnp.ndarray = ... # Compute target from context
-            grad_val: jnp.ndarray = y - target
-            
-            # Reconstruct or update gradient graph
-            # A common pattern is to convert to numpy for feature update
-            grad_np: Graph = decision.to_numpy_graph()
-            grad_np["nodes"].feature_array[..., 0] = grad_val
-            
-            return JaxGraph.from_numpy_graph(grad_np), {}
+            # Implement your own gradient estimation method
+            grad: JaxGraph = self._estimate_gradient(decision, self.state)
+            return grad, {}
 
         def get_metrics(self, *, decision: JaxGraph, get_info: bool = False) -> tuple[float, dict[str, Any]]:
-            y: jnp.ndarray = decision["nodes"].feature_array
-            mse: jnp.ndarray = jnp.mean((y - target)**2)
-            return float(mse), {}
+            # Implement your own metrics estimation method
+            grad: float = self._estimate_metrics(decision, self.state)
+            return grad, {}
 
-        def get_metadata(self) -> ProblemMetadata:
-            return ProblemMetadata(
-                name="my_problem",
-                config_id="v1",
-                code_version=1,
-                context_shape={}, # Add relevant shapes
-                decision_shape={}
-            )
-
-        def save(self, *, path: str) -> None:
-            # Implement persistence logic
+        def save(self, path):
+            # Implement your own save method
             pass
 
-Step 3 — Handle Batching (ProblemBatch)
+        @classmethod
+        def load(cls, path):
+            # Implement your own load method
+            pass
+
+Step 2 — Handle Batching (ProblemBatch)
 ---------------------------------------
 
-To train efficiently on GPUs, multiple problems are grouped into a :class:`energnn.problem.ProblemBatch`. The batch interface mirrors the :class:`~energnn.problem.Problem` interface but operates on concatenated graphs.
+To train efficiently on GPUs, multiple problems are grouped together into a :class:`energnn.problem.ProblemBatch`.
+The batch interface mirrors the :class:`~energnn.problem.Problem` interface but operates on concatenated graphs.
 
-While you can implement your own, a common pattern is to use :func:`energnn.graph.collate_graphs` to merge multiple :class:`~energnn.graph.Graph` objects into one.
+It is very common that the different problem instances within a batch have a different amount of objects for a given class.
+For instance, consider a batch with 2 instances, where:
+
+- The first **context** has 5 switches,
+- The second **context** has 7 switches.
+
+To collate them together, we have to pad the first **context** with 2 fictitious switches, so that the two **contexts**
+end up having the same number of switches.
+The following code snippet shows how to do so.
+
+.. code-block::
+
+    from energnn.graph import Graph, GraphShape, collate_graphs, max_shape, separate_graphs
+
+    context_1: Graph = ...
+    context_2: Graph = ...
+
+    # Step 1 : Get the two graph shapes
+    # The true_shape property computes the number of non fictitious objects of each class
+    shape_1 = context_1.true_shape
+    shape_2 = context_2.true_shape
+
+    # Step 2 : Compute the largest shape
+    # It computes for each object class the maximum number of objects in the list
+    max_shape = max_shape([shape_1, shape_2])
+
+    # Step 3 : Pad all contexts with fictitious objects if required
+    context_1.pad(max_shape)
+    context_2.pad(max_shape)
+
+    # The true_shape property is not altered by the padding, but the current_shape is.
+
+    # Step 4 : Collate contexts together
+    context_batch = collate_graphs([context_1, context_2])
+
+    # Et voilà, you have a context batch filled with fictitious objects if necessary.
+    # We can pass it to a model to compute a batch of decisions.
+    # The EnerGNN models are implemented to return 0 values on fictitious objects,
+    # And to keep track of which objects actually are fictitious or not.
+    decision_batch = my_model.forward_batch(context_batch)
+
+    # Wait... What if we need to split this batch of decisions,
+    # and get rid of fictitious objects ?
+
+    # Step 5 : Split decisions apart
+    decision_1, decision_2 = separate_graphs(decision_batch)
+
+    # Step 6 : Unpad decisions
+    decision_1.unpad()
+    decision_2.unpad()
+
+    # And now we have decisions without any fictitious object!
+
+The following :class:`~energnn.problem.ProblemBatch` implementation assumes that :
+
+- Single :class:`~energnn.problem.Problem` instances have been generated and saved beforehand,
+- The gradient computation can be performed in batch,
+- A :code:`max_shape` has been computed over the whole dataset.
 
 .. code-block:: python
 
@@ -135,13 +222,16 @@ While you can implement your own, a common pattern is to use :func:`energnn.grap
     from energnn.graph import JaxGraph, Graph, GraphStructure, collate_graphs
 
     class MyBatch(ProblemBatch):
-        def __init__(self, problems: list[Problem]):
-            self.problems: list[Problem] = problems
-            # Collate individual context graphs into one large graph
-            # 1. Extract context as JaxGraph, then to NumPy Graph for collation
-            ctx_list: list[Graph] = [p.get_context()[0].to_numpy_graph() for p in problems]
-            # 2. Collate and convert back to JaxGraph
-            self.batched_context: JaxGraph = JaxGraph.from_numpy_graph(collate_graphs(ctx_list))
+        def __init__(self, path_list: list[str], max_shape: GraphShape):
+
+            self.problems: list[MyProblem] = [MyProblem.load(path) for path in path_list]
+
+            # Get all contexts, pad them and collate them together.
+            context_list, _ = zip([pb.get_context() for pb in self.problems])
+            np_context_list = [context.to_numpy_graph() for context in context_list]
+            [np_context.pad(max_shape) for np_context in np_context_list]
+            np_context_batch = collate_graphs(np_context_list)
+            self.context_batch = JaxGraph.from_numpy_graph(np_context_batch)
 
         @property
         def context_structure(self) -> GraphStructure:
@@ -152,40 +242,32 @@ While you can implement your own, a common pattern is to use :func:`energnn.grap
             return DECISION_STRUCTURE
 
         def get_context(self, get_info: bool = False) -> tuple[JaxGraph, dict[str, Any]]:
-            return self.batched_context, {}
+            return self.context_batch, {}
 
         def get_gradient(self, *, decision: JaxGraph, get_info: bool = False) -> tuple[JaxGraph, dict[str, Any]]:
-            # Compute gradients for each instance in the batch
-            # 'decision' is a batched JaxGraph
-            # One can use JAX transformations (like vmap) or manual collation
-            ...
-            return batched_grad, {}
+            batch_grad = self._compute_batch_grad(decision, self.problem_list)
+            return batch_grad, {}
 
         def get_metrics(self, *, decision: JaxGraph, get_info: bool = False) -> tuple[list[float], dict[str, Any]]:
-            # Return a list of metrics, one per instance
-            # JaxGraph.get_item(i) can be used to extract a single instance from a batch
-            metrics: list[float] = [
-                p.get_metrics(decision=decision.get_item(i))[0] 
-                for i, p in enumerate(self.problems)
-            ]
-            return metrics, {}
+            metrics_list = self._compute_metrics_list(decision, self.problem_list)
+            return batch_grad, {}
 
-Step 4 — Data Loading (ProblemLoader)
+Step 3 — Data Loading (ProblemLoader)
 -------------------------------------
 
-The :class:`energnn.problem.ProblemLoader` is an iterator that yields batches. It typically takes a :class:`energnn.problem.ProblemDataset` as input.
+The :class:`energnn.problem.ProblemLoader` is an iterator that yields batches.
 
 .. code-block:: python
 
     from typing import Any, Iterator
-    from energnn.problem import ProblemLoader, ProblemDataset, ProblemBatch
+    from energnn.problem import ProblemLoader, ProblemBatch
 
     class MyLoader(ProblemLoader):
-        def __init__(self, dataset: ProblemDataset, batch_size: int, shuffle: bool = False):
-            self.dataset: ProblemDataset = dataset
-            self.batch_size: int = batch_size
-            self.shuffle: bool = shuffle
-            self._current_idx: int = 0
+        def __init__(self, dataset: list[str], batch_size: int, shuffle: bool = False):
+            self.dataset = dataset
+            self.batch_size = batch_size
+            self.shuffle = shuffle
+            self._current_idx = 0
 
         def __iter__(self) -> Iterator[ProblemBatch]:
             # Handle shuffling if needed
@@ -197,9 +279,9 @@ The :class:`energnn.problem.ProblemLoader` is an iterator that yields batches. I
                 raise StopIteration
             
             # Slice dataset and return a MyBatch instance
-            batch_problems: list[ProblemMetadata] = ... 
+            path_list = self.dataset[self._current_idx:self._current_idx+self.batch_size]
             self._current_idx += self.batch_size
-            return MyBatch(batch_problems)
+            return MyBatch(path_list)
 
         def __len__(self) -> int:
             return len(self.dataset) // self.batch_size
@@ -209,19 +291,18 @@ Interface Checklist
 
 When implementing your custom use case, ensure these requirements are met:
 
-- [ ] ``context_structure`` and ``decision_structure`` properties are defined.
-- [ ] ``get_context()`` returns a :class:`energnn.graph.JaxGraph`.
-- [ ] ``get_gradient()`` returns a :class:`energnn.graph.JaxGraph` with the same topology as the decision.
-- [ ] ``get_metrics()`` returns a scalar (for :class:`~energnn.problem.Problem`) or a list of scalars (for :class:`~energnn.problem.ProblemBatch`).
-- [ ] Graphs are correctly converted between :class:`~energnn.graph.Graph` (NumPy-based, useful for building/collating) and :class:`~energnn.graph.JaxGraph` (JAX-based, used by the models).
-
-TODO : dire un truc sur le fait que la logique de chargement / stockage des données est cachée dans votre implem.
-+ Il est encouragé d'optimiser l'implem du batch pour limiter le nombre d'opération sur les données.
+- ``context_structure`` and ``decision_structure`` properties are defined.
+- ``get_context()`` returns a :class:`energnn.graph.JaxGraph`.
+- ``get_gradient()`` returns a :class:`energnn.graph.JaxGraph` with the same topology as the decision.
+- ``get_metrics()`` returns a scalar (for :class:`~energnn.problem.Problem`)
+  or a list of scalars (for :class:`~energnn.problem.ProblemBatch`).
+- Graphs are correctly converted between :class:`~energnn.graph.Graph` (NumPy-based, useful for building/collating)
+  and :class:`~energnn.graph.JaxGraph` (JAX-based, used by the models).
 
 Summary
 -------
-
-By implementing these interfaces, your problem becomes fully compatible with EnerGNN's models and trainers. You can find more practical examples in the :doc:`tutorial` or by looking at the ``tests/utils.py`` file in the repository.
+By implementing these interfaces, your problem becomes fully compatible with EnerGNN's models and trainers.
+You can find more practical examples in the :doc:`tutorial` or by looking at the ``tests/utils.py`` file in the repository.
 
 Next steps
 ----------
