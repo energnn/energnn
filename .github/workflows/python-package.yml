@@ -23,40 +23,43 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.11", "3.12"]
+        python-version: [ "3.10", "3.11", "3.12" ]
 
     steps:
-    - name: Checkout sources
-      uses: actions/checkout@v4
+      - name: Checkout sources
+        uses: actions/checkout@v4
 
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v3
-      with:
-        python-version: ${{ matrix.python-version }}
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v3
+        with:
+          python-version: ${{ matrix.python-version }}
 
-    - name: Install UV
-      run: curl -LsSf https://astral.sh/uv/install.sh | sh
+      - name: Install UV
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
 
-    - name: Install package
-      run: |
-        uv venv
-        source .venv/bin/activate
-        uv sync --group dev --extra docs
+      - name: Install pandoc
+        uses: pandoc/actions/setup@v1
 
-    - name: Lint with flake8
-      run: uv run flake8 src/energnn --count --show-source --max-complexity=10 --max-line-length=127 --statistics
+      - name: Install package
+        run: |
+          uv venv
+          source .venv/bin/activate
+          uv sync --group dev --extra docs
 
-    - name: Test with pytest
-      run: uv run pytest --cov=. tests
+      - name: Lint with flake8
+        run: uv run flake8 src/energnn --count --show-source --max-complexity=10 --max-line-length=127 --statistics
 
-    - name: Build package
-      run: uv build
+      - name: Test with pytest
+        run: uv run pytest --cov=. tests
 
-    - name: Build doc
-      working-directory: ./docs
-      run: uv run make html SPHINXOPTS="-W"
+      - name: Build package
+        run: uv build
 
-    - name: Release on PyPi
-      if: ${{ github.event_name == 'release' && matrix.python-version == '3.10' }}
-      shell: bash
-      run: uv publish
+      - name: Build doc
+        working-directory: ./docs
+        run: uv run make html SPHINXOPTS="-W"
+
+      - name: Release on PyPi
+        if: ${{ github.event_name == 'release' && matrix.python-version == '3.10' }}
+        shell: bash
+        run: uv publish
