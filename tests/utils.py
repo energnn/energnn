@@ -4,6 +4,7 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
+import copy
 from copy import deepcopy
 
 import numpy as np
@@ -31,6 +32,11 @@ class TestProblemBatch(ProblemBatch):
         self.jax_context = JaxGraph.from_numpy_graph(context)
         self.jax_oracle = JaxGraph.from_numpy_graph(oracle)
 
+        zero_decision = copy.deepcopy(oracle)
+        zero_decision.feature_flat_array = 0.0 * zero_decision.feature_flat_array
+        self.zero_decision = zero_decision
+        self.jax_zero_decision = JaxGraph.from_numpy_graph(zero_decision)
+
     @property
     def decision_structure(self) -> GraphStructure:
         return TEST_DECISION_STRUCTURE
@@ -44,8 +50,12 @@ class TestProblemBatch(ProblemBatch):
         return deepcopy(self.jax_context), {}
 
     def get_oracle(self, get_info: bool = False) -> tuple[JaxGraph, dict]:
-        r"""Returns the ground truth :class:`Graph` :math:`y^{\star}(x)` computed by the AC Power Flow solver."""
+        r"""Returns the ground truth :class:`Graph` :math:`y^{\star}(x)`."""
         return deepcopy(self.jax_oracle), {}
+
+    def get_zero_decision(self, get_info: bool = False) -> tuple[JaxGraph, dict]:
+        """Returns a decision filled with zeros."""
+        return deepcopy(self.jax_zero_decision), {}
 
     def get_gradient(self, decision: JaxGraph, cfg: DictConfig | None = None, get_info: bool = False) -> tuple[Graph, dict]:
         r"""Returns the gradient :class:`Graph` :math:`\nabla_y f(y;x) = y - y^{\star}(x)`."""
@@ -79,6 +89,11 @@ class TestProblem(Problem):
         self.jax_context = JaxGraph.from_numpy_graph(context)
         self.jax_oracle = JaxGraph.from_numpy_graph(oracle)
 
+        zero_decision = copy.deepcopy(oracle)
+        zero_decision.feature_flat_array = 0.0 * zero_decision.feature_flat_array
+        self.zero_decision = zero_decision
+        self.jax_zero_decision = JaxGraph.from_numpy_graph(zero_decision)
+
     @property
     def decision_structure(self) -> GraphStructure:
         return TEST_DECISION_STRUCTURE
@@ -92,8 +107,12 @@ class TestProblem(Problem):
         return deepcopy(self.jax_context), {}
 
     def get_oracle(self, get_info: bool = False) -> tuple[JaxGraph, dict]:
-        r"""Returns the ground truth :class:`Graph` :math:`y^{\star}(x)` computed by the AC Power Flow solver."""
+        r"""Returns the ground truth :class:`Graph` :math:`y^{\star}(x)`."""
         return deepcopy(self.jax_oracle), {}
+
+    def get_zero_decision(self, get_info: bool = False) -> tuple[JaxGraph, dict]:
+        """Returns a decision filled with zeros."""
+        return deepcopy(self.jax_zero_decision), {}
 
     def get_gradient(self, decision: JaxGraph, cfg: DictConfig | None = None, get_info: bool = False) -> tuple[JaxGraph, dict]:
         r"""Returns the gradient :class:`Graph` :math:`\nabla_y f(y;x) = y - y^{\star}(x)`."""
@@ -130,8 +149,12 @@ class TestProblemGenerator:
     __test__ = False
     """Generates random sparse linear systems."""
 
-    def __init__(self, *, n_max: int = 32):
+    def __init__(self, *, seed: int = 0, n_max: int = 32):
+
+        self.seed = seed
         self.n_max = n_max
+
+        np.random.seed(seed)
 
     def generate_problem(self) -> TestProblem:
         n = np.random.randint(1, self.n_max + 1)
@@ -194,7 +217,7 @@ class TestProblemLoader(ProblemLoader):
         self.len = dataset_size
         self.current_step = 0
 
-        self.generator = TestProblemGenerator(n_max=n_max)
+        self.generator = TestProblemGenerator(seed=seed, n_max=n_max)
 
     @property
     def decision_structure(self) -> GraphStructure:

@@ -289,7 +289,7 @@ class TDigestModule(nnx.Module):
         self.centroids_m_var = nnx.Variable(jnp.zeros([self.max_centroids, self.in_size], dtype=jnp.float32))
         self.centroids_c_var = nnx.Variable(jnp.zeros([self.max_centroids, self.in_size], dtype=jnp.float32))
         self.fp_var = nnx.Variable(jnp.linspace(-1, 1, self.n_breakpoints)[:, None] + jnp.zeros([1, self.in_size]))
-        self.xp_var = nnx.Variable(jnp.zeros([self.n_breakpoints, self.in_size]))
+        self.xp_var = nnx.Variable(jnp.linspace(-1, 1, self.n_breakpoints)[:, None] + jnp.zeros([1, self.in_size]))
 
     def __call__(self, array: jax.Array, non_fictitious: jax.Array) -> jax.Array:
         """

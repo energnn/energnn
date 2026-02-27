@@ -38,7 +38,7 @@ class MLP(nnx.Module):
         *,
         in_size: int,
         hidden_sizes: list[int],
-        activation: Activation = jax.nn.relu,
+        activation: Activation = nnx.relu,
         out_size: int = 1,
         use_bias: bool = True,
         kernel_init: Initializer = initializers.lecun_normal(),

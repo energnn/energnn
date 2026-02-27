@@ -34,6 +34,9 @@ gpu = ["jax[cuda12]"]
 docs = [
     "sphinx==8.1.3",
     "furo==2025.12.19",
+    "sphinx-copybutton",
+    "nbsphinx",
+    "ipykernel",
 ]
 
 [dependency-groups]

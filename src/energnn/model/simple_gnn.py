@@ -22,10 +22,14 @@ class SimpleGNN(nnx.Module):
     The model consists of a normalization step, an encoding step, a coupling step, and a decoding step.
     The decoder can either be invariant or equivariant, depending on the task requirements.
 
-    :param normalizer: Normalization module that maps the input feature distribution to a learning-compatible distribution.
-    :param encoder: Encoder module that produces a graph where hyper-edge features are embedded into a latent space.
-    :param coupler: Coupler module that outputs latent coordinates for each address present in the input graph.
-    :param decoder: Decoder module that maps latent coordinates and encoded graph to a meaningful output.
+    :param normalizer: Maps the input features to a learning-compatible range.
+    :type normalizer: Normalizer
+    :param encoder: Embeds hyper-edge features into a latent space.
+    :type encoder: Encoder
+    :param coupler: Outputs latent coordinates for each address present in the input graph.
+    :type coupler: Coupler
+    :param decoder: Maps latent coordinates and encoded graph to a meaningful output.
+    :type decoder: Decoder
     """
 
     def __init__(self, normalizer: Normalizer, encoder: Encoder, coupler: Coupler, decoder: Decoder):
