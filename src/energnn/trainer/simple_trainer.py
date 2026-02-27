@@ -97,7 +97,9 @@ class SimpleTrainer:
     After every training epoch, the current trainer is checkpointed.
 
     :param model: Core Graph Neural Network model.
-    :param gradient_transformation: Optax gradient transformation (e.g. Adam).
+    :type model: SimpleGNN
+    :param gradient_transformation: Optax gradient transformation.
+    :type gradient_transformation: optax.GradientTransformation
     """
 
     def __init__(
@@ -127,7 +129,7 @@ class SimpleTrainer:
         progress_bar: bool = True,
     ) -> float:
         r"""
-        Trains the model over the train loader, monitors metrics, and checkpoints the model.
+        Trains the model over the train loader, periodically validates the model, tracks metrics, and checkpoints the model.
 
         :param train_loader: Problem loader used for training.
         :param val_loader: Problem loader used for validation.
@@ -209,7 +211,7 @@ class SimpleTrainer:
         position: int = 0,
     ) -> float:
         """
-        Runs an evaluation and checkpoints if needed.
+        Runs an evaluation and checkpoints.
 
         :param val_loader: Validation data loader.
         :param progress_bar: If true, display a progress bar during evaluation.

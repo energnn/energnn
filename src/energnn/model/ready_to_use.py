@@ -92,8 +92,23 @@ class ReadyRecurrentEquivariantGNN(SimpleGNN):
 
 
 class TinyRecurrentEquivariantGNN(ReadyRecurrentEquivariantGNN):
+    """
+    Tiny ready-to-use equivariant GNN, with basic recurrent message passing.
 
-    def __init__(self, in_structure: GraphStructure, out_structure: GraphStructure, seed: int = 0):
+    - Normalizer: TDigestNormalizer with 10 breakpoints.
+    - Encoder: MLPEncoder with 0 hidden layer and output of size 4.
+    - Coupler: RecurrentCoupler with 5 steps, and latent dimension 4.
+    - Decoder: MLPEquivariantDecoder with 0 hidden layer.
+
+    :param in_structure: Structure of the input graph.
+    :type in_structure: GraphStructure
+    :param out_structure: Structure of the output graph.
+    :type out_structure: GraphStructure
+    :param seed: Seed for RNG streams.
+    :type seed: int
+    """
+
+    def __init__(self, *, in_structure: GraphStructure, out_structure: GraphStructure, seed: int = 0):
         super().__init__(
             in_structure=in_structure,
             out_structure=out_structure,
@@ -106,8 +121,23 @@ class TinyRecurrentEquivariantGNN(ReadyRecurrentEquivariantGNN):
 
 
 class SmallRecurrentEquivariantGNN(ReadyRecurrentEquivariantGNN):
+    """
+    Small ready-to-use equivariant GNN, with basic recurrent message passing.
 
-    def __init__(self, in_structure: GraphStructure, out_structure: GraphStructure, seed: int = 0):
+    - Normalizer: TDigestNormalizer with 20 breakpoints.
+    - Encoder: MLPEncoder with 1 hidden layer of size 16 and output of size 8.
+    - Coupler: RecurrentCoupler with 10 steps, hidden layers of size 16 and latent dimension 8.
+    - Decoder: MLPEquivariantDecoder with 1 hidden layer of size 16.
+
+    :param in_structure: Structure of the input graph.
+    :type in_structure: GraphStructure
+    :param out_structure: Structure of the output graph.
+    :type out_structure: GraphStructure
+    :param seed: Seed for RNG streams.
+    :type seed: int
+    """
+
+    def __init__(self, *, in_structure: GraphStructure, out_structure: GraphStructure, seed: int = 0):
         super().__init__(
             in_structure=in_structure,
             out_structure=out_structure,
@@ -120,8 +150,23 @@ class SmallRecurrentEquivariantGNN(ReadyRecurrentEquivariantGNN):
 
 
 class MediumRecurrentEquivariantGNN(ReadyRecurrentEquivariantGNN):
+    """
+    Medium ready-to-use equivariant GNN, with basic recurrent message passing.
 
-    def __init__(self, in_structure: GraphStructure, out_structure: GraphStructure, seed: int = 0):
+    - Normalizer: TDigestNormalizer with 50 breakpoints.
+    - Encoder: MLPEncoder with 1 hidden layer of size 32 and output of size 16.
+    - Coupler: RecurrentCoupler with 20 steps, hidden layers of size 32 and latent dimension 16.
+    - Decoder: MLPEquivariantDecoder with 1 hidden layer of size 32.
+
+    :param in_structure: Structure of the input graph.
+    :type in_structure: GraphStructure
+    :param out_structure: Structure of the output graph.
+    :type out_structure: GraphStructure
+    :param seed: Seed for RNG streams.
+    :type seed: int
+    """
+
+    def __init__(self, *, in_structure: GraphStructure, out_structure: GraphStructure, seed: int = 0):
         super().__init__(
             in_structure=in_structure,
             out_structure=out_structure,
@@ -134,8 +179,23 @@ class MediumRecurrentEquivariantGNN(ReadyRecurrentEquivariantGNN):
 
 
 class LargeRecurrentEquivariantGNN(ReadyRecurrentEquivariantGNN):
+    """
+    Large ready-to-use equivariant GNN, with basic recurrent message passing.
 
-    def __init__(self, in_structure: GraphStructure, out_structure: GraphStructure, seed: int = 0):
+    - Normalizer: TDigestNormalizer with 100 breakpoints.
+    - Encoder: MLPEncoder with 1 hidden layer of size 64 and output of size 32.
+    - Coupler: RecurrentCoupler with 50 steps, hidden layers of size 64 and latent dimension 32.
+    - Decoder: MLPEquivariantDecoder with 1 hidden layer of size 64.
+
+    :param in_structure: Structure of the input graph.
+    :type in_structure: GraphStructure
+    :param out_structure: Structure of the output graph.
+    :type out_structure: GraphStructure
+    :param seed: Seed for RNG streams.
+    :type seed: int
+    """
+
+    def __init__(self, *, in_structure: GraphStructure, out_structure: GraphStructure, seed: int = 0):
         super().__init__(
             in_structure=in_structure,
             out_structure=out_structure,
@@ -148,6 +208,21 @@ class LargeRecurrentEquivariantGNN(ReadyRecurrentEquivariantGNN):
 
 
 class ExtraLargeRecurrentEquivariantGNN(ReadyRecurrentEquivariantGNN):
+    """
+    Extra large ready-to-use equivariant GNN, with basic recurrent message passing.
+
+    - Normalizer: TDigestNormalizer with 200 breakpoints.
+    - Encoder: MLPEncoder with 2 hidden layers of size 128 and 128 and output of size 64.
+    - Coupler: RecurrentCoupler with 200 steps, 2 hidden layers of size 128 and 128 and latent dimension 64.
+    - Decoder: MLPEquivariantDecoder with 2 hidden layer of size 128 and 128.
+
+    :param in_structure: Structure of the input graph.
+    :type in_structure: GraphStructure
+    :param out_structure: Structure of the output graph.
+    :type out_structure: GraphStructure
+    :param seed: Seed for RNG streams.
+    :type seed: int
+    """
 
     def __init__(self, in_structure: GraphStructure, out_structure: GraphStructure, seed: int = 0):
         super().__init__(
