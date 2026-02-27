@@ -63,7 +63,7 @@ and :class:`~energnn.problem.ProblemLoader` implementations.
 
 **Important constraints:**
 
-1. All classes in the **context** shall be at least of order 1 (i.e., have 1 or more ports);
+1. All classes in the **context** shall be at least of order 1 (i.e., have 1 or more address);
 2. All classes appearing in the **decision** shall also be appearing in the **context**;
 3. No port can be predicted by the GNN, so all attributes :code:`address_list` in the decision structure shall be None;
 

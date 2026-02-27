@@ -2,8 +2,6 @@
 Decoder
 =======
 
-Dire qu'il y a en gros deux familles : invariant et equivariant.
-
 .. currentmodule:: energnn.model.decoder
 
 .. autoclass:: Decoder

@@ -52,8 +52,8 @@ This package considers the training of GNN models to solve distributions of opti
 
     problem_loader = TestProblemLoader(seed=1)
     model = TinyRecurrentEquivariantGNN(
-        in_structure=train_loader.context_structure,
-        out_structure=train_loader.decision_structure,
+        in_structure=problem_loader.context_structure,
+        out_structure=problem_loader.decision_structure,
     )
     trainer = SimpleTrainer(model=model, gradient_transformation=optax.adam(1e-3))
     trainer.train(train_loader=problem_loader, n_epochs=10)
