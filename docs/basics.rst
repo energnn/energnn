@@ -112,7 +112,7 @@ The :class:`~energnn.problem.ProblemLoader` is the iterator that provides these 
 ------------------------
 
 Data Representation using H2MG
--------------------------
+------------------------------
 
 Contexts :math:`x`, decisions :math:`y`, and gradients :math:`\nabla_y f`
 are all represented as **H2MGs** (*Hyper Heterogeneous Multi Graphs*).
@@ -136,7 +136,7 @@ See the :doc:`tutorial_notebook` for an example of H2MG data.
 --------------------------
 
 Graph Neural Network Models
-----------
+---------------------------
 
 **EnerGNN** provides a modular and parametrizable GNN library designed to natively process H2MG data.
 The main model, :class:`~energnn.model.SimpleGNN`, follows a modular pipeline:

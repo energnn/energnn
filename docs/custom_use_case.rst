@@ -302,7 +302,8 @@ When implementing your custom use case, ensure these requirements are met:
 Summary
 -------
 By implementing these interfaces, your problem becomes fully compatible with EnerGNN's models and trainers.
-You can find more practical examples in the :doc:`tutorial` or by looking at the ``tests/utils.py`` file in the repository.
+You can find more practical examples in the :doc:`tutorial_notebook` or by looking at the ``tests/utils.py``
+file in the repository.
 
 Next steps
 ----------
