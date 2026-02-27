@@ -29,7 +29,7 @@ Implementing your custom use case requires the following class implementations.
 
 All three classes should however share two common properties, :attr:`~energnn.problem.Problem.context_structure`
 and :attr:`~energnn.problem.Problem.decision_structure`, which define the name of the object classes and of their
-repective ports and features appearing in **contexts** and **decisions**.
+respective addresses and features appearing in **contexts** and **decisions**.
 
 ----------
 
@@ -65,7 +65,7 @@ and :class:`~energnn.problem.ProblemLoader` implementations.
 
 1. All classes in the **context** shall be at least of order 1 (i.e., have 1 or more address);
 2. All classes appearing in the **decision** shall also be appearing in the **context**;
-3. No port can be predicted by the GNN, so all attributes :code:`address_list` in the decision structure shall be None;
+3. No address can be predicted by the GNN, so all attributes :code:`address_list` in the decision structure shall be None;
 
 For now, there is no support for global features (i.e., that would not be borne by a specific object),
 but feel free to reach out if that's something you would like to see included.
