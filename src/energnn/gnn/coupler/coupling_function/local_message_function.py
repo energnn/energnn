@@ -89,6 +89,7 @@ class IdentityLocalMessageFunction(nn.Module, LocalMessageFunction):
 
     This module returns the node features unchanged as the local message.
     It implements the identity mapping on node features:
+
     .. math::
         h^\rightarrow_a = h_a
     """

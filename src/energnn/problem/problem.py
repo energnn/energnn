@@ -6,9 +6,8 @@
 #
 from abc import ABC, abstractmethod
 
-from energnn.graph import Graph
+from energnn.graph import GraphStructure, JaxGraph
 from energnn.problem.metadata import ProblemMetadata
-from omegaconf import DictConfig
 
 
 class Problem(ABC):
@@ -38,7 +37,7 @@ class Problem(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def get_context(self, get_info: bool = False) -> tuple[Graph, dict]:
+    def get_context(self, get_info: bool = False) -> tuple[JaxGraph, dict]:
         """
         Retrieve the context graph math:`x` of the problem instance.
 
@@ -55,23 +54,7 @@ class Problem(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def get_zero_decision(self, get_info: bool = False) -> tuple[Graph, dict]:
-        """
-        Construct a decision graph math:`y` filled with zeros.
-
-        This method provides a baseline or starting point for optimization routines.
-
-        :param get_info: Flag indicating if additional information should be returned for tracking purpose.
-        :return: A tuple containing:
-            - **Graph**: The zero-initialized decision graph.
-            - **dict**: A dictionary of additional information (empty if get_info=False).
-
-        :raises NotImplementedError: if subclass does not override this constructor.
-        """
-        raise NotImplementedError
-
-    @abstractmethod
-    def get_gradient(self, *, decision: Graph, get_info: bool = False, cfg: DictConfig | None) -> tuple[Graph, dict]:
+    def get_gradient(self, *, decision: JaxGraph, get_info: bool = False) -> tuple[JaxGraph, dict]:
         r"""
         Compute the gradient graph :math:`\nabla_y f` for a given decision :math:`y`.
 
@@ -89,7 +72,7 @@ class Problem(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def get_metrics(self, *, decision: Graph, get_info: bool = False, cfg: DictConfig | None) -> tuple[float, dict]:
+    def get_metrics(self, *, decision: JaxGraph, get_info: bool = False) -> tuple[float, dict]:
         """Should return a scalar metrics that evaluates the decision graph :math:`y`.
 
         :param decision: The decision graph to evaluate.
@@ -102,22 +85,6 @@ class Problem(ABC):
         :raises NotImplementedError: if subclass does not override this constructor.
         """
         raise NotImplementedError
-
-    def get_decision_structure(self) -> dict:
-        """
-        Returns a dictionary containing the structure of decision graphs compatible with the problem instance."
-
-        This helper uses `get_zero_decision` to extract feature dimensions
-        and returns a mapping from edge keys to integer feature shapes.
-
-        :return: A dict mapping edge identifiers to feature dimension dicts.
-        """
-        zero_decision_graph, _ = self.get_zero_decision()
-
-        def to_int(feature_names):
-            return {key: int(value) for key, value in feature_names.items()}
-
-        return {edge_key: to_int(edge.feature_names) for edge_key, edge in zero_decision_graph.edges.items()}
 
     @abstractmethod
     def get_metadata(self) -> ProblemMetadata:
@@ -144,4 +111,16 @@ class Problem(ABC):
 
         :raises NotImplementedError: if subclass does not override this constructor.
         """
+        raise NotImplementedError
+
+    @property
+    @abstractmethod
+    def context_structure(self) -> GraphStructure:
+        """Should define the structure of all context graphs."""
+        raise NotImplementedError
+
+    @property
+    @abstractmethod
+    def decision_structure(self) -> GraphStructure:
+        """Should define the structure of all decision graphs."""
         raise NotImplementedError

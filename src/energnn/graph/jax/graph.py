@@ -5,6 +5,7 @@
 # SPDX-License-Identifier: MPL-2.0
 #
 from __future__ import annotations
+
 import jax
 import jax.numpy as jnp
 from jax import Device
@@ -199,6 +200,10 @@ class JaxGraph(dict):
                             value = jnp.nanpercentile(array, q=q)
                             info[f"{object_name}/{feature_name}/{q}th-percentile"] = value
         return info
+
+    def __str__(self):
+        numpy_graph = self.to_numpy_graph()
+        return str(numpy_graph)
 
     # @feature_flat_array.setter  # TODO : voir si on arrive à s'en débarasser
     # def feature_flat_array(self, value: jax.Array) -> None:

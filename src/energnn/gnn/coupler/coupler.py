@@ -65,6 +65,7 @@ class Coupler(flax.struct.PyTreeNode):
         Compute refined latent coordinates for the graph using the coupling function.
 
         The workflow is:
+
         1. Re-generate initial latent coordinates with the solving method.
         2. Invoke the solving method's `solve` routine, passing the coupling function,
            context, and initial coordinates to iteratively refine the coordinates.

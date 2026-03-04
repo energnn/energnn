@@ -6,9 +6,7 @@
 #
 from abc import ABC, abstractmethod
 
-from omegaconf import DictConfig
-
-from energnn.graph import Graph, separate_graphs
+from energnn.graph import GraphStructure, JaxGraph
 
 
 class ProblemBatch(ABC):
@@ -32,7 +30,7 @@ class ProblemBatch(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def get_context(self, get_info: bool = False) -> tuple[Graph, dict]:
+    def get_context(self, get_info: bool = False) -> tuple[JaxGraph, dict]:
         """
         Retrieve the batch of context graphs :math:`x`.
 
@@ -46,7 +44,7 @@ class ProblemBatch(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def get_gradient(self, *, decision: Graph, get_info: bool = False, cfg: DictConfig | None) -> tuple[Graph, dict]:
+    def get_gradient(self, *, decision: JaxGraph, get_info: bool = False) -> tuple[JaxGraph, dict]:
         r"""
         Compute gradients :math:`\nabla_y f` for a batched of decision graphs :math:`y`.
 
@@ -62,7 +60,7 @@ class ProblemBatch(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def get_metrics(self, *, decision: Graph, get_info: bool = False, cfg: DictConfig | None) -> tuple[list[float], dict]:
+    def get_metrics(self, *, decision: JaxGraph, get_info: bool = False) -> tuple[list[float], dict]:
         """
         Evaluate scalar metrics for each decision graph in the batch.
 
@@ -77,33 +75,14 @@ class ProblemBatch(ABC):
         """
         raise NotImplementedError
 
+    @property
     @abstractmethod
-    def get_zero_decision(self, get_info: bool = False) -> tuple[Graph, dict]:
-        """
-        Construct a batched decision graph math:`y` filled with zeros.
-
-        :param get_info: Flag indicating if additional information should be returned for tracking purpose.
-        :returns: A tuple of:
-            - **Graph**: A batched context object.
-            - **dict**: A dictionary of additional information (empty if get_info=False).
-
-        :raises NotImplementedError: if subclass does not override this constructor.
-        """
+    def context_structure(self) -> GraphStructure:
+        """Should define the structure of all context graphs."""
         raise NotImplementedError
 
-    def get_decision_structure(self) -> dict:
-        """
-        Obtain the structure template of decision graphs in the batch.
-
-        Internally calls `get_zero_decision` and separates the first graph
-        to extract feature dimensions.
-
-        :returns: A dict mapping edge identifiers to feature dimension dicts.
-        """
-        zero_decision_graph_batch, _ = self.get_zero_decision()
-        zero_decision_graph = separate_graphs(zero_decision_graph_batch)[0]
-
-        def to_int(feature_names):
-            return {key: int(value) for key, value in feature_names.items()}
-
-        return {edge_key: to_int(edge.feature_names) for edge_key, edge in zero_decision_graph.edges.items()}
+    @property
+    @abstractmethod
+    def decision_structure(self) -> GraphStructure:
+        """Should define the structure of all decision graphs."""
+        raise NotImplementedError
