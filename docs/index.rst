@@ -98,3 +98,35 @@ For detailed description of energnn classes and methods, check out the API refer
    :titlesonly:
 
    reference/index
+
+--------------
+
+Supporting Institutions
+=======================
+
+.. list-table::
+    :width: 100%
+    :class: borderless, only-light
+
+    * - .. image:: _static/rte_black.png
+            :height: 100px
+
+      - .. image:: _static/ulg_black.png
+            :height: 100px
+
+      - .. image:: _static/inria_black.png
+            :width: 160px
+
+.. list-table::
+    :width: 100%
+    :class: borderless, only-dark
+
+    * - .. image:: _static/rte_white.png
+            :height: 100px
+
+      - .. image:: _static/ulg_white.png
+            :height: 100px
+
+      - .. image:: _static/inria_white.png
+            :width: 160px
+
