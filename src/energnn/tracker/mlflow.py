@@ -48,7 +48,7 @@ class MlflowTracker(Tracker):
 
 def stringify_unsupported(d, parent_key="", sep="/") -> dict:
     """
-    Flatten nested containers and stringify unsupported datatypes for Neptune Scale logging.
+    Flatten nested containers and stringify unsupported datatypes for logging.
 
     Recursively traverses dicts, lists, tuples, and sets, flattening keys with a separator.
     Converts values not in supported types (int, float, str, datetime, bool, list, set)
