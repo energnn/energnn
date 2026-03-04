@@ -130,3 +130,16 @@ Supporting Institutions
       - .. image:: _static/inria_white.png
             :width: 160px
 
+----------------
+
+Cite Us
+=======
+
+.. code-block:: bibtex
+
+    @software{energnn,
+      author = {{Committers of EnerGNN}},
+      title = {{EnerGNN: A Graph Neural Network library for real-life Energy networks.}},
+      url = {https://github.com/energnn},
+    }
+
