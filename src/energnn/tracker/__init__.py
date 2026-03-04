@@ -4,8 +4,7 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 # SPDX-License-Identifier: MPL-2.0
 #
-from .dummy import DummyTracker
 from .tracker import Tracker
 from .mlflow import MlflowTracker
 
-__all__ = ["Tracker", "DummyTracker", "MlflowTracker"]
+__all__ = ["Tracker", "MlflowTracker"]
