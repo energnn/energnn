@@ -1,4 +1,5 @@
 # EnerGNN
+
 A Graph Neural Network library for real-life energy networks.
 
 ## Build
@@ -26,3 +27,9 @@ cd docs
 make html
 open _build/html/index.html
 ```
+
+## Supporting Institutions
+
+| RTE                                                                                                                                                | Université de Liège                                                                                                                                | INRIA                                                                                                                                                |
+|----------------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------|
+| <img src="docs/_static/rte_white.png#gh-dark-mode-only" height="100px"/> <img src="docs/_static/rte_black.png#gh-light-mode-only" height="100px"/> | <img src="docs/_static/ulg_white.png#gh-dark-mode-only" height="100px"/> <img src="docs/_static/ulg_black.png#gh-light-mode-only" height="100px"/> | <img src="docs/_static/inria_white.png#gh-dark-mode-only" width="160px"/> <img src="docs/_static/inria_black.png#gh-light-mode-only" width="160px"/> |
