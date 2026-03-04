@@ -49,16 +49,6 @@ class Tracker(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def run_track_dataset(self, *, infos: dict, target_path: str) -> None:
-        """
-        Should associate the current run with its dataset.
-
-        :param infos: Dictionary of dataset metadata to log (e.g., name, version, split).
-        :param target_path: Path where the dataset is stored.
-        """
-        raise NotImplementedError
-
-    @abstractmethod
     def run_append(self, *, infos: dict, step: int) -> None:
         """
         Should track the `infos` dictionary.

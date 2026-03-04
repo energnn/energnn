@@ -32,6 +32,12 @@ class MlflowTracker(Tracker):
         mlflow.end_run()
 
     def run_track_dataset(self, *, infos: dict, target_path: str) -> None:
+        """
+        Reference a used dataset in the MLflow tracking server.
+
+        :param infos: Dictionary of dataset metadata to log (e.g., name, version, split).
+        :param target_path: Path where the dataset is stored in MlFLow artifacts, in the folder "datasets".
+        """
         with TemporaryDirectory() as tmp_dir:
             with open(f"{tmp_dir}/infos.json", "w") as f:
                 json.dump(infos, f, indent=2)
