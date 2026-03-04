@@ -31,17 +31,11 @@ class MlflowTracker(Tracker):
     def stop_run(self):
         mlflow.end_run()
 
-    def get_amortizer_path(self, *, tag: str) -> str:
-        pass
-
     def run_track_dataset(self, *, infos: dict, target_path: str) -> None:
         with TemporaryDirectory() as tmp_dir:
             with open(f"{tmp_dir}/infos.json", "w") as f:
                 json.dump(infos, f, indent=2)
             mlflow.log_artifact(f"{tmp_dir}/infos.json", artifact_path=f"datasets/{target_path}")
-
-    def run_track_amortizer(self, *, id: str, target_path: str) -> None:
-        mlflow.log_param(f"amortizers/{target_path}", id)
 
     def run_append(self, *, infos: dict, step: int) -> None:
         flat_infos = flatdict.FlatDict(infos, delimiter="/")

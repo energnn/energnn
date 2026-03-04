@@ -27,13 +27,7 @@ class DummyTracker(Tracker):
     def stop_run(self):
         return None
 
-    def get_amortizer_path(self, *, tag: str) -> str:
-        return ""
-
     def run_track_dataset(self, *, infos: dict, target_path: str) -> None:
-        return None
-
-    def run_track_amortizer(self, *, id: str, target_path: str) -> None:
         return None
 
     def run_append(self, *, infos: dict, step: int) -> None:

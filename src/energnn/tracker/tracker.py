@@ -49,31 +49,12 @@ class Tracker(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def get_amortizer_path(self, *, tag: str) -> str:
-        """
-        Should fetch the unique ID of a gnn, based on its tag.
-
-        :param tag: Tag or key associated with the saved amortizer.
-        """
-        raise NotImplementedError
-
-    @abstractmethod
     def run_track_dataset(self, *, infos: dict, target_path: str) -> None:
         """
         Should associate the current run with its dataset.
 
         :param infos: Dictionary of dataset metadata to log (e.g., name, version, split).
         :param target_path: Path where the dataset is stored.
-        """
-        raise NotImplementedError
-
-    @abstractmethod
-    def run_track_amortizer(self, *, id: str, target_path: str) -> None:
-        """
-        Should associate the current run with its gnn.
-
-        :param id: Unique identifier of the amortizer.
-        :param target_path: Path where the amortizer is stored.
         """
         raise NotImplementedError
 
