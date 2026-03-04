@@ -29,7 +29,7 @@ class Tracker(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def init_run(self, *, name: str, tags: list[str], cfg: DictConfig):
+    def init_run(self, *, name: str, tags: dict[str, str], cfg: DictConfig):
         """Should initialize a training run, associate it with tags and log its config.
 
         :param name: Name for the run.
@@ -45,35 +45,6 @@ class Tracker(ABC):
 
         This method should flush any pending logs and finalize the run record,
         ensuring that all metrics and artifacts are properly saved in the backend.
-        """
-        raise NotImplementedError
-
-    @abstractmethod
-    def get_amortizer_path(self, *, tag: str) -> str:
-        """
-        Should fetch the unique ID of a gnn, based on its tag.
-
-        :param tag: Tag or key associated with the saved amortizer.
-        """
-        raise NotImplementedError
-
-    @abstractmethod
-    def run_track_dataset(self, *, infos: dict, target_path: str) -> None:
-        """
-        Should associate the current run with its dataset.
-
-        :param infos: Dictionary of dataset metadata to log (e.g., name, version, split).
-        :param target_path: Path where the dataset is stored.
-        """
-        raise NotImplementedError
-
-    @abstractmethod
-    def run_track_amortizer(self, *, id: str, target_path: str) -> None:
-        """
-        Should associate the current run with its gnn.
-
-        :param id: Unique identifier of the amortizer.
-        :param target_path: Path where the amortizer is stored.
         """
         raise NotImplementedError
 

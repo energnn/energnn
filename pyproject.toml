@@ -22,8 +22,7 @@ dependencies = [
     "hydra-core==1.3.2",
     "tqdm==4.67.0",
     "cloudpickle<3",
-    "neptune==1.13.0",
-    "neptune-scale==0.13.0",
+    "mlflow",
     "flatdict==4.0.0",
     "fastdigest==0.8.3",
 ]
