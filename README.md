@@ -33,3 +33,13 @@ open _build/html/index.html
 | RTE                                                                                                                                                | Université de Liège                                                                                                                                | INRIA                                                                                                                                                |
 |----------------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------|
 | <img src="docs/_static/rte_white.png#gh-dark-mode-only" height="100px"/> <img src="docs/_static/rte_black.png#gh-light-mode-only" height="100px"/> | <img src="docs/_static/ulg_white.png#gh-dark-mode-only" height="100px"/> <img src="docs/_static/ulg_black.png#gh-light-mode-only" height="100px"/> | <img src="docs/_static/inria_white.png#gh-dark-mode-only" width="160px"/> <img src="docs/_static/inria_black.png#gh-light-mode-only" width="160px"/> |
+
+## Cite Us
+
+```bibtex
+@software{energnn,
+    author = {{Committers of EnerGNN}},
+    title = {{EnerGNN: A Graph Neural Network library for real-life Energy networks.}},
+    url = {https://github.com/energnn},
+}
+```
