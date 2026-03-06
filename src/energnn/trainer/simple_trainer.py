@@ -18,12 +18,11 @@ from optax import GradientTransformation
 from orbax.checkpoint import CheckpointManager
 from tqdm import tqdm
 
-from energnn.amortizer.utils import TaskLogger
 from energnn.graph import Graph
 from energnn.model import SimpleGNN
 from energnn.problem import ProblemBatch, ProblemLoader
-from energnn.storage import Storage
 from energnn.tracker import Tracker
+from .utils import TaskLogger
 
 # Types
 GraphBatch = Graph
@@ -118,7 +117,6 @@ class SimpleTrainer:
         *,
         train_loader: ProblemLoader,
         val_loader: ProblemLoader | None = None,
-        storage: Storage | None = None,
         checkpoint_manager: CheckpointManager | None = None,
         n_epochs: int,
         tracker: Tracker | None = None,
@@ -133,7 +131,6 @@ class SimpleTrainer:
 
         :param train_loader: Problem loader used for training.
         :param val_loader: Problem loader used for validation.
-        :param storage: Remote storage manager for saving checkpoints.
         :param checkpoint_manager: Checkpoint manager for saving checkpoints.
         :param n_epochs: Number of training epochs to perform.
         :param tracker: Experiment tracker.
@@ -152,7 +149,6 @@ class SimpleTrainer:
                 progress_bar=progress_bar,
                 tracker=tracker,
                 checkpoint_manager=checkpoint_manager,
-                storage=storage,
                 position=0,
             )
 
@@ -177,7 +173,6 @@ class SimpleTrainer:
                         progress_bar=progress_bar,
                         tracker=tracker,
                         checkpoint_manager=checkpoint_manager,
-                        storage=storage,
                         position=0,
                     )
 
@@ -192,7 +187,6 @@ class SimpleTrainer:
                     progress_bar=progress_bar,
                     tracker=tracker,
                     checkpoint_manager=checkpoint_manager,
-                    storage=storage,
                     position=0,
                 )
 
@@ -206,7 +200,6 @@ class SimpleTrainer:
         val_loader,
         progress_bar: bool = True,
         tracker: Tracker = None,
-        storage: Storage | None = None,
         checkpoint_manager: CheckpointManager | None = None,
         position: int = 0,
     ) -> float:
@@ -216,7 +209,6 @@ class SimpleTrainer:
         :param val_loader: Validation data loader.
         :param progress_bar: If true, display a progress bar during evaluation.
         :param tracker: Experiment tracker.
-        :param storage: Remote storage manager for saving checkpoints.
         :param checkpoint_manager: Checkpoint manager for saving checkpoints.
         :param position: Position of the progress bar if shown.
         :return: Average metrics obtained on the validation set.
@@ -231,16 +223,11 @@ class SimpleTrainer:
             tracker.run_append(infos={"eval": infos}, step=self.train_step)
 
         if checkpoint_manager is not None:
-            local_ckpt_path = self.save_checkpoint(checkpoint_manager=checkpoint_manager, metrics=metrics)
-        else:
-            local_ckpt_path = None
-
-        if local_ckpt_path is not None and storage is not None:
-            storage.upload(source_path=local_ckpt_path, target_path="Hugo?")
+            self.save_checkpoint(checkpoint_manager=checkpoint_manager, metrics=metrics)
 
         return metrics
 
-    def save_checkpoint(self, *, checkpoint_manager: CheckpointManager, metrics: float) -> str | None:
+    def save_checkpoint(self, *, checkpoint_manager: CheckpointManager, metrics: float) -> None:
         """Saves the current model and optimizer state as a checkpoint.
 
         :param checkpoint_manager: Checkpoint manager to use for saving the checkpoint.
@@ -258,14 +245,9 @@ class SimpleTrainer:
             "step": self.train_step,
             "metrics": metrics,
         }
-        saved = checkpoint_manager.save(
+        checkpoint_manager.save(
             self.train_step, args=ocp.args.Composite(default=ocp.args.StandardSave(checkpoint_data))
         )
-        if saved:
-            local_path = checkpoint_manager.directory / str(self.train_step)
-        else:
-            local_path = None
-        return str(local_path) if local_path is not None else None
 
     def load_checkpoint(self, checkpoint_manager: CheckpointManager, step: int | None = None, best: bool = False) -> None:
         """Loads a checkpoint from the checkpoint manager.
