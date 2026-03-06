@@ -71,7 +71,7 @@ def _unbatch_graph(batched_graph: JaxGraph, coordinates_batch: jax.Array, idx: i
         )
 
     return JaxGraph(
-        edges=edges,
+        hyper_edge_sets=edges,
         non_fictitious_addresses=batched_graph.non_fictitious_addresses,
         true_shape=batched_graph.true_shape,
         current_shape=batched_graph.current_shape,
@@ -260,7 +260,7 @@ def test_non_fictitious_masking():
         address_dict={"from": addr0, "to": addr1}, feature_array=None, feature_names=None, non_fictitious=non_fict
     )
     small_context = JaxGraph(
-        edges={"arrow": edge},
+        hyper_edge_sets={"arrow": edge},
         non_fictitious_addresses=jnp.ones((n_addr,)),
         true_shape=jax_context.true_shape,
         current_shape=jax_context.current_shape,
@@ -323,7 +323,7 @@ def test_local_sum_numeric_identity_basic():
         address_dict={"from": addr0, "to": addr1}, feature_array=None, feature_names=None, non_fictitious=jnp.ones((n_obj,))
     )
     small_context = JaxGraph(
-        edges={"arrow": edge},
+        hyper_edge_sets={"arrow": edge},
         non_fictitious_addresses=jnp.ones((n_addr,)),
         true_shape=jax_context.true_shape,
         current_shape=jax_context.current_shape,
@@ -360,7 +360,7 @@ def test_local_sum_with_features_included():
         non_fictitious=jnp.ones((n_obj,)),
     )
     g = JaxGraph(
-        edges={"arrow": edge},
+        hyper_edge_sets={"arrow": edge},
         non_fictitious_addresses=jnp.ones((n_addr,)),
         true_shape=jax_context.true_shape,
         current_shape=jax_context.current_shape,
@@ -396,7 +396,7 @@ def test_multiple_edges_and_ports_independent_processing():
         address_dict={"id": addr_b}, feature_array=None, feature_names=None, non_fictitious=jnp.ones((3,))
     )
     g = JaxGraph(
-        edges={"arrow": edge_a, "source": edge_b},
+        hyper_edge_sets={"arrow": edge_a, "source": edge_b},
         non_fictitious_addresses=jnp.ones((n_addr,)),
         true_shape=jax_context.true_shape,
         current_shape=jax_context.current_shape,
@@ -472,7 +472,7 @@ def test_vmap_jit_safety_after_build():
 
 def test_empty_graph_returns_zeros():
     # graph with no edges
-    g = JaxGraph(edges={}, non_fictitious_addresses=jnp.ones((5,)), true_shape=None, current_shape=None)
+    g = JaxGraph(hyper_edge_sets={}, non_fictitious_addresses=jnp.ones((5,)), true_shape=None, current_shape=None)
     mf = LocalSumMessageFunction(
         in_graph_structure=pb_loader.context_structure,
         in_array_size=3,
@@ -495,7 +495,7 @@ def test_addresses_out_of_bounds_handling():
     edge = JaxHyperEdgeSet(
         address_dict={"from": addr_from, "to": addr_to}, feature_array=None, feature_names=None, non_fictitious=jnp.ones((2,))
     )
-    g = JaxGraph(edges={"arrow": edge}, non_fictitious_addresses=jnp.ones((2,)), true_shape=None, current_shape=None)
+    g = JaxGraph(hyper_edge_sets={"arrow": edge}, non_fictitious_addresses=jnp.ones((2,)), true_shape=None, current_shape=None)
     mf = LocalSumMessageFunction(
         in_graph_structure=pb_loader.context_structure,
         in_array_size=coords.shape[1],

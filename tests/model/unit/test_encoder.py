@@ -101,7 +101,7 @@ def test_mlp_encoder_handles_none_feature_array_gracefully():
         non_fictitious=jax_context.hyper_edge_sets["arrow"].non_fictitious,
     )
     custom_graph = JaxGraph(
-        edges={"arrow": edge_with_none, "source": jax_context.hyper_edge_sets["source"]},
+        hyper_edge_sets={"arrow": edge_with_none, "source": jax_context.hyper_edge_sets["source"]},
         non_fictitious_addresses=jax_context.non_fictitious_addresses,
         true_shape=jax_context.true_shape,
         current_shape=jax_context.current_shape,
@@ -163,7 +163,7 @@ def test_mlp_encoder_multiple_edge_types_independent_processing():
     )
 
     custom_graph = JaxGraph(
-        edges={"A": e1, "B": e2},
+        hyper_edge_sets={"A": e1, "B": e2},
         non_fictitious_addresses=jax_context.non_fictitious_addresses,
         true_shape=jax_context.true_shape,
         current_shape=jax_context.current_shape,
@@ -214,7 +214,7 @@ def test_mlp_encoder_numeric_identity():
     )
 
     custom_graph = JaxGraph(
-        edges={"arrow": e_arrow, "source": e_source},
+        hyper_edge_sets={"arrow": e_arrow, "source": e_source},
         non_fictitious_addresses=jax_context.non_fictitious_addresses,
         true_shape=jax_context.true_shape,
         current_shape=jax_context.current_shape,

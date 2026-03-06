@@ -112,7 +112,7 @@ def test_mlp_equivariant_decoder_single_shapes_and_masking():
     )
 
     custom_graph = JaxGraph(
-        edges={"source": e1, "arrow": e2},
+        hyper_edge_sets={"source": e1, "arrow": e2},
         non_fictitious_addresses=jax_context.non_fictitious_addresses,
         true_shape=jax_context.true_shape,
         current_shape=jax_context.current_shape,

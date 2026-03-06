@@ -3,7 +3,7 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 # SPDX-License-Identifier: MPL-2.0
-#
+
 from __future__ import annotations
 
 from typing import Any, Sequence
@@ -30,11 +30,9 @@ class JaxHyperEdgeSet(dict):
 
     :param address_dict: Dictionary that contains address keys and address values.
     :param feature_array: Array that contains all hyper-edge features.
-    :param feature_names: Dictionary from feature names to  index in `feature_array`.
-    :param non_fictitious: Binary mask filled with ones for non fictitious objects.
+    :param feature_names: Dictionary from feature names to index in `feature_array`.
+    :param non_fictitious: Binary mask filled with ones for non-fictitious objects.
     """
-
-    # :param shape: Number of hyper-edges present in `JaxEdge`.
 
     def __init__(
         self,
@@ -42,14 +40,12 @@ class JaxHyperEdgeSet(dict):
         address_dict: dict[str, jax.Array] | None,
         feature_array: jax.Array | None,
         feature_names: dict[str, jax.Array] | None,
-        # shape: jax.Array,
         non_fictitious: jax.Array,
     ):
         super().__init__()
         self[ADDRESS_DICT] = address_dict
         self[FEATURE_ARRAY] = feature_array
         self[FEATURE_NAMES] = feature_names
-        # self[SHAPE] = shape
         self[NON_FICTITIOUS] = non_fictitious
 
     def tree_flatten(self) -> tuple:
@@ -70,8 +66,8 @@ class JaxHyperEdgeSet(dict):
 
         :param aux_data: Tuple of keys originally returned by tree_flatten.
         :param children: Sequence of values originally returned by tree_flatten.
-        :return: Reconstructed instance of the class (`JaxEdge`).
-        :raises KeyError: If expected keys are missing in the zipped dictionary.
+        :return: Reconstructed instance of the class (`JaxHyperEdgeSet`).
+        :raises KeyError: If the expected keys are missing in the zipped dictionary.
         """
         d = dict(zip(aux_data, children))
         return cls(
@@ -106,8 +102,8 @@ class JaxHyperEdgeSet(dict):
         """
         Returns a flat array by concatenating all features together.
 
-        - single mode: shape (num_objects * num_features,)
-        - batch mode:  shape (batch_size, num_objects * num_features).
+        - Single mode: shape `(num_objects * num_features,)`
+        - Batch mode:  shape `(batch_size, num_objects * num_features)`.
         """
         if self.feature_names is not None:
             if len(self.feature_array.shape) == 2:
@@ -120,52 +116,38 @@ class JaxHyperEdgeSet(dict):
         else:
             return None
 
-    # @feature_flat_array.setter
-    # def feature_flat_array(self, array: jax.Array) -> None:
-    #     """Updates the flat array contained in the Edge."""
-    #     if jnp.any(self.feature_flat_array.shape != array.shape):
-    #         raise ValueError("Invalid shape.")
-    #     if self.feature_names is not None:
-    #         if self.is_single:
-    #             n_obj = int(self.feature_array.shape[0])
-    #             self.feature_array = array.reshape([n_obj, -1], order="F")
-    #         elif self.is_batch:
-    #             n_batch = int(self.feature_array.shape[0])
-    #             n_obj = int(self.feature_array.shape[1])
-    #             self.feature_array = array.reshape([n_batch, n_obj, -1], order="F")
-    #         else:
-    #             raise ValueError("Feature array should be of order 2 (single) or 3 (batch).")
-
     @classmethod
-    def from_numpy_edge(cls, edge: HyperEdgeSet, device: Device | None = None, dtype: str = "float32") -> JaxHyperEdgeSet:
+    def from_numpy_hyper_edge_set(
+        cls, hyper_edge_set: HyperEdgeSet, device: Device | None = None, dtype: str = "float32"
+    ) -> JaxHyperEdgeSet:
         """
-        Convert a classical numpy edge to a jax.numpy format for GNN processing.
+        Convert a classical numpy hyper-edge set to a jax.numpy format for GNN processing.
 
-        This method transforms all array-like attributes of an ``Edge`` object into
+        This method transforms all array-like attributes of a ``HyperEdgeSet`` object into
         their JAX equivalents, allowing efficient use with JAX transformations and accelerators.
 
-        :param edge: An edge object containing NumPy arrays to convert.
+        :param hyper_edge_set: A hyper-edge set object containing NumPy arrays to convert.
         :param device: Optional JAX device (e.g., CPU, GPU) to place the converted arrays on.
                        If None, JAX uses the default device.
         :param dtype: Desired floating-point precision for converted arrays (e.g., "float32", "float64").
-        :return: A JAX-compatible version of the edge, ready for use in GNN pipelines.
+        :return: A JAX-compatible version of the hyper-edge set, ready for use in GNN pipelines.
         """
-        address_dict = np_to_jnp(edge.address_dict, device=device, dtype=dtype)
-        feature_array = np_to_jnp(edge.feature_array, device=device, dtype=dtype)
-        feature_names = np_to_jnp(edge.feature_names, device=device, dtype=dtype)
-        non_fictitious = np_to_jnp(edge.non_fictitious, device=device, dtype=dtype)
+        address_dict = np_to_jnp(hyper_edge_set.address_dict, device=device, dtype=dtype)
+        feature_array = np_to_jnp(hyper_edge_set.feature_array, device=device, dtype=dtype)
+        feature_names = np_to_jnp(hyper_edge_set.feature_names, device=device, dtype=dtype)
+        non_fictitious = np_to_jnp(hyper_edge_set.non_fictitious, device=device, dtype=dtype)
         return cls(
             address_dict=address_dict, feature_array=feature_array, feature_names=feature_names, non_fictitious=non_fictitious
         )
 
     def to_numpy_edge(self) -> HyperEdgeSet:
         """
-        Convert a jax.numpy edge for GNN processing to a classical numpy edge.
+        Convert a jax.numpy hyper-edge set for GNN processing to a classical numpy hyper-edge set.
 
-        This method transforms the internal JAX arrays of the edge back into standard
+        This method transforms the internal JAX arrays of the hyper-edge set back into standard
         NumPy arrays, enabling compatibility with non-JAX components.
 
-        :return: A classical ``Edge`` object with NumPy arrays.
+        :return: A classical ``HyperEdgeSet`` object with NumPy arrays.
         """
         address_dict = jnp_to_np(self.address_dict)
         feature_array = jnp_to_np(self.feature_array)

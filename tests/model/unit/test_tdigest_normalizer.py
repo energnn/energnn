@@ -178,7 +178,7 @@ def test_tdigest_normalizer_apply_preserves_none_feature_edges(monkeypatch):
         non_fictitious=jax_context.hyper_edge_sets["arrow"].non_fictitious,
     )
     g = JaxGraph(
-        edges={"source": node_edge_with_none, "arrow": edge_with_feat},
+        hyper_edge_sets={"source": node_edge_with_none, "arrow": edge_with_feat},
         non_fictitious_addresses=jax_context.non_fictitious_addresses,
         true_shape=jax_context.true_shape,
         current_shape=jax_context.current_shape,

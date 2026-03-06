@@ -28,7 +28,7 @@ def create_tiny_model(context_structure):
         def __call__(self, coordinates, graph, get_info=False):
             # No params here, just pass through
             decision = JaxGraph(
-                edges={
+                hyper_edge_sets={
                     "source": JaxHyperEdgeSet(
                         address_dict=None,
                         feature_array=coordinates,

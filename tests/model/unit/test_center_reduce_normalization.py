@@ -165,11 +165,11 @@ def test_graph_center_reduce_norm_noop_for_none_or_empty_edges():
     edge_empty = JaxHyperEdgeSet(feature_array=empty_arr, feature_names=None, non_fictitious=jnp.array([]), address_dict=None)
 
     # Build minimal true/current shape objects to satisfy JaxGraph constructor
-    true_shape = JaxGraphShape(edges={"node": jnp.array(0)}, addresses=jnp.array(0))
-    current_shape = JaxGraphShape(edges={"node": jnp.array(0)}, addresses=jnp.array(0))
+    true_shape = JaxGraphShape(hyper_edge_sets={"node": jnp.array(0)}, addresses=jnp.array(0))
+    current_shape = JaxGraphShape(hyper_edge_sets={"node": jnp.array(0)}, addresses=jnp.array(0))
 
     g = JaxGraph(
-        edges={"none": edge_none, "empty": edge_empty},
+        hyper_edge_sets={"none": edge_none, "empty": edge_empty},
         non_fictitious_addresses=jnp.array([]),
         true_shape=true_shape,
         current_shape=current_shape,
@@ -227,10 +227,13 @@ def test_initialize_from_example_ignores_zero_length_edges():
     # construct a context with an edge having zero rows
     empty_arr = jnp.zeros((0, 2))
     edge_empty = JaxHyperEdgeSet(feature_array=empty_arr, feature_names=None, non_fictitious=jnp.array([]), address_dict=None)
-    true_shape = JaxGraphShape(edges={"empty": jnp.array(0)}, addresses=jnp.array(0))
-    current_shape = JaxGraphShape(edges={"empty": jnp.array(0)}, addresses=jnp.array(0))
+    true_shape = JaxGraphShape(hyper_edge_sets={"empty": jnp.array(0)}, addresses=jnp.array(0))
+    current_shape = JaxGraphShape(hyper_edge_sets={"empty": jnp.array(0)}, addresses=jnp.array(0))
     g = JaxGraph(
-        edges={"empty": edge_empty}, non_fictitious_addresses=jnp.array([]), true_shape=true_shape, current_shape=current_shape
+        hyper_edge_sets={"empty": edge_empty},
+        non_fictitious_addresses=jnp.array([]),
+        true_shape=true_shape,
+        current_shape=current_shape,
     )
     # should not raise
     gnorm.initialize_from_example(g)

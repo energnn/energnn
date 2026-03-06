@@ -133,7 +133,7 @@ class MLPEncoder(Encoder):
         encoded_edge_dict = jax.tree.map(apply_mlp, edge_mlp_dict, is_leaf=(lambda x: isinstance(x, tuple)))
 
         encoded_context = JaxGraph(
-            edges=encoded_edge_dict,
+            hyper_edge_sets=encoded_edge_dict,
             non_fictitious_addresses=graph.non_fictitious_addresses,
             true_shape=graph.true_shape,
             current_shape=graph.current_shape,

@@ -19,7 +19,7 @@ def test_from_numpy_edge_and_to_numpy_edge_roundtrip():
     np_edge = get_fixed_edge()
 
     # Convert to JaxEdge
-    jax_edge = JaxHyperEdgeSet.from_numpy_edge(np_edge, device=None, dtype="float32")
+    jax_edge = JaxHyperEdgeSet.from_numpy_hyper_edge_set(np_edge, device=None, dtype="float32")
     # Check internals are JAX arrays / dicts
     assert isinstance(jax_edge.feature_array, jax.Array) or jax_edge.feature_array is None
     for v in jax_edge.address_dict.values():
@@ -35,7 +35,7 @@ def test_from_numpy_edge_dtypes_64():
     jax.config.update("jax_enable_x64", True)
     try:
         np_edge = get_fixed_edge()
-        jax_edge = JaxHyperEdgeSet.from_numpy_edge(np_edge, dtype="float64")
+        jax_edge = JaxHyperEdgeSet.from_numpy_hyper_edge_set(np_edge, dtype="float64")
         # feature_array should have dtype float64 in JAX
         assert jax_edge.feature_array.dtype == jnp.float64
         # and back to numpy: dtype preserved as float64
@@ -47,7 +47,7 @@ def test_from_numpy_edge_dtypes_64():
 
 def test_from_numpy_edge_dtypes_32():
     np_edge = get_fixed_edge()
-    jax_edge = JaxHyperEdgeSet.from_numpy_edge(np_edge, dtype="float32")
+    jax_edge = JaxHyperEdgeSet.from_numpy_hyper_edge_set(np_edge, dtype="float32")
     # feature_array should have dtype float32 in JAX
     assert jax_edge.feature_array.dtype == jnp.float32
     # and back to numpy: dtype preserved as float32
@@ -57,7 +57,7 @@ def test_from_numpy_edge_dtypes_32():
 
 def test_from_numpy_edge_dtypes_16():
     np_edge = get_fixed_edge()
-    jax_edge = JaxHyperEdgeSet.from_numpy_edge(np_edge, dtype="float16")
+    jax_edge = JaxHyperEdgeSet.from_numpy_hyper_edge_set(np_edge, dtype="float16")
     # feature_array should have dtype float16 in JAX
     assert jax_edge.feature_array.dtype == jnp.float16
     # and back to numpy: dtype preserved as float16
@@ -68,7 +68,7 @@ def test_from_numpy_edge_dtypes_16():
 def test_feature_flat_array_single_and_batch():
     # Single
     np_edge = get_fixed_edge()
-    jax_edge = JaxHyperEdgeSet.from_numpy_edge(np_edge, dtype="float32")
+    jax_edge = JaxHyperEdgeSet.from_numpy_hyper_edge_set(np_edge, dtype="float32")
     # feature_array shape should be (n_obj, n_feats)
     assert len(jax_edge.feature_array.shape) == 2
     flat = jax_edge.feature_flat_array
@@ -104,7 +104,7 @@ def test_feature_flat_array_invalid_dims_raises():
 
 def test_pytree_flatten_and_unflatten_roundtrip():
     np_edge = get_fixed_edge()
-    jax_edge = JaxHyperEdgeSet.from_numpy_edge(np_edge, dtype="float32")
+    jax_edge = JaxHyperEdgeSet.from_numpy_hyper_edge_set(np_edge, dtype="float32")
 
     # Use JAX tree utilities to flatten and unflatten
     children, aux = jax.tree_util.tree_flatten(jax_edge)
@@ -122,7 +122,7 @@ def test_tree_unflatten_classmethod_missing_keys_raises_keyerror():
     """
     # Prepare children matching the number of expected keys, but provide wrong aux_data
     np_edge = get_fixed_edge()
-    jax_edge = JaxHyperEdgeSet.from_numpy_edge(np_edge, dtype="float32")
+    jax_edge = JaxHyperEdgeSet.from_numpy_hyper_edge_set(np_edge, dtype="float32")
     children = list(jax_edge.values())
     # Provide aux_data missing required key strings
     aux_data = ("some", "keys", "not", "matching")

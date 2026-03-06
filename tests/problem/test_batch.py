@@ -106,7 +106,9 @@ def test_get_decision_structure_conversions(feature_names, expected_values):
         feature_names=feature_names,
         non_fictitious=jnp.ones((1,)),
     )
-    decision = JaxGraph(edges={"node": edge}, non_fictitious_addresses=jnp.array([]), true_shape=None, current_shape=None)
+    decision = JaxGraph(
+        hyper_edge_sets={"node": edge}, non_fictitious_addresses=jnp.array([]), true_shape=None, current_shape=None
+    )
     pb = StubProblemBatch(decision=decision)
 
     ds = pb.get_decision_structure()

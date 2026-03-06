@@ -186,7 +186,7 @@ class CenterReduceNormalizer(Normalizer):
         normalized_edge_dict = jax.tree.map(apply_norm, edge_norm_dict, is_leaf=(lambda x: isinstance(x, tuple)))
 
         normalized_context = JaxGraph(
-            edges=normalized_edge_dict,
+            hyper_edge_sets=normalized_edge_dict,
             non_fictitious_addresses=graph.non_fictitious_addresses,
             true_shape=graph.true_shape,
             current_shape=graph.current_shape,

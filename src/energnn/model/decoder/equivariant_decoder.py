@@ -166,16 +166,20 @@ class MLPEquivariantDecoder(EquivariantDecoder):
         }
         edge_dict = jax.tree.map(apply_over_edge, edge_mlp_names_dict, is_leaf=(lambda x: isinstance(x, tuple)))
         true_shape = JaxGraphShape(
-            edges={key: value for key, value in graph.true_shape.hyper_edge_sets.items() if key in self.feature_names_dict},
+            hyper_edge_sets={
+                key: value for key, value in graph.true_shape.hyper_edge_sets.items() if key in self.feature_names_dict
+            },
             addresses=jnp.array(0),
         )
         current_shape = JaxGraphShape(
-            edges={key: value for key, value in graph.current_shape.hyper_edge_sets.items() if key in self.feature_names_dict},
+            hyper_edge_sets={
+                key: value for key, value in graph.current_shape.hyper_edge_sets.items() if key in self.feature_names_dict
+            },
             addresses=jnp.array(0),
         )
 
         output_graph = JaxGraph(
-            edges=edge_dict,
+            hyper_edge_sets=edge_dict,
             non_fictitious_addresses=jnp.array([]),
             true_shape=true_shape,
             current_shape=current_shape,
