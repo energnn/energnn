@@ -11,11 +11,11 @@ import pytest
 
 from energnn.graph.jax import JaxGraph, JaxEdge, JaxGraphShape
 from energnn.gnn.normalizer.center_reduce_normalization import GraphCenterReduceNorm, EdgeCenterReduceNorm
-from tests.utils import TestProblemLoader
+from energnn.problem.example import LinearSystemProblemLoader
 
 # make deterministic
 np.random.seed(0)
-pb_loader = TestProblemLoader(seed=0)
+pb_loader = LinearSystemProblemLoader(seed=0)
 pb_batch = next(iter(pb_loader))
 jax_context_batch, _ = pb_batch.get_context()
 jax_context = jax.tree.map(lambda x: x[0], jax_context_batch)

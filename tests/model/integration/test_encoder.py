@@ -6,11 +6,11 @@
 from flax import nnx
 
 from energnn.model.encoder import IdentityEncoder, MLPEncoder
-from tests.utils import TestProblemLoader
+from energnn.problem.example import LinearSystemProblemLoader
 
 
 def test_identity_encoder():
-    loader = TestProblemLoader(seed=0).__iter__()
+    loader = LinearSystemProblemLoader(seed=0).__iter__()
     problem_batch = next(loader)
     context_batch, _ = problem_batch.get_context()
 
@@ -25,7 +25,7 @@ def test_identity_encoder():
 
 
 def test_mlp_encoder():
-    loader = TestProblemLoader(seed=0).__iter__()
+    loader = LinearSystemProblemLoader(seed=0).__iter__()
     problem_batch = next(loader)
     context_batch, _ = problem_batch.get_context()
 

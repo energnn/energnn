@@ -19,13 +19,13 @@ from energnn.model import (
     SimpleGNN,
 )
 from energnn.trainer import SimpleTrainer
-from tests.utils import TestProblemLoader
+from energnn.problem.example import LinearSystemProblemLoader
 
 
 def test_simple_trainer(tmp_path):
 
-    train_loader = TestProblemLoader(seed=0)
-    val_loader = TestProblemLoader(seed=1)
+    train_loader = LinearSystemProblemLoader(seed=0)
+    val_loader = LinearSystemProblemLoader(seed=1)
 
     normalizer = CenterReduceNormalizer(
         update_limit=1000,
