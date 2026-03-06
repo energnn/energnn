@@ -12,7 +12,7 @@ from flax.nnx import initializers
 from flax.typing import Initializer
 
 from energnn.graph import GraphStructure
-from energnn.graph.jax import JaxEdge, JaxGraph
+from energnn.graph.jax import JaxGraph, JaxHyperEdgeSet
 from energnn.model.utils import Activation, MLP
 from .encoder import Encoder
 
@@ -106,16 +106,16 @@ class MLPEncoder(Encoder):
         """
 
         # Verify all edge keys have corresponding MLPs
-        missing_keys = set(graph.edges.keys()) - set(self.mlp_dict.keys())
+        missing_keys = set(graph.hyper_edge_sets.keys()) - set(self.mlp_dict.keys())
         if missing_keys:
             raise KeyError(
                 f"Graph contains edge classes {missing_keys} that were not present in the input structure. "
                 f"Available edge classes: {set(self.mlp_dict.keys())}"
             )
 
-        edge_mlp_dict = {k: (edge, self.mlp_dict[k]) for k, edge in graph.edges.items() if k in self.mlp_dict.keys()}
+        edge_mlp_dict = {k: (edge, self.mlp_dict[k]) for k, edge in graph.hyper_edge_sets.items() if k in self.mlp_dict.keys()}
 
-        def apply_mlp(edge_mlp: tuple[JaxEdge, MLP]) -> JaxEdge:
+        def apply_mlp(edge_mlp: tuple[JaxHyperEdgeSet, MLP]) -> JaxHyperEdgeSet:
             """Apply the MLP to the edge."""
             edge, mlp = edge_mlp
             if edge.feature_array is not None:
@@ -123,7 +123,7 @@ class MLPEncoder(Encoder):
                 feature_array, feature_names = mlp(edge.feature_array) * mask, self.feature_names
             else:
                 feature_array, feature_names = None, None
-            return JaxEdge(
+            return JaxHyperEdgeSet(
                 feature_array=feature_array,
                 feature_names=feature_names,
                 non_fictitious=edge.non_fictitious,

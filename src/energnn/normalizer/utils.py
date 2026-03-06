@@ -6,7 +6,7 @@
 #
 import jax
 
-from energnn.graph.jax import JaxEdge, JaxGraph
+from energnn.graph.jax import JaxGraph, JaxHyperEdgeSet
 from energnn.normalizer.normalization_function import NormalizationFunction
 
 
@@ -77,8 +77,8 @@ def out_tree_to_graph(out_tree: dict, input_graph: JaxGraph) -> JaxGraph:
     :return: New JaxGraph with updated feature arrays.
     """
     edges = {}
-    for k, e in input_graph.edges.items():
-        edges[k] = JaxEdge(
+    for k, e in input_graph.hyper_edge_sets.items():
+        edges[k] = JaxHyperEdgeSet(
             address_dict=e.address_dict,
             feature_names=e.feature_names,
             feature_array=out_tree[k],

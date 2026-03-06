@@ -4,19 +4,14 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
-import numpy as np
 import jax
 import jax.numpy as jnp
+import numpy as np
 
-from energnn.model.decoder.invariant_decoder import (
-    SumInvariantDecoder,
-    MeanInvariantDecoder,
-    InvariantDecoder,
-)
-from energnn.model.utils import MLP
 from energnn.graph.jax import JaxGraph
+from energnn.model.decoder.invariant_decoder import InvariantDecoder, MeanInvariantDecoder, SumInvariantDecoder
+from energnn.model.utils import MLP
 from energnn.problem.example import LinearSystemProblemLoader
-
 
 np.random.seed(0)
 pb_loader = LinearSystemProblemLoader(seed=0, batch_size=4, n_max=10)
@@ -70,7 +65,7 @@ def test_sum_invariant_decoder_basic_and_masking():
 
     # mask all zeros stability: when mask is zero, numerator=0 -> phi(0) should be finite
     ctx_masked = JaxGraph(
-        edges=jax_context.edges,
+        edges=jax_context.hyper_edge_sets,
         true_shape=jax_context.true_shape,
         current_shape=jax_context.current_shape,
         non_fictitious_addresses=jnp.zeros_like(jax_context.non_fictitious_addresses),
@@ -117,7 +112,7 @@ def test_mean_invariant_decoder_shape_and_mask_behavior():
 
     # all-zero mask => numerator=0 => phi(0) should be finite (and for identity phi returns 0)
     ctx_all_zero = JaxGraph(
-        edges=jax_context.edges,
+        edges=jax_context.hyper_edge_sets,
         true_shape=jax_context.true_shape,
         current_shape=jax_context.current_shape,
         non_fictitious_addresses=jnp.zeros_like(jax_context.non_fictitious_addresses),

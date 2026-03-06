@@ -1,11 +1,11 @@
-import pytest
 import jax
 import jax.numpy as jnp
 import numpy as np
+import pytest
 
-from energnn.problem.batch import ProblemBatch
 from energnn.graph import GraphStructure
-from energnn.graph.jax import JaxGraph, JaxEdge
+from energnn.graph.jax import JaxGraph, JaxHyperEdgeSet
+from energnn.problem.batch import ProblemBatch
 from energnn.problem.example import LinearSystemProblemLoader
 
 
@@ -56,7 +56,7 @@ class StubProblemBatch(ProblemBatch):
         """Utility method commonly expected in subclasses."""
         zero_decision, _ = self.get_zero_decision(get_info=False)
         structure = {}
-        for edge_key, edge in zero_decision.edges.items():
+        for edge_key, edge in zero_decision.hyper_edge_sets.items():
             if edge.feature_names is not None:
                 structure[edge_key] = {name: int(idx) for name, idx in edge.feature_names.items()}
         return structure
@@ -100,7 +100,7 @@ def test_methods_return_tuple_and_info():
 )
 def test_get_decision_structure_conversions(feature_names, expected_values):
     """get_decision_structure should correctly convert various int-like types to native ints."""
-    edge = JaxEdge(
+    edge = JaxHyperEdgeSet(
         address_dict=None,
         feature_array=jnp.zeros((1, 2)),
         feature_names=feature_names,
@@ -125,11 +125,11 @@ def test_get_gradient_shapes_match_decision(pb_batch):
     grad, _ = pb_batch.get_gradient(decision=oracle, get_info=False)
 
     # Check edge keys and shapes
-    assert set(oracle.edges.keys()) == set(grad.edges.keys())
+    assert set(oracle.hyper_edge_sets.keys()) == set(grad.hyper_edge_sets.keys())
 
-    for key in oracle.edges:
-        dec_arr = oracle.edges[key].feature_array
-        grad_arr = grad.edges[key].feature_array
+    for key in oracle.hyper_edge_sets:
+        dec_arr = oracle.hyper_edge_sets[key].feature_array
+        grad_arr = grad.hyper_edge_sets[key].feature_array
         if dec_arr is not None:
             assert dec_arr.shape == grad_arr.shape
         else:

@@ -19,17 +19,17 @@ ADDRESS_DICT = "address_dict"
 NON_FICTITIOUS = "non_fictitious"
 
 
-class Edge(dict):
+class HyperEdgeSet(dict):
     """
     A collection of hyper-edges of the same class, optionally batched.
 
     Internally this is just a dict storing four entries.
 
-    :param address_dict: Mapping from port name to array of shape (n_edges,) or (batch, n_edges).
+    :param address_dict: Mapping from a port name to an array of shape `(n_edges,)` or `(batch, n_edges)`.
         Dictionary that contains all hyper-edge addresses.
     :param feature_array: Array that contains all hyper-edge features.
-    :param feature_names: Dictionary from feature names to  index in `feature_array`.
-    :param non_fictitious: Mask array set to 1 for non fictitious objects and to 0 for fictitious objects.
+    :param feature_names: Dictionary from feature names to index in `feature_array`.
+    :param non_fictitious: Mask array set to 1 for non-fictitious objects and to 0 for fictitious objects.
     """
 
     def __init__(
@@ -52,18 +52,18 @@ class Edge(dict):
         *,
         address_dict: dict[str, Any] | None = None,
         feature_dict: dict[str, Any] | None = None,
-    ) -> Edge:
+    ) -> HyperEdgeSet:
         """
-        Build an Edge from raw dicts of addresses and features.
+        Build a HyperEdgeSet from raw dicts of addresses and features.
 
         Both inputs may be None, in which case the corresponding properties
         are set to None and only `non_fictitious` of length zero is created.
 
-        :param address_dict: Dictionary of addresses, each key correspond to a port name and the values are the
+        :param address_dict: Dictionary of addresses, each key corresponds to a port name and to the values are the
                              corresponding addresses for each object stored into an array.
-        :param feature_dict: Dictionary of features, each key correspond to a feature name and the values are the
+        :param feature_dict: Dictionary of features, each key corresponds to a feature name and to the values are the
                              corresponding features for each object stored into an array.
-        :returns: A properly structured `Edge` instance.
+        :returns: A properly structured `HyperEdgeSet` instance.
         :raises ValueError: If addresses or features contain NaNs or if shapes mismatch.
         """
         # Convert inputs to pure numpy arrays / dicts
@@ -80,8 +80,8 @@ class Edge(dict):
         else:
             feature_names, feature_array = None, None
 
-        # Build non_fictitious mask
-        shape = build_edge_shape(address_dict=address_dict, feature_dict=feature_dict)
+        # Build a non-fictitious mask.
+        shape = build_hyper_edge_set_shape(address_dict=address_dict, feature_dict=feature_dict)
         non_fictitious = np.ones(int(shape))
 
         return cls(
@@ -93,7 +93,7 @@ class Edge(dict):
 
     def __str__(self) -> str:
         """
-        Render the Edge as a pandas DataFrame string.
+        Render the HyperEdgeSet as a pandas DataFrame string.
 
         If `is_single`, uses a single-level index:
             object_id
@@ -101,7 +101,7 @@ class Edge(dict):
             batch_id, object_id
 
         :returns:
-            String representation of a pandas.DataFrame.
+            String representation of a `pandas.DataFrame`.
         :raises ValueError:
             If the internal array has unexpected dimensions.
         """
@@ -113,7 +113,7 @@ class Edge(dict):
                 names=["batch_id", "object_id"],
             )
         else:
-            raise ValueError("Edge is neither a single nor a batched instance.")
+            raise ValueError("HyperEdgeSet is neither single nor batched.")
 
         d = {}
         if self.address_names is not None:
@@ -132,8 +132,8 @@ class Edge(dict):
 
         :returns:
             Combined array of shape
-            - single: (n_obj, n_feats + n_ports)
-            - batch:  (batch, n_obj, n_feats + n_ports)
+            - single: `(n_obj, n_feats + n_ports)`
+            - batch: `(batch, n_obj, n_feats + n_ports)`
         """
         array = []
         if self.feature_array is not None:
@@ -145,14 +145,14 @@ class Edge(dict):
     @property
     def is_batch(self) -> bool:
         """
-        True if `array` is 3-D: (batch, n_obj, features+ports).
+        True if `array` is 3-D: `(batch, n_obj, features+ports)`.
         """
         return len(self.array.shape) == 3
 
     @property
     def is_single(self) -> bool:
         """
-        True if `array` is 2-D: (n_obj, features+ports).
+        True if `array` is 2-D: `(n_obj, features+ports)`.
         """
         return len(self.array.shape) == 2
 
@@ -166,18 +166,18 @@ class Edge(dict):
         elif self.is_batch:
             return int(self.array.shape[1])
         else:
-            raise ValueError("Edge is neither a single edge nor a batched edge.")
+            raise ValueError("HyperEdgeSet is neither single nor batched.")
 
     @property
     def n_batch(self) -> int:
         """
         Number of batches. Only valid if `is_batch` is True.
-        :raises ValueError: if not a batch.
+        :raises ValueError: If not a batch.
         """
         if self.is_batch:
             return int(self.array.shape[0])
         else:
-            raise ValueError("Edge is not batched.")
+            raise ValueError("HyperEdgeSet is not batched.")
 
     @property
     def feature_array(self) -> np.ndarray | None:
@@ -194,8 +194,7 @@ class Edge(dict):
     @property
     def address_array(self) -> np.ndarray | None:
         """
-        Return stacked addresses array of shape
-        (n_obj, n_ports) or (batch, n_obj, n_ports).
+        Returns the stacked array of addresses, of shape `(n_obj, n_ports)` or `(batch, n_obj, n_ports)`.
         """
         if self.address_dict is None:
             return None
@@ -204,7 +203,7 @@ class Edge(dict):
     @property
     def address_names(self) -> dict[str, np.ndarray] | None:
         """
-        Map port name to column index in `address_array`.
+        Maps a port name to a column index in `address_array`.
         """
         if self.address_dict is None:
             return None
@@ -221,8 +220,8 @@ class Edge(dict):
     @property
     def non_fictitious(self) -> np.ndarray:
         """
-        Mask of shape (n_obj,) or (batch, n_obj).
-        1 = real edge, 0 = padded/fictitious.
+        Mask of shape `(n_obj,)` or `(batch, n_obj)`.
+        1 = real hyper-edge, 0 = padded/fictitious.
         """
         return self[NON_FICTITIOUS]
 
@@ -233,16 +232,16 @@ class Edge(dict):
     @property
     def feature_dict(self) -> dict[str, np.ndarray] | None:
         """
-        Un-stack `feature_array` into a dict: feature_name --> array.
+        Unstack `feature_array` into a dict: feature_name --> array.
 
-        :returns: dict of shape (n_obj,) or (batch, n_obj) per feature.
+        :returns: Dict of shape `(n_obj,)` or `(batch, n_obj)` per feature.
         """
         if not self.feature_names:
             return None
 
         result = dict()
         for k, v in self.feature_names.items():
-            # last axis holds features
+            # The last axis holds features
             if self.is_batch:
                 result[k] = self.feature_array[..., int(v[0])]
             else:
@@ -252,11 +251,11 @@ class Edge(dict):
     @property
     def feature_flat_array(self) -> np.ndarray | None:
         """
-        Flatten all features into one long vector per (batch,) by Fortran ordering.
+        Flatten all features into one long vector per `(batch, )` by Fortran ordering.
 
         :returns:
-            Single instance: 1D array of length n_obj * n_feats.
-            Batched instance: 2D array of shape (batch, n_obj * n_feats).
+            Single instance: 1D array of length `n_obj * n_feats`.
+            Batched instance: 2D array of shape `(batch, n_obj * n_feats)`.
         """
         if self.feature_array is None:
             return None
@@ -270,7 +269,7 @@ class Edge(dict):
         Update the feature array from a flat Fortran-ordered array.
 
         :param array: Must match the shape of current `.feature_flat_array`.
-        :raises ValueError: if shapes mismatch.
+        :raises ValueError: If shapes mismatch.
         """
         flat = self.feature_flat_array
         if flat is None or flat.shape != array.shape:
@@ -283,14 +282,14 @@ class Edge(dict):
 
     def pad(self, target_shape: np.ndarray | int) -> None:
         """
-        Pad a *single* Edge with a series of zeros for features and max-int for addresses
-         so that shapes match the `target_shape`.
+        Pad a *single* HyperEdgeSet with a series of zeros for features and max-int for addresses
+        so that shapes match the `target_shape`.
 
-        :param target_shape: desired n_obj after padding; must be ≥ current n_obj.
+        :param target_shape: Desired n_obj after padding; must be ≥ current n_obj.
         :raises ValueError: If called on a batch or if target_shape < current n_obj.
         """
         if not self.is_single:
-            raise ValueError("Edge is batched, impossible to pad.")
+            raise ValueError("HyperEdgeSet is batched, impossible to pad.")
 
         old_n_obj = self.n_obj
 
@@ -312,15 +311,14 @@ class Edge(dict):
 
     def unpad(self, target_shape: np.ndarray | int) -> None:
         """
-        Remove all objects beyond index `target` in a *single* Edge.
+        Remove all objects beyond the index `target` in a *single* HyperEdgeSet.
 
-        :param target_shape: new n_obj; must be ≤ current n_obj.
+        :param target_shape: New n_obj; must be ≤ current n_obj.
         :raises ValueError: If called on a batch or if target_shape > current n_obj.
         """
 
-        """Removes fictitious objects."""
         if not self.is_single:
-            raise ValueError("Edge is batched, impossible to unpad.")
+            raise ValueError("HyperEdgeSet is batched, impossible to unpad.")
 
         if self.n_obj < target_shape:
             raise ValueError("Provided target_shape is higher than current shape, unpadding is impossible! ")
@@ -341,123 +339,127 @@ class Edge(dict):
     def offset_addresses(self, offset: np.ndarray | int) -> None:
         """Adds an offset on all addresses. Should only be used before graph concatenation.
 
-        :param offset: scalar or array to add to each address array.
+        :param offset: Scalar or array to add to each address array.
         """
         self.address_dict = {k: a + np.array(offset) for k, a in self.address_dict.items()}
 
 
-def collate_edges(edge_list: list[Edge]) -> Edge:
+def collate_hyper_edge_sets(hyper_edge_set_list: list[HyperEdgeSet]) -> HyperEdgeSet:
     """
-    Collate a list of Hyper Edges into a single batched Hyper Edge.
+    Collate a list of HyperEdgeSet into a single batched HyperEdgeSet.
 
-    Each Edge in the input list is assumed to have the same feature and address schema.
+    Each HyperEdgeSet in the input list is assumed to have the same feature and address schema.
     This function stacks the per-edge attributes along the 0-th axis.
 
-    :param edge_list: sequence of Edge objects to batch together. Must be non-empty.
-    :return: a single batched Hyper Edge
+    :param hyper_edge_set_list: Sequence of HyperEdgeSet objects to batch together. Must be non-empty.
+    :return: A single batched HyperEdgeSet.
 
-    :raises IndexError: if `edge_list` is empty.
-    :raises ValueError: if not all edges share the same keys in address_names or feature_names.
+    :raises IndexError: Raised if `hyper_edge_set_list` is empty.
+    :raises ValueError: Raised if not all HyperEdgeSet share the same keys in address_names or feature_names.
     """
-    if not edge_list:
+    if not hyper_edge_set_list:
         raise IndexError("collate_edges requires at least one Edge to collate.")
 
-    first_edge = edge_list[0]
+    first_hyper_edge_set = hyper_edge_set_list[0]
 
-    # Check consistency of keys
-    for e in edge_list[1:]:
-        _check_keys_consistency(first_edge, e)
+    # Check the consistency of keys
+    for e in hyper_edge_set_list[1:]:
+        _check_keys_consistency(first_hyper_edge_set, e)
 
     # Collate feature arrays
-    if first_edge.feature_array is not None:
-        feature_array = np.stack([e.feature_array for e in edge_list], axis=0)
+    if first_hyper_edge_set.feature_array is not None:
+        feature_array = np.stack([e.feature_array for e in hyper_edge_set_list], axis=0)
     else:
         feature_array = None
 
     # Collate feature names
-    if first_edge.feature_names is not None:
-        feature_names = {k: np.stack([e.feature_names[k] for e in edge_list]) for k in first_edge.feature_names}
+    if first_hyper_edge_set.feature_names is not None:
+        feature_names = {
+            k: np.stack([e.feature_names[k] for e in hyper_edge_set_list]) for k in first_hyper_edge_set.feature_names
+        }
     else:
         feature_names = None
 
     # Collate address dicts
-    if first_edge.address_dict is not None:
-        address_dict = {k: np.stack([e.address_dict[k] for e in edge_list]) for k in first_edge.address_dict}
+    if first_hyper_edge_set.address_dict is not None:
+        address_dict = {
+            k: np.stack([e.address_dict[k] for e in hyper_edge_set_list]) for k in first_hyper_edge_set.address_dict
+        }
     else:
         address_dict = None
 
-    # Collate non fictitious masks
-    if first_edge.non_fictitious is not None:
-        non_fictitious = np.stack([e.non_fictitious for e in edge_list])
+    # Collate non-fictitious masks
+    if first_hyper_edge_set.non_fictitious is not None:
+        non_fictitious = np.stack([e.non_fictitious for e in hyper_edge_set_list])
     else:
         non_fictitious = None
 
-    return Edge(
+    return HyperEdgeSet(
         address_dict=address_dict, feature_array=feature_array, feature_names=feature_names, non_fictitious=non_fictitious
     )
 
 
-def separate_edges(edge_batch: Edge) -> list[Edge]:
+def separate_hyper_edge_sets(hyper_edge_set_batch: HyperEdgeSet) -> list[HyperEdgeSet]:
     """
-    Separate a batched Hyper Edge into its constituent Hyper Edges instances.
+    Separate a batched HyperEdgeSet into its constituent HyperEdgeSet instances.
 
-    The input Edge must have been created by :py:func:`collate_edges` or otherwise
+    The input HyperEdgeSet must have been created by :py:func:`collate_hyper_edge_sets` or otherwise
     its property "array" must return a 3D array.
 
-    :param edge_batch: the batched Edge to unstack.
-    :return: list of Edge instances, each corresponding to one batch element.
+    :param hyper_edge_set_batch: The batched HyperEdgeSet to unstack.
+    :return: List of HyperEdgeSet instances, each corresponding to one batch element.
 
-    :raises ValueError: if `edge_batch.is_batch` is False.
+    :raises ValueError: If `hyper_edge_set_batch.is_batch` is False.
     """
-    if not edge_batch.is_batch:
+    if not hyper_edge_set_batch.is_batch:
         raise ValueError("Input is not a batch, impossible to separate.")
 
-    if edge_batch.feature_array is not None:
-        feature_array_list = np.unstack(edge_batch.feature_array, axis=0)
+    if hyper_edge_set_batch.feature_array is not None:
+        feature_array_list = np.unstack(hyper_edge_set_batch.feature_array, axis=0)
     else:
-        feature_array_list = [None] * edge_batch.n_batch
+        feature_array_list = [None] * hyper_edge_set_batch.n_batch
 
-    if edge_batch.feature_names is not None:
-        a = {k: np.unstack(edge_batch.feature_names[k]) for k in edge_batch.feature_names}
-        feature_names_list = [dict(zip(a, t)) for t in zip(*a.values())]  # TODO : vérifier que ça fonctionne comme on veut.
-        # feature_names_list = np.unstack(edge_batch.feature_names, axis=0)
+    if hyper_edge_set_batch.feature_names is not None:
+        a = {k: np.unstack(hyper_edge_set_batch.feature_names[k]) for k in hyper_edge_set_batch.feature_names}
+        feature_names_list = [dict(zip(a, t)) for t in zip(*a.values())]
     else:
-        feature_names_list = [None] * edge_batch.n_batch
+        feature_names_list = [None] * hyper_edge_set_batch.n_batch
 
-    if edge_batch.address_dict is not None:
-        a = {k: np.unstack(edge_batch.address_dict[k]) for k in edge_batch.address_dict}
-        address_dict_list = [dict(zip(a, t)) for t in zip(*a.values())]  # TODO : vérifier que ça fonctionne comme on veut.
-        # address_dict_list = np.unstack(edge_batch.address_dict, axis=0)
+    if hyper_edge_set_batch.address_dict is not None:
+        a = {k: np.unstack(hyper_edge_set_batch.address_dict[k]) for k in hyper_edge_set_batch.address_dict}
+        address_dict_list = [dict(zip(a, t)) for t in zip(*a.values())]
     else:
-        address_dict_list = [None] * edge_batch.n_batch
+        address_dict_list = [None] * hyper_edge_set_batch.n_batch
 
-    if edge_batch.non_fictitious is not None:
-        non_fictitious_list = np.unstack(edge_batch.non_fictitious, axis=0)
+    if hyper_edge_set_batch.non_fictitious is not None:
+        non_fictitious_list = np.unstack(hyper_edge_set_batch.non_fictitious, axis=0)
     else:
-        non_fictitious_list = [None] * edge_batch.n_batch
+        non_fictitious_list = [None] * hyper_edge_set_batch.n_batch
 
-    edge_list = []
+    hyper_edge_set_list = []
     for fa, fn, ad, nf in zip(feature_array_list, feature_names_list, address_dict_list, non_fictitious_list):
-        edge = Edge(address_dict=ad, feature_array=fa, feature_names=fn, non_fictitious=nf)
-        edge_list.append(edge)
-    return edge_list
+        hyper_edge_set = HyperEdgeSet(address_dict=ad, feature_array=fa, feature_names=fn, non_fictitious=nf)
+        hyper_edge_set_list.append(hyper_edge_set)
+    return hyper_edge_set_list
 
 
-def concatenate_edges(edge_list: list[Edge]) -> Edge:
+def concatenate_hyper_edge_sets(hyper_edge_set_list: list[HyperEdgeSet]) -> HyperEdgeSet:
     """
-    Concatenate several single Edges into one single Edge.
+    Concatenate several single HyperEdgeSet into one single HyperEdgeSet.
 
-    Unlike :py:func:`collate_edges`, this does *not* create a batch dimension,
+    Unlike :py:func:`collate_hyper_edge_sets`, this does *not* create a batch dimension,
     but simply stacks objects end-to-end.
 
-    :param edge_list: list of single (non-batched) Edge
-    :returns: One Edge with n_obj = sum of all inputs’ n_obj
+    :param hyper_edge_set_list: List of single (non-batched) HyperEdgeSet
+    :returns: One HyperEdgeSet with n_obj = sum of all inputs’ n_obj
     """
-    address_dict = {k: np.concatenate([edge.address_dict[k] for edge in edge_list]) for k in edge_list[0].address_dict}
-    feature_array = np.concatenate([edge.feature_array for edge in edge_list], axis=0)
-    feature_names = edge_list[0].feature_names
-    non_fictitious = np.concatenate([edge.non_fictitious for edge in edge_list])
-    return Edge(
+    address_dict = {
+        k: np.concatenate([hes.address_dict[k] for hes in hyper_edge_set_list]) for k in hyper_edge_set_list[0].address_dict
+    }
+    feature_array = np.concatenate([hes.feature_array for hes in hyper_edge_set_list], axis=0)
+    feature_names = hyper_edge_set_list[0].feature_names
+    non_fictitious = np.concatenate([hes.non_fictitious for hes in hyper_edge_set_list])
+    return HyperEdgeSet(
         address_dict=address_dict, feature_array=feature_array, feature_names=feature_names, non_fictitious=non_fictitious
     )
 
@@ -469,12 +471,12 @@ def check_dict_shape(*, d: dict[str, np.ndarray] | None, n_objects: int | None) 
     If `n_objects` is not provided, it is inferred from the first array’s last dimension.
     Otherwise, every array’s last dimension must match the given `n_objects`.
 
-    :param d: mapping from feature/address name to numpy array
+    :param d: Mapping from feature/address name to `numpy` array
                    where each array’s last axis is object-indexed.
-    :param n_objects: optional expected size of the last axis; if None, will be inferred.
-    :return: the validated or inferred `n_objects`.
+    :param n_objects: Optional expected size of the last axis; if None, will be inferred.
+    :return: The validated or inferred `n_objects`.
 
-    :raises ValueError: if any array’s last dimension does not match `n_objects`.
+    :raises ValueError: If any array’s last dimension does not match `n_objects`.
     """
     if d is not None:
         if n_objects is None:
@@ -486,21 +488,21 @@ def check_dict_shape(*, d: dict[str, np.ndarray] | None, n_objects: int | None) 
     return n_objects
 
 
-def build_edge_shape(
+def build_hyper_edge_set_shape(
     *,
     address_dict: dict[str, np.ndarray] | None,
     feature_dict: dict[str, np.ndarray] | None,
 ) -> np.ndarray:
     """
-    Build a numpy array representing the number of edges.
+    Build a numpy array representing the number of hyper-edges.
 
     Validates that `address_dict` and `feature_dict` have consistent sizes
-    on their last dimensions, and returns a scalar numpy array containing that count.
+    on their last dimensions and returns a scalar numpy array containing that count.
 
-    :param address_dict: mapping of address names to numpy arrays, or None.
-    :param feature_dict: mapping of feature names to numpy arrays, or None.
-    :return: a scalar numpy array of dtype float32 with the number of objects.
-    :raises ValueError: if both inputs are None, or if their shapes conflict.
+    :param address_dict: Mapping of address names to numpy arrays, or None.
+    :param feature_dict: Mapping of feature names to numpy arrays, or None.
+    :return: A scalar numpy array of dtype float32 with the number of objects.
+    :raises ValueError: If both inputs are None, or if their shapes conflict.
     """
     if address_dict is None and feature_dict is None:
         raise ValueError("At least one of address_dict or feature_dict must be provided.")
@@ -516,8 +518,8 @@ def dict2array(features_dict: dict[str, np.ndarray] | None) -> np.ndarray | None
 
     The arrays are stacked in alphabetical order of their dictionary keys.
 
-    :param features_dict: mapping from feature name to numpy array, or None.
-    :return: a stacked array with an added last dimension for features, or None.
+    :param features_dict: Mapping from a feature name to a `numpy` array, or None.
+    :return: A stacked array with an added last dimension for features, or None.
     """
     if features_dict is None:
         return None
@@ -528,7 +530,7 @@ def check_dict_or_none(_input: dict | np.ndarray | None) -> dict | None:
     """
     Validate that the input is either a dict or None.
 
-    :param _input: object to validate
+    :param _input: Object to validate
     :return: the input if it was a dict or None
     :raises ValueError: if `_input` is neither dict nor None
     """
@@ -547,9 +549,9 @@ def check_no_nan(
     """
     Ensure there are no NaN values in address or feature arrays.
 
-    :param address_dict: mapping of address names to arrays, or None.
-    :param feature_dict: mapping of feature names to arrays, or None.
-    :raises ValueError: if any array contains NaN.
+    :param address_dict: Mapping of address names to arrays, or None.
+    :param feature_dict: Mapping of feature names to arrays, or None.
+    :raises ValueError: If any array contains NaN.
     """
     for name, arr in (address_dict or {}).items():
         if np.any(np.isnan(arr)):
@@ -563,20 +565,20 @@ def check_valid_addresses(address_dict: dict[str, np.ndarray] | None) -> None:
     """
     Ensure that address arrays only contain integer-valued entries.
 
-    :param address_dict: mapping of address names to arrays, or None.
-    :raises ValueError: if any address array has non-integer entries.
+    :param address_dict: Mapping of address names to arrays, or None.
+    :raises ValueError: If any address array has entries that are not integer.
     """
     for name, arr in (address_dict or {}).items():
         if not np.allclose(arr, np.int32(arr)):
             raise ValueError(f"Non-integer values detected in address array for key '{name}'.")
 
 
-def _check_keys_consistency(edge_1, edge_2):
-    if (edge_1.address_names is None) != (edge_2.address_names is None):
-        raise ValueError("Mismatch in presence of address_names among edges.")
-    if (edge_1.feature_names is None) != (edge_2.feature_names is None):
-        raise ValueError("Mismatch in presence of feature_names among edges.")
-    if edge_1.address_names and edge_1.address_names.keys() != edge_2.address_names.keys():
-        raise ValueError("Inconsistent address_names keys among edges.")
-    if edge_1.feature_names and edge_1.feature_names.keys() != edge_2.feature_names.keys():
-        raise ValueError("Inconsistent feature_names keys among edges.")
+def _check_keys_consistency(hes_1, hes_2):
+    if (hes_1.address_names is None) != (hes_2.address_names is None):
+        raise ValueError("Mismatch in presence of address_names among hyper edge sets.")
+    if (hes_1.feature_names is None) != (hes_2.feature_names is None):
+        raise ValueError("Mismatch in presence of feature_names among hyper edge sets.")
+    if hes_1.address_names and hes_1.address_names.keys() != hes_2.address_names.keys():
+        raise ValueError("Inconsistent address_names keys among hyper edge sets.")
+    if hes_1.feature_names and hes_1.feature_names.keys() != hes_2.feature_names.keys():
+        raise ValueError("Inconsistent feature_names keys among hyper edge sets.")

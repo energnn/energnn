@@ -3,15 +3,22 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 # SPDX-License-Identifier: MPL-2.0
-#
+
 from __future__ import annotations
+
 import pickle as pkl
+
 import numpy as np
 
-from energnn.graph.edge import Edge, collate_edges, concatenate_edges, separate_edges
+from energnn.graph.hyper_edge_set import (
+    HyperEdgeSet,
+    collate_hyper_edge_sets,
+    concatenate_hyper_edge_sets,
+    separate_hyper_edge_sets,
+)
 from energnn.graph.shape import GraphShape, collate_shapes, separate_shapes, sum_shapes
 
-EDGES = "edges"
+HYPER_EDGE_SETS = "hyper_edge_sets"
 TRUE_SHAPE = "true_shape"
 CURRENT_SHAPE = "current_shape"
 NON_FICTITIOUS_ADDRESSES = "non_fictitious_addresses"
@@ -21,9 +28,9 @@ class Graph(dict):
     """
     Hyper Heterogeneous Multi-Graph (H2MG) container.
 
-    Stores edges, shapes, and address masks for single or batched graphs.
+    Stores hyper edge sets, shapes, and address masks for single or batched graphs.
 
-    :param edges: Dictionary of edges contained in the graph.
+    :param hyper_edge_sets: Dictionary of hyper edge sets contained in the graph.
     :param true_shape: True shape of the graph, not altered by padding.
     :param current_shape: Current shape of the graph, consistent with padding.
     :param non_fictitious_addresses: Mask filled with ones for real addresses, and zeros otherwise.
@@ -32,37 +39,37 @@ class Graph(dict):
     def __init__(
         self,
         *,
-        edges: dict[str, Edge],
+        hyper_edge_sets: dict[str, HyperEdgeSet],
         true_shape: GraphShape,
         current_shape: GraphShape,
         non_fictitious_addresses: np.ndarray,
     ) -> None:
         super().__init__()
-        self[EDGES] = edges
+        self[HYPER_EDGE_SETS] = hyper_edge_sets
         self[TRUE_SHAPE] = true_shape
         self[CURRENT_SHAPE] = current_shape
         self[NON_FICTITIOUS_ADDRESSES] = non_fictitious_addresses
 
     @classmethod
-    def from_dict(cls, *, edge_dict: dict[str, Edge], registry: np.ndarray | None = None) -> Graph:
+    def from_dict(cls, *, hyper_edge_set_dict: dict[str, HyperEdgeSet], registry: np.ndarray | None = None) -> Graph:
         """
-        Builds a graph from a dictionary of :class:`energnn.graph.Edge` and a registry.
+        Builds a graph from a dictionary of :class:`energnn.graph.HyperEdgeSet` and a registry.
 
-        :param edge_dict: Dictionary of edges contained in the graph.
-        :param registry: Contains all unique address identifiers that appear in edges.
-        :return: Graph that contains both the edges and the registry.
+        :param hyper_edge_set_dict: Dictionary of hyper edge sets contained in the graph.
+        :param registry: Contains all unique address identifiers that appear in all the hyper edge sets.
+        :return: Graph that contains both the hyper edge sets and the registry.
         """
-        # registry = to_numpy(registry)  # TODO : voir si on ne peut pas le foutre à la poubelle.
-        # Vérifier plutôt que les addresses sont bien dans n_addresses
         n_addresses = registry.shape[0]
         non_fictitious_addresses = np.ones(shape=[n_addresses])
-        check_edge_dict_type(edge_dict)
-        check_valid_addresses(edge_dict, n_addresses)
-        edges = edge_dict
-        true_shape = GraphShape.from_dict(edge_dict=edge_dict, non_fictitious=non_fictitious_addresses)
+        check_hyper_edge_set_dict_type(hyper_edge_set_dict)
+        check_valid_addresses(hyper_edge_set_dict, n_addresses)
+        true_shape = GraphShape.from_dict(hyper_edge_set_dict=hyper_edge_set_dict, non_fictitious=non_fictitious_addresses)
         current_shape = true_shape
         return cls(
-            edges=edges, true_shape=true_shape, current_shape=current_shape, non_fictitious_addresses=non_fictitious_addresses
+            hyper_edge_sets=hyper_edge_set_dict,
+            true_shape=true_shape,
+            current_shape=current_shape,
+            non_fictitious_addresses=non_fictitious_addresses,
         )
 
     @property
@@ -112,26 +119,26 @@ class Graph(dict):
         self[NON_FICTITIOUS_ADDRESSES] = value
 
     @property
-    def edges(self) -> dict[str, Edge]:
+    def hyper_edge_sets(self) -> dict[str, HyperEdgeSet]:
         """
         Get dictionary of edge instances.
 
         :return: dict of edge class to Edge
         """
-        return self[EDGES]
+        return self[HYPER_EDGE_SETS]
 
-    @edges.setter
-    def edges(self, edge_dict: dict[str, Edge]) -> None:
+    @hyper_edge_sets.setter
+    def hyper_edge_sets(self, edge_dict: dict[str, HyperEdgeSet]) -> None:
         """
         Set dictionary of edge instances.
 
         :param edge_dict: new dictionary of edge instances
         """
-        self[EDGES] = edge_dict
+        self[HYPER_EDGE_SETS] = edge_dict
 
     def __str__(self) -> str:
         r = ""
-        for k, v in sorted(self.edges.items()):
+        for k, v in sorted(self.hyper_edge_sets.items()):
             r += "{}\n{}\n".format(k, v)
         # r += "N\n{}".format(self.registry)
         return r
@@ -162,7 +169,7 @@ class Graph(dict):
 
         :return: True if all edges are batched and mask is 2-D array when defined.
         """
-        for k, e in self.edges.items():
+        for k, e in self.hyper_edge_sets.items():
             if not e.is_batch:
                 return False
         if (self.non_fictitious_addresses is not None) and (len(self.non_fictitious_addresses.shape) != 2):
@@ -177,7 +184,7 @@ class Graph(dict):
 
         :return: True if all edges are single and mask is 1-D array when defined.
         """
-        for k, e in self.edges.items():
+        for k, e in self.hyper_edge_sets.items():
             if not e.is_single:
                 return False
         if (self.non_fictitious_addresses is not None) and (len(self.non_fictitious_addresses.shape) != 1):
@@ -196,8 +203,8 @@ class Graph(dict):
         values_list = []
 
         # Gather hyper-edges features
-        if self.edges is not None:
-            for key, edge in sorted(self.edges.items()):
+        if self.hyper_edge_sets is not None:
+            for key, edge in sorted(self.hyper_edge_sets.items()):
                 if edge.feature_flat_array is not None:
                     values_list.append(edge.feature_flat_array)
         else:
@@ -216,12 +223,12 @@ class Graph(dict):
         if np.any(self.feature_flat_array.shape != value.shape):
             raise ValueError("Invalid array shape.")
         i = 0
-        if self.edges is not None:
-            for key, edge in sorted(self.edges.items()):
+        if self.hyper_edge_sets is not None:
+            for key, edge in sorted(self.hyper_edge_sets.items()):
                 if edge.feature_names is not None:
                     length = np.shape(edge.feature_flat_array)[-1]
                     if length > 0:
-                        self.edges[key].feature_flat_array = value[..., i : i + length]  # Slice over last axis
+                        self.hyper_edge_sets[key].feature_flat_array = value[..., i : i + length]  # Slice over last axis
                         i += length
         else:
             raise ValueError("This graph does not contain any edge, and can't be cast as a flat array.")
@@ -236,8 +243,8 @@ class Graph(dict):
         if not self.is_single:
             raise ValueError("This graph is not single and cannot be padded.")
 
-        for edge_key, edge_shape in target_shape.edges.items():
-            self.edges[edge_key].pad(edge_shape)
+        for edge_key, edge_shape in target_shape.hyper_edge_sets.items():
+            self.hyper_edge_sets[edge_key].pad(edge_shape)
         self.non_fictitious_addresses = np.pad(
             self.non_fictitious_addresses, [0, int(target_shape.addresses) - int(self.current_shape.addresses)]
         )
@@ -249,8 +256,8 @@ class Graph(dict):
 
         :raises ValueError: if Graph is not single
         """
-        for edge_key, edge_shape in self.true_shape.edges.items():
-            self.edges[edge_key].unpad(edge_shape)
+        for edge_key, edge_shape in self.true_shape.hyper_edge_sets.items():
+            self.hyper_edge_sets[edge_key].unpad(edge_shape)
         self.non_fictitious_addresses = self.non_fictitious_addresses[: int(self.true_shape.addresses)]
         self.current_shape = self.true_shape
 
@@ -268,7 +275,7 @@ class Graph(dict):
 
             h_new = copy.deepcopy(h)
             edge_h = {}
-            for edge_key, edge in graph.edges.items():
+            for edge_key, edge in graph.hyper_edge_sets.items():
                 edge_h[edge_key] = []
                 for address_key, address_array in edge.address_dict.items():
                     edge_h[edge_key].append(h_new[address_array.astype(int)])
@@ -303,7 +310,7 @@ class Graph(dict):
         :param offset: integer or array to add to addresses
         """
         # TODO : voir si on peut enlever de la classe.
-        for k, e in self.edges.items():
+        for k, e in self.hyper_edge_sets.items():
             e.offset_addresses(offset=offset)
 
     def quantiles(self, q_list: list[float] = [0.0, 10.0, 25.0, 50.0, 75.0, 90.0, 100.0]) -> dict[str, np.ndarray]:
@@ -314,7 +321,7 @@ class Graph(dict):
         :raises ValueError: if graph is not single or batched and cannot be quantiled.
         """
         info = {}
-        for object_name, edge in self.edges.items():
+        for object_name, edge in self.hyper_edge_sets.items():
             if edge.feature_dict is not None:
                 for feature_name, array in edge.feature_dict.items():
                     if np.size(array) > 0:
@@ -361,8 +368,8 @@ def collate_graphs(graph_list: list[Graph]) -> Graph:
     true_shape_batch = collate_shapes(true_shape_list)
 
     edge_dict_batch = {}
-    for k in first_graph.edges.keys():
-        edge_dict_batch[k] = collate_edges([g.edges[k] for g in graph_list])
+    for k in first_graph.hyper_edge_sets.keys():
+        edge_dict_batch[k] = collate_hyper_edge_sets([g.hyper_edge_sets[k] for g in graph_list])
 
     if first_graph.non_fictitious_addresses is not None:
         non_fictitious_addresses_batch = np.stack([g.non_fictitious_addresses for g in graph_list], axis=0)
@@ -370,7 +377,7 @@ def collate_graphs(graph_list: list[Graph]) -> Graph:
         non_fictitious_addresses_batch = None
 
     return Graph(
-        edges=edge_dict_batch,
+        hyper_edge_sets=edge_dict_batch,
         non_fictitious_addresses=non_fictitious_addresses_batch,
         true_shape=true_shape_batch,
         current_shape=current_shape_batch,
@@ -392,8 +399,8 @@ def separate_graphs(graph_batch: Graph) -> list[Graph]:
     n_batch = len(current_shape_list)
 
     edge_list_dict = {}
-    for k in graph_batch.edges.keys():
-        edge_list_dict[k] = separate_edges(graph_batch.edges[k])
+    for k in graph_batch.hyper_edge_sets.keys():
+        edge_list_dict[k] = separate_hyper_edge_sets(graph_batch.hyper_edge_sets[k])
 
     if graph_batch.non_fictitious_addresses is not None:
         non_fictitious_addresses_list = np.unstack(graph_batch.non_fictitious_addresses, axis=0)
@@ -404,7 +411,7 @@ def separate_graphs(graph_batch: Graph) -> list[Graph]:
 
     graph_list = []
     for e, n, t, c in zip(edge_dict_list, non_fictitious_addresses_list, true_shape_list, current_shape_list):
-        graph = Graph(edges=e, non_fictitious_addresses=n, true_shape=t, current_shape=c)
+        graph = Graph(hyper_edge_sets=e, non_fictitious_addresses=n, true_shape=t, current_shape=c)
         graph_list.append(graph)
     return graph_list
 
@@ -438,45 +445,50 @@ def concatenate_graphs(graph_list: list[Graph]) -> Graph:
 
     # Attention, ça c'est super mauvais ! Ça modifie les éléments de la liste...
     [graph.offset_addresses(offset=offset) for graph, offset in zip(graph_list, offset_list)]
-    edges = {k: concatenate_edges([graph.edges[k] for graph in graph_list]) for k in graph_list[0].edges}
+    edges = {
+        k: concatenate_hyper_edge_sets([graph.hyper_edge_sets[k] for graph in graph_list])
+        for k in graph_list[0].hyper_edge_sets
+    }
     [graph.offset_addresses(offset=-offset) for graph, offset in zip(graph_list, offset_list)]
 
     return Graph(
-        edges=edges, non_fictitious_addresses=non_fictitious_addresses, true_shape=true_shape, current_shape=current_shape
+        hyper_edge_sets=edges,
+        non_fictitious_addresses=non_fictitious_addresses,
+        true_shape=true_shape,
+        current_shape=current_shape,
     )
 
 
-def check_edge_dict_type(edge_dict: dict[str, Edge]) -> None:
+def check_hyper_edge_set_dict_type(hyper_edge_set_dict: dict[str, HyperEdgeSet]) -> None:
     """
-    Validate that the provided mapping is a dictionary of Edge instances.
+    Validate that the provided mapping is a dictionary of HyperEdgeSet instances.
 
-    :param edge_dict: A mapping from string keys to Edge objects.
-    :raises TypeError: If `edge_dict` is not a dict or if any value in it is not an Edge.
+    :param hyper_edge_set_dict: A mapping from string keys to HyperEdgeSet objects.
+    :raises TypeError: If `hyper_edge_set_dict` is not a dictionary, or if any value in it is not an HyperEdgeSet.
     """
-    if not isinstance(edge_dict, dict):
-        raise TypeError("Provided 'edge_dict' is not a 'dict', but a {}.".format(type(edge_dict)))
-    for key, edge in edge_dict.items():
-        if not isinstance(edge, Edge):
-            raise TypeError("Item associated with '{}' key is not an 'Edge'.".format(key))
+    if not isinstance(hyper_edge_set_dict, dict):
+        raise TypeError("Provided 'hyper_edge_set_dict' is not a 'dict', but a {}.".format(type(hyper_edge_set_dict)))
+    for key, edge in hyper_edge_set_dict.items():
+        if not isinstance(edge, HyperEdgeSet):
+            raise TypeError("Item associated with '{}' key is not an 'hyper_edge_set_dict'.".format(key))
 
 
-def check_valid_addresses(edge_dict: dict[str, Edge], n_addresses: np.ndarray) -> None:
+def check_valid_addresses(hyper_edge_set_dict: dict[str, HyperEdgeSet], n_addresses: np.ndarray) -> None:
     """
-    Ensure that all address indices in each Edge are valid with respect to the registry.
+    Ensure that all address indices in each HyperEdgeSet are valid with respect to the registry.
 
-    Iterates over all edges in `edge_dict` and, if an edge defines `address_names`,
+    Iterates over all hyper edge sets in `hyper_edge_set_dict` and, if a hyper edge set defines `address_names`,
     checks that its integer-coded addresses do not exceed the provided count array.
 
-    :param edge_dict: Mapping from edge names to Edge objects containing address arrays.
+    :param hyper_edge_set_dict: Mapping from hyper edge set names to HyperEdgeSet objects containing address arrays.
     :param n_addresses: 1D array where each entry gives the number of valid addresses
-                        for the corresponding edge.
-    :raises AssertionError: If any address in any edge is outside the valid range
+                        for the corresponding hyper edge set.
+    :raises AssertionError: If any address in any hyper edge set is outside the valid range
                             (i.e., not less than the corresponding entry in `n_addresses`).
     """
-    # if registry is not None:
-    for edge_name, edge in edge_dict.items():
-        if edge.address_names is not None:
-            assert np.all(edge.address_array < n_addresses)
+    for edge_name, hyper_edge_set in hyper_edge_set_dict.items():
+        if hyper_edge_set.address_names is not None:
+            assert np.all(hyper_edge_set.address_array < n_addresses)
 
 
 def get_statistics(graph: Graph, axis: int | None = None, norm_graph: Graph | None = None) -> dict:
@@ -502,7 +514,7 @@ def get_statistics(graph: Graph, axis: int | None = None, norm_graph: Graph | No
              Values are floats or numpy arrays depending on `axis`.
     """
     info = {}
-    for object_name, edge in graph.edges.items():
+    for object_name, edge in graph.hyper_edge_sets.items():
         if edge.feature_dict is not None:
             for feature_name, array in edge.feature_dict.items():
                 if array.size == 0:
@@ -515,7 +527,7 @@ def get_statistics(graph: Graph, axis: int | None = None, norm_graph: Graph | No
                 rmse = np.sqrt(np.nanmean(array**2, axis=axis))
                 info["{}/{}/rmse".format(object_name, feature_name)] = rmse
                 if norm_graph is not None:
-                    norm_array = norm_graph.edges[object_name].feature_dict[feature_name]
+                    norm_array = norm_graph.hyper_edge_sets[object_name].feature_dict[feature_name]
                     norm_array = norm_array - np.nanmean(norm_array)
                     nrmse = rmse / (np.sqrt(np.nanmean(norm_array**2, axis=axis)) + 1e-9)
                     info["{}/{}/nrmse".format(object_name, feature_name)] = nrmse
@@ -524,7 +536,7 @@ def get_statistics(graph: Graph, axis: int | None = None, norm_graph: Graph | No
                 mae = np.nanmean(np.abs(array), axis=axis)
                 info["{}/{}/mae".format(object_name, feature_name)] = mae
                 if norm_graph is not None:
-                    norm_array = norm_graph.edges[object_name].feature_dict[feature_name]
+                    norm_array = norm_graph.hyper_edge_sets[object_name].feature_dict[feature_name]
                     norm_array = norm_array - np.nanmean(norm_array)
                     nmae = mae / (np.nanmean(np.abs(norm_array), axis=axis) + 1e-9)
                     info["{}/{}/nmae".format(object_name, feature_name)] = nmae

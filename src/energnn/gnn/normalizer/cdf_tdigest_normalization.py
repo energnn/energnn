@@ -4,14 +4,15 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 # SPDX-License-Identifier: MPL-2.0
 #
-import numpy as np
 import jax
 import jax.numpy as jnp
-from flax import nnx
-from jax.experimental import io_callback
-from jax import ShapeDtypeStruct
+import numpy as np
 from fastdigest import TDigest
-from energnn.graph.jax import JaxEdge, JaxGraph
+from flax import nnx
+from jax import ShapeDtypeStruct
+from jax.experimental import io_callback
+
+from energnn.graph.jax import JaxGraph, JaxHyperEdgeSet
 
 # Public registries used by host callbacks to store TDigest instances and per-digest locks.
 GLOBAL_DIGEST_REGISTRY: dict[int, TDigest] = {}
@@ -423,9 +424,9 @@ class GraphTDigestNorm(nnx.Module):
         :param context_example: Example `JaxGraph` used to infer edge keys and feature counts.
         :return: None
         """
-        keys = list(context_example.edges.keys())
+        keys = list(context_example.hyper_edge_sets.keys())
         for i, edge_key in enumerate(keys):
-            edge = context_example.edges[edge_key]
+            edge = context_example.hyper_edge_sets[edge_key]
             if edge.feature_array is not None:
                 if edge.feature_array.shape[-2] > 0:
                     if not hasattr(self, f"norm_{edge_key}"):
@@ -466,22 +467,22 @@ class GraphTDigestNorm(nnx.Module):
             if edge.feature_array is not None:
                 if edge.feature_array.shape[-2] > 0:
                     array = normalizer(edge.feature_array) * jnp.expand_dims(edge.non_fictitious, -1)
-            return JaxEdge(
+            return JaxHyperEdgeSet(
                 feature_array=array,
                 feature_names=edge.feature_names,
                 non_fictitious=edge.non_fictitious,
                 address_dict=edge.address_dict,
             )
 
-        incoming_keys = list(context.edges.keys())
+        incoming_keys = list(context.hyper_edge_sets.keys())
         norm_dict = {}
         for edge_key in incoming_keys:
             attr_name = f"norm_{edge_key}"
-            if context.edges[edge_key].feature_array is not None:
-                if context.edges[edge_key].feature_array.shape[-2] > 0:
+            if context.hyper_edge_sets[edge_key].feature_array is not None:
+                if context.hyper_edge_sets[edge_key].feature_array.shape[-2] > 0:
                     if not hasattr(self, attr_name):
                         edge_index = len(self.edge_keys)
-                        n_features = int(context.edges[edge_key].feature_array.shape[-1])
+                        n_features = int(context.hyper_edge_sets[edge_key].feature_array.shape[-1])
                         self._make_module_for_edge(edge_key, n_features, edge_index=edge_index)
                         self.edge_keys = tuple(list(self.edge_keys) + [edge_key])
 
@@ -489,9 +490,9 @@ class GraphTDigestNorm(nnx.Module):
 
         normalized_edge_dict = jax.tree.map(
             apply_norm,
-            context.edges,
+            context.hyper_edge_sets,
             norm_dict,
-            is_leaf=(lambda x: isinstance(x, JaxEdge)),
+            is_leaf=(lambda x: isinstance(x, JaxHyperEdgeSet)),
         )
 
         normalized_context = JaxGraph(

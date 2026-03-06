@@ -10,7 +10,7 @@ from copy import deepcopy
 import numpy as np
 from omegaconf import DictConfig
 
-from energnn.graph import Edge, EdgeStructure, Graph, GraphShape, GraphStructure, collate_graphs
+from energnn.graph import EdgeStructure, Graph, GraphShape, GraphStructure, HyperEdgeSet, collate_graphs
 from energnn.graph.jax import JaxGraph
 from energnn.problem import Problem, ProblemBatch, ProblemLoader, ProblemMetadata
 
@@ -162,15 +162,15 @@ class LinearSystemProblemGenerator:
         A, b, x = _generate_sparse_linear_system(n, m)
 
         # Context
-        arrow_edge = Edge.from_dict(
+        arrow_edge = HyperEdgeSet.from_dict(
             address_dict={"from": np.nonzero(A)[0], "to": np.nonzero(A)[1]}, feature_dict={"value": A[np.nonzero(A)]}
         )
-        source_edge = Edge.from_dict(address_dict={"id": np.arange(n)}, feature_dict={"value": b})
-        context = Graph.from_dict(edge_dict={"arrow": arrow_edge, "source": source_edge}, registry=np.arange(n))
+        source_edge = HyperEdgeSet.from_dict(address_dict={"id": np.arange(n)}, feature_dict={"value": b})
+        context = Graph.from_dict(hyper_edge_set_dict={"arrow": arrow_edge, "source": source_edge}, registry=np.arange(n))
 
         # Oracle
-        source_edge = Edge.from_dict(address_dict=None, feature_dict={"value": x})
-        oracle = Graph.from_dict(edge_dict={"source": source_edge}, registry=np.arange(n))
+        source_edge = HyperEdgeSet.from_dict(address_dict=None, feature_dict={"value": x})
+        oracle = Graph.from_dict(hyper_edge_set_dict={"source": source_edge}, registry=np.arange(n))
 
         return LinearSystemProblem(context=context, oracle=oracle)
 
@@ -186,9 +186,9 @@ class LinearSystemProblemGenerator:
             oracle_list.append(oracle)
 
         max_context_shape = GraphShape(
-            edges={"arrow": np.array(self.n_max**2), "source": np.array(self.n_max)}, addresses=np.array(self.n_max)
+            hyper_edge_sets={"arrow": np.array(self.n_max**2), "source": np.array(self.n_max)}, addresses=np.array(self.n_max)
         )
-        max_oracle_shape = GraphShape(edges={"source": np.array(self.n_max)}, addresses=np.array(self.n_max))
+        max_oracle_shape = GraphShape(hyper_edge_sets={"source": np.array(self.n_max)}, addresses=np.array(self.n_max))
 
         [context.pad(target_shape=max_context_shape) for context in context_list]
         [oracle.pad(target_shape=max_oracle_shape) for oracle in oracle_list]
@@ -250,10 +250,12 @@ def compare_single_graphs(a: JaxGraph, b: JaxGraph, rtol=1e-5, atol=1e-6):
     """
     Compare two single (non-batched) JaxGraph objects component-wise.
     """
-    assert set(a.edges.keys()) == set(b.edges.keys()), f"Edge keys differ: {set(a.edges.keys())} vs {set(b.edges.keys())}"
-    for k in a.edges:
-        ae = a.edges[k]
-        be = b.edges[k]
+    assert set(a.hyper_edge_sets.keys()) == set(
+        b.hyper_edge_sets.keys()
+    ), f"Edge keys differ: {set(a.hyper_edge_sets.keys())} vs {set(b.hyper_edge_sets.keys())}"
+    for k in a.hyper_edge_sets:
+        ae = a.hyper_edge_sets[k]
+        be = b.hyper_edge_sets[k]
         # feature arrays
         if (ae.feature_array is None) != (be.feature_array is None):
             raise AssertionError(f"Feature presence mismatch for edge {k}")

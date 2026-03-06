@@ -4,9 +4,9 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 # SPDX-License-Identifier: MPL-2.0
 #
-from .edge import JaxEdge
 from .graph import JaxGraph
+from .hyper_edge_set import JaxHyperEdgeSet
 from .shape import JaxGraphShape
-from .utils import np_to_jnp, jnp_to_np
+from .utils import jnp_to_np, np_to_jnp
 
-__all__ = ["JaxEdge", "JaxGraph", "JaxGraphShape", "np_to_jnp", "jnp_to_np"]
+__all__ = ["JaxHyperEdgeSet", "JaxGraph", "JaxGraphShape", "np_to_jnp", "jnp_to_np"]

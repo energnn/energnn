@@ -5,6 +5,7 @@
 # SPDX-License-Identifier: MPL-2.0
 #
 from __future__ import annotations
+
 import logging
 import pickle
 from itertools import islice
@@ -88,8 +89,8 @@ class Preprocessor:
         if not self._fitted:
             raise RuntimeError("Preprocessor parameters not yet fitted. Call fit_problem_loader first.")
 
-        in_tree = {k: e.feature_array for k, e in in_graph.edges.items()}
-        non_fictitious_tree = {k: jnp.expand_dims(e.non_fictitious, -1) for k, e in in_graph.edges.items()}
+        in_tree = {k: e.feature_array for k, e in in_graph.hyper_edge_sets.items()}
+        non_fictitious_tree = {k: jnp.expand_dims(e.non_fictitious, -1) for k, e in in_graph.hyper_edge_sets.items()}
         out_tree = apply_tree(self.f, self.params, in_tree, non_fictitious_tree)
         out_graph = out_tree_to_graph(out_tree, in_graph)
         if get_info:
@@ -111,8 +112,8 @@ class Preprocessor:
         if not self._fitted:
             raise RuntimeError("Preprocessor parameters not yet fitted. Call fit_problem_loader first.")
 
-        in_tree = {k: e.feature_array for k, e in in_graph.edges.items()}
-        non_fictitious_tree = {k: jnp.expand_dims(e.non_fictitious, -1) for k, e in in_graph.edges.items()}
+        in_tree = {k: e.feature_array for k, e in in_graph.hyper_edge_sets.items()}
+        non_fictitious_tree = {k: jnp.expand_dims(e.non_fictitious, -1) for k, e in in_graph.hyper_edge_sets.items()}
         out_tree = jax.vmap(apply_tree, in_axes=[None, None, 0, 0])(self.f, self.params, in_tree, non_fictitious_tree)
         out_graph = out_tree_to_graph(out_tree, in_graph)
         if get_info:
@@ -134,8 +135,8 @@ class Preprocessor:
         if not self._fitted:
             raise RuntimeError("Preprocessor parameters not yet fitted. Call fit_problem_loader first.")
 
-        in_tree = {k: e.feature_array for k, e in in_graph.edges.items()}
-        non_fictitious_tree = {k: jnp.expand_dims(e.non_fictitious, -1) for k, e in in_graph.edges.items()}
+        in_tree = {k: e.feature_array for k, e in in_graph.hyper_edge_sets.items()}
+        non_fictitious_tree = {k: jnp.expand_dims(e.non_fictitious, -1) for k, e in in_graph.hyper_edge_sets.items()}
         out_tree = apply_inverse_tree(self.f, self.params, in_tree, non_fictitious_tree)
         out_graph = out_tree_to_graph(out_tree, in_graph)
         if get_info:
@@ -157,8 +158,8 @@ class Preprocessor:
         if not self._fitted:
             raise RuntimeError("Preprocessor parameters not yet fitted. Call fit_problem_loader first.")
 
-        in_tree = {k: e.feature_array for k, e in in_graph.edges.items()}
-        non_fictitious_tree = {k: jnp.expand_dims(e.non_fictitious, -1) for k, e in in_graph.edges.items()}
+        in_tree = {k: e.feature_array for k, e in in_graph.hyper_edge_sets.items()}
+        non_fictitious_tree = {k: jnp.expand_dims(e.non_fictitious, -1) for k, e in in_graph.hyper_edge_sets.items()}
         out_tree = jax.vmap(apply_inverse_tree, in_axes=[None, None, 0, 0])(self.f, self.params, in_tree, non_fictitious_tree)
         out_graph = out_tree_to_graph(out_tree, in_graph)
         if get_info:
@@ -191,7 +192,7 @@ class Preprocessor:
         context_batch, _ = problem_batch.get_context()
         contexts = separate_graphs(context_batch)
         jax_context = JaxGraph.from_numpy_graph(contexts[0], device=device)
-        in_tree = {k: e.feature_array for k, e in jax_context.edges.items()}
+        in_tree = {k: e.feature_array for k, e in jax_context.hyper_edge_sets.items()}
         aux = jax.tree.map(self.f.init_aux, in_tree)
 
         for pb_batch in tqdm(
@@ -205,7 +206,7 @@ class Preprocessor:
             for context in context_list:
                 context.unpad()
                 jax_context = JaxGraph.from_numpy_graph(context, device=device)
-                in_tree = {k: e.feature_array for k, e in jax_context.edges.items()}
+                in_tree = {k: e.feature_array for k, e in jax_context.hyper_edge_sets.items()}
                 aux = jax.tree.map(self.f.update_aux, in_tree, aux)
 
         self.params = jax.tree.map(self.f.compute_params, in_tree, aux)

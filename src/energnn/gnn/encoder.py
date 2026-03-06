@@ -12,7 +12,7 @@ import jax.numpy as jnp
 import jax.random
 
 from energnn.gnn.utils import MLP
-from energnn.graph.jax import JaxEdge, JaxGraph
+from energnn.graph.jax import JaxGraph, JaxHyperEdgeSet
 
 MAX_INTEGER = 2147483647
 
@@ -149,21 +149,21 @@ class MLPEncoder(nn.Module, Encoder):
 
         mlp_dict = {
             k: MLP(hidden_size=self.hidden_size, out_size=self.out_size, activation=self.activation, name=k)
-            for k in context.edges
+            for k in context.hyper_edge_sets
         }
 
         def apply_mlp(edge, mlp):
             """Apply the MLP to an edge"""
             if edge.feature_array is not None:
                 encoded_array = mlp(edge.feature_array)
-                edge = JaxEdge(
+                edge = JaxHyperEdgeSet(
                     feature_array=encoded_array,
                     feature_names=feature_names,
                     non_fictitious=edge.non_fictitious,
                     address_dict=edge.address_dict,
                 )
             else:
-                edge = JaxEdge(
+                edge = JaxHyperEdgeSet(
                     feature_array=None, feature_names=None, non_fictitious=edge.non_fictitious, address_dict=edge.address_dict
                 )
 
@@ -171,9 +171,9 @@ class MLPEncoder(nn.Module, Encoder):
 
         encoded_edge_dict = jax.tree.map(
             apply_mlp,
-            context.edges,
+            context.hyper_edge_sets,
             mlp_dict,
-            is_leaf=(lambda x: isinstance(x, JaxEdge)),
+            is_leaf=(lambda x: isinstance(x, JaxHyperEdgeSet)),
         )
 
         encoded_context = JaxGraph(

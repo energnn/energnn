@@ -5,20 +5,18 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
 import numpy as np
-import pandas as pd
 import pytest
 
-from energnn.graph.edge import (
-    Edge,
-    collate_edges,
-    separate_edges,
-    concatenate_edges,
-    check_dict_shape,
-    build_edge_shape,
-    dict2array,
+from energnn.graph.hyper_edge_set import (
+    build_hyper_edge_set_shape,
     check_dict_or_none,
+    check_dict_shape,
     check_no_nan,
     check_valid_addresses,
+    collate_hyper_edge_sets,
+    concatenate_hyper_edge_sets,
+    dict2array,
+    separate_hyper_edge_sets,
 )
 from tests.graph.utils import get_fixed_edge
 
@@ -78,7 +76,7 @@ def test_pad_and_unpad_single():
 def test_pad_on_batch_raises():
     e1 = get_fixed_edge()
     e2 = get_fixed_edge()
-    batch = collate_edges([e1, e2])
+    batch = collate_hyper_edge_sets([e1, e2])
     with pytest.raises(ValueError):
         batch.pad(10)
 
@@ -86,7 +84,7 @@ def test_pad_on_batch_raises():
 def test_unpad_on_batch_raises():
     e1 = get_fixed_edge()
     e2 = get_fixed_edge()
-    batch = collate_edges([e1, e2])
+    batch = collate_hyper_edge_sets([e1, e2])
     with pytest.raises(ValueError):
         batch.unpad(1)
 
@@ -104,10 +102,10 @@ def test_collate_and_separate_roundtrip():
     # modify e2 slightly so we can check separation
     e2 = get_fixed_edge()
     e2.offset_addresses(100)
-    batch = collate_edges([e1, e2])
+    batch = collate_hyper_edge_sets([e1, e2])
     assert batch.is_batch is True
     assert batch.n_batch == 2
-    separated = separate_edges(batch)
+    separated = separate_hyper_edge_sets(batch)
     assert isinstance(separated, list)
     assert len(separated) == 2
     # first separated edge should equal e1 (addresses, features)
@@ -117,7 +115,7 @@ def test_collate_and_separate_roundtrip():
 
 def test_collate_empty_raises():
     with pytest.raises(IndexError):
-        collate_edges([])
+        collate_hyper_edge_sets([])
 
 
 def test_collate_inconsistent_keys_raises():
@@ -126,13 +124,13 @@ def test_collate_inconsistent_keys_raises():
     # remove addresses from e2 to produce mismatch
     e2.address_dict = None
     with pytest.raises(ValueError):
-        collate_edges([e1, e2])
+        collate_hyper_edge_sets([e1, e2])
 
 
 def test_concatenate_edges():
     e1 = get_fixed_edge()
     e2 = get_fixed_edge()
-    concatenated = concatenate_edges([e1, e2])
+    concatenated = concatenate_hyper_edge_sets([e1, e2])
     # n_obj should be sum
     assert concatenated.n_obj == e1.n_obj + e2.n_obj
     # addresses concatenated
@@ -147,7 +145,7 @@ def test_check_dict_shape_and_build_edge_shape_errors():
         check_dict_shape(d=d1, n_objects=None)
     # build_edge_shape with both None should raise
     with pytest.raises(ValueError):
-        build_edge_shape(address_dict=None, feature_dict=None)
+        build_hyper_edge_set_shape(address_dict=None, feature_dict=None)
 
 
 def test_dict2array_and_sorting():
@@ -181,6 +179,6 @@ def test_str_repr_single_and_batch():
     s = str(e)
     assert "features" in s and "addresses" in s
     # batch
-    b = collate_edges([e, e])
+    b = collate_hyper_edge_sets([e, e])
     s2 = str(b)
     assert "features" in s2 and "addresses" in s2

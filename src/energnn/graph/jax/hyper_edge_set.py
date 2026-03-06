@@ -5,13 +5,14 @@
 # SPDX-License-Identifier: MPL-2.0
 #
 from __future__ import annotations
+
 from typing import Any, Sequence
 
 import jax
 from jax import Device
 from jax.tree_util import register_pytree_node_class
 
-from energnn.graph.edge import Edge
+from energnn.graph.hyper_edge_set import HyperEdgeSet
 from energnn.graph.jax.utils import jnp_to_np, np_to_jnp
 
 FEATURE_ARRAY = "feature_array"
@@ -21,7 +22,7 @@ NON_FICTITIOUS = "non_fictitious"
 
 
 @register_pytree_node_class
-class JaxEdge(dict):
+class JaxHyperEdgeSet(dict):
     """
     jax implementation of a collection of hyper-edges of the same class, optionally batched.
 
@@ -61,7 +62,7 @@ class JaxEdge(dict):
         return children, aux
 
     @classmethod
-    def tree_unflatten(cls, aux_data: Sequence[str], children: Sequence[Any]) -> JaxEdge:
+    def tree_unflatten(cls, aux_data: Sequence[str], children: Sequence[Any]) -> JaxHyperEdgeSet:
         """
         Unflattens a PyTree, required for JAX compatibility.
 
@@ -136,7 +137,7 @@ class JaxEdge(dict):
     #             raise ValueError("Feature array should be of order 2 (single) or 3 (batch).")
 
     @classmethod
-    def from_numpy_edge(cls, edge: Edge, device: Device | None = None, dtype: str = "float32") -> JaxEdge:
+    def from_numpy_edge(cls, edge: HyperEdgeSet, device: Device | None = None, dtype: str = "float32") -> JaxHyperEdgeSet:
         """
         Convert a classical numpy edge to a jax.numpy format for GNN processing.
 
@@ -157,7 +158,7 @@ class JaxEdge(dict):
             address_dict=address_dict, feature_array=feature_array, feature_names=feature_names, non_fictitious=non_fictitious
         )
 
-    def to_numpy_edge(self) -> Edge:
+    def to_numpy_edge(self) -> HyperEdgeSet:
         """
         Convert a jax.numpy edge for GNN processing to a classical numpy edge.
 
@@ -170,6 +171,6 @@ class JaxEdge(dict):
         feature_array = jnp_to_np(self.feature_array)
         feature_names = jnp_to_np(self.feature_names)
         non_fictitious = jnp_to_np(self.non_fictitious)
-        return Edge(
+        return HyperEdgeSet(
             address_dict=address_dict, feature_array=feature_array, feature_names=feature_names, non_fictitious=non_fictitious
         )

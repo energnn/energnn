@@ -3,7 +3,7 @@ import jax.numpy as jnp
 from flax import nnx
 
 from energnn.graph import JaxGraph
-from energnn.graph.jax import JaxEdge
+from energnn.graph.jax import JaxHyperEdgeSet
 
 
 class GraphCenterReduceNorm(nnx.Module):
@@ -62,7 +62,7 @@ class GraphCenterReduceNorm(nnx.Module):
             feature arrays to initialize normalization modules.
         """
         keys = []
-        for edge_key, edge in context_example.edges.items():
+        for edge_key, edge in context_example.hyper_edge_sets.items():
             if edge.feature_array is not None:
                 if edge.feature_array.shape[-2] > 0:
                     n_features = int(edge.feature_array.shape[-1])
@@ -83,7 +83,7 @@ class GraphCenterReduceNorm(nnx.Module):
         """
         info: dict = {}
 
-        def apply_norm(edge: JaxEdge, normalizer: EdgeCenterReduceNorm) -> JaxEdge:
+        def apply_norm(edge: JaxHyperEdgeSet, normalizer: EdgeCenterReduceNorm) -> JaxHyperEdgeSet:
             """
             Apply the EdgeCenterReduceNormalizer to a single JaxEdge.
 
@@ -95,22 +95,22 @@ class GraphCenterReduceNorm(nnx.Module):
             if edge.feature_array is not None:
                 if edge.feature_array.shape[-2] > 0:
                     array = normalizer(array) * jnp.expand_dims(edge.non_fictitious, -1)
-            return JaxEdge(
+            return JaxHyperEdgeSet(
                 feature_array=array,
                 feature_names=edge.feature_names,
                 non_fictitious=edge.non_fictitious,
                 address_dict=edge.address_dict,
             )
 
-        incoming_keys = list(context.edges.keys())
+        incoming_keys = list(context.hyper_edge_sets.keys())
         norm_dict = {}
         for edge_key in incoming_keys:
             attr_name = f"norm_{edge_key}"
 
-            if context.edges[edge_key].feature_array is not None:
-                if context.edges[edge_key].feature_array.shape[-2] > 0:
+            if context.hyper_edge_sets[edge_key].feature_array is not None:
+                if context.hyper_edge_sets[edge_key].feature_array.shape[-2] > 0:
                     if not hasattr(self, attr_name):
-                        n_features = int(context.edges[edge_key].feature_array.shape[-1])
+                        n_features = int(context.hyper_edge_sets[edge_key].feature_array.shape[-1])
                         self._make_module_for_edge(edge_key, n_features)
                         self.edge_keys = tuple(list(self.edge_keys) + [edge_key])
 
@@ -118,9 +118,9 @@ class GraphCenterReduceNorm(nnx.Module):
 
         normalized_edge_dict = jax.tree.map(
             apply_norm,
-            context.edges,
+            context.hyper_edge_sets,
             norm_dict,
-            is_leaf=(lambda x: isinstance(x, JaxEdge)),
+            is_leaf=(lambda x: isinstance(x, JaxHyperEdgeSet)),
         )
 
         normalized_context = JaxGraph(

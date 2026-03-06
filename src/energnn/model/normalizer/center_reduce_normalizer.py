@@ -3,7 +3,7 @@ import jax.numpy as jnp
 from flax import nnx
 
 from energnn.graph import GraphStructure, JaxGraph
-from energnn.graph.jax import JaxEdge
+from energnn.graph.jax import JaxHyperEdgeSet
 from .normalizer import Normalizer
 
 
@@ -166,15 +166,17 @@ class CenterReduceNormalizer(Normalizer):
                  about the input and output graphs.
         """
 
-        edge_norm_dict = {k: (edge, self.module_dict[k]) for k, edge in graph.edges.items() if k in self.module_dict.keys()}
+        edge_norm_dict = {
+            k: (edge, self.module_dict[k]) for k, edge in graph.hyper_edge_sets.items() if k in self.module_dict.keys()
+        }
 
-        def apply_norm(edge_norm: tuple[JaxEdge, EdgeCenterReduceNormalizer]) -> JaxEdge:
+        def apply_norm(edge_norm: tuple[JaxHyperEdgeSet, EdgeCenterReduceNormalizer]) -> JaxHyperEdgeSet:
             edge, normalizer = edge_norm
             array = edge.feature_array
             if edge.feature_array is not None:
                 if edge.feature_array.shape[-2] > 0:
                     array = normalizer(array, jnp.expand_dims(edge.non_fictitious, -1))
-            return JaxEdge(
+            return JaxHyperEdgeSet(
                 feature_array=array,
                 feature_names=edge.feature_names,
                 non_fictitious=edge.non_fictitious,

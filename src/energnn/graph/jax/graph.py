@@ -12,7 +12,7 @@ from jax import Device
 from jax.tree_util import register_pytree_node_class
 
 from energnn.graph.graph import Graph
-from energnn.graph.jax.edge import JaxEdge
+from energnn.graph.jax.hyper_edge_set import JaxHyperEdgeSet
 from energnn.graph.jax.shape import JaxGraphShape
 from energnn.graph.jax.utils import jnp_to_np, np_to_jnp
 
@@ -38,7 +38,7 @@ class JaxGraph(dict):
     def __init__(
         self,
         *,
-        edges: dict[str, JaxEdge],
+        edges: dict[str, JaxHyperEdgeSet],
         true_shape: JaxGraphShape,
         current_shape: JaxGraphShape,
         non_fictitious_addresses: jax.Array,
@@ -97,7 +97,7 @@ class JaxGraph(dict):
         )
 
     @property
-    def edges(self) -> dict[str, JaxEdge]:
+    def hyper_edge_sets(self) -> dict[str, JaxHyperEdgeSet]:
         """
         Get dictionary of edge instances.
 
@@ -105,8 +105,8 @@ class JaxGraph(dict):
         """
         return self[EDGES]
 
-    @edges.setter
-    def edges(self, edge_dict: dict[str, JaxEdge]) -> None:
+    @hyper_edge_sets.setter
+    def hyper_edge_sets(self, edge_dict: dict[str, JaxHyperEdgeSet]) -> None:
         """
         Set dictionary of edge instances.
 
@@ -131,7 +131,7 @@ class JaxGraph(dict):
         :return: jax array of concatenated features
         """
         values_list = []
-        for key, edge in sorted(self.edges.items()):
+        for key, edge in sorted(self.hyper_edge_sets.items()):
             if edge.feature_flat_array is not None:
                 values_list.append(edge.feature_flat_array)
         return jnp.concatenate(values_list, axis=-1)
@@ -150,7 +150,9 @@ class JaxGraph(dict):
         :param dtype: Desired floating-point precision for converted arrays (e.g., "float32", "float64").
         :return: A JAX-compatible version of the graph, ready for use in GNN pipelines.
         """
-        edge_dict = {k: JaxEdge.from_numpy_edge(edge, device=device, dtype=dtype) for k, edge in graph.edges.items()}
+        edge_dict = {
+            k: JaxHyperEdgeSet.from_numpy_edge(edge, device=device, dtype=dtype) for k, edge in graph.hyper_edge_sets.items()
+        }
         true_shape = JaxGraphShape.from_numpy_shape(graph.true_shape, device=device, dtype=dtype)
         current_shape = JaxGraphShape.from_numpy_shape(graph.current_shape, device=device, dtype=dtype)
         non_fictitious_addresses = np_to_jnp(graph.non_fictitious_addresses, device=device, dtype=dtype)
@@ -170,12 +172,12 @@ class JaxGraph(dict):
 
         :return: A classical ``Graph`` object with NumPy arrays.
         """
-        edge_dict = {k: edge.to_numpy_edge() for k, edge in self.edges.items()}
+        edge_dict = {k: edge.to_numpy_edge() for k, edge in self.hyper_edge_sets.items()}
         true_shape = self.true_shape.to_numpy_shape()
         current_shape = self.current_shape.to_numpy_shape()
         non_fictitious_addresses = jnp_to_np(self.non_fictitious_addresses)
         return Graph(
-            edges=edge_dict,
+            hyper_edge_sets=edge_dict,
             non_fictitious_addresses=non_fictitious_addresses,
             true_shape=true_shape,
             current_shape=current_shape,
@@ -191,7 +193,7 @@ class JaxGraph(dict):
         :return: mapping "edge/feature/percentile" to values
         """
         info = {}
-        for object_name, edge in self.edges.items():
+        for object_name, edge in self.hyper_edge_sets.items():
             if edge.feature_names is not None:
                 for feature_name, i in edge.feature_names.items():
                     array = edge.feature_array[..., jnp.array(i, dtype=int)]

@@ -10,9 +10,9 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+from energnn.graph import EdgeStructure, GraphStructure, JaxGraph, JaxHyperEdgeSet
 from energnn.model.encoder.encoder import IdentityEncoder
 from energnn.model.encoder.mlp_encoder import MLPEncoder
-from energnn.graph import JaxGraph, JaxEdge, GraphStructure, EdgeStructure
 from energnn.problem.example import LinearSystemProblemLoader
 from tests.utils import compare_batched_graphs
 
@@ -80,7 +80,7 @@ def test_mlp_encoder_single_shapes_and_feature_names():
     out, infos = enc(graph=jax_context, get_info=True)
 
     # Basic shape checks per edge
-    for key, edge in out.edges.items():
+    for key, edge in out.hyper_edge_sets.items():
         if edge.feature_array is not None:
             assert edge.feature_array.shape[-1] == enc.out_size
             # feature_names should contain lat_0 ... lat_{out_size-1}
@@ -94,14 +94,14 @@ def test_mlp_encoder_single_shapes_and_feature_names():
 
 def test_mlp_encoder_handles_none_feature_array_gracefully():
     # Build a JaxGraph with one edge having feature_array=None
-    edge_with_none = JaxEdge(
-        address_dict=jax_context.edges["arrow"].address_dict,
+    edge_with_none = JaxHyperEdgeSet(
+        address_dict=jax_context.hyper_edge_sets["arrow"].address_dict,
         feature_array=None,
         feature_names=None,
-        non_fictitious=jax_context.edges["arrow"].non_fictitious,
+        non_fictitious=jax_context.hyper_edge_sets["arrow"].non_fictitious,
     )
     custom_graph = JaxGraph(
-        edges={"arrow": edge_with_none, "source": jax_context.edges["source"]},
+        edges={"arrow": edge_with_none, "source": jax_context.hyper_edge_sets["source"]},
         non_fictitious_addresses=jax_context.non_fictitious_addresses,
         true_shape=jax_context.true_shape,
         current_shape=jax_context.current_shape,
@@ -110,9 +110,9 @@ def test_mlp_encoder_handles_none_feature_array_gracefully():
     enc = MLPEncoder(in_structure=pb_loader.context_structure, hidden_sizes=[4], out_size=3, activation=None, seed=3)
     out, infos = enc(graph=custom_graph, get_info=False)
 
-    assert out.edges["arrow"].feature_array is None
-    assert out.edges["arrow"].feature_names is None
-    assert out.edges["source"].feature_array.shape[-1] == 3
+    assert out.hyper_edge_sets["arrow"].feature_array is None
+    assert out.hyper_edge_sets["arrow"].feature_names is None
+    assert out.hyper_edge_sets["source"].feature_array.shape[-1] == 3
 
 
 def test_mlp_encoder_jit_and_vmap_compatibility(mlp_encoder):
@@ -138,8 +138,8 @@ def test_mlp_encoder_jit_and_vmap_compatibility(mlp_encoder):
 
 def test_mlp_encoder_multiple_edge_types_independent_processing():
     # create two different JaxEdges with specific feature sizes
-    arrow_edge = jax_context.edges["arrow"]
-    source_edge = jax_context.edges["source"]
+    arrow_edge = jax_context.hyper_edge_sets["arrow"]
+    source_edge = jax_context.hyper_edge_sets["source"]
 
     def _n_obj(e):
         if e.feature_array is not None:
@@ -149,13 +149,13 @@ def test_mlp_encoder_multiple_edge_types_independent_processing():
     n_obj_arrow = _n_obj(arrow_edge)
     n_obj_source = _n_obj(source_edge)
 
-    e1 = JaxEdge(
+    e1 = JaxHyperEdgeSet(
         address_dict=arrow_edge.address_dict,
         feature_array=jnp.ones((n_obj_arrow, 2), dtype=jnp.float32),
         feature_names={"a": jnp.array(0), "b": jnp.array(1)},
         non_fictitious=arrow_edge.non_fictitious,
     )
-    e2 = JaxEdge(
+    e2 = JaxHyperEdgeSet(
         address_dict=source_edge.address_dict,
         feature_array=jnp.ones((n_obj_source, 3), dtype=jnp.float32),
         feature_names={"c": jnp.array(0), "d": jnp.array(1), "e": jnp.array(2)},
@@ -180,11 +180,11 @@ def test_mlp_encoder_multiple_edge_types_independent_processing():
     enc = MLPEncoder(in_structure=custom_structure, hidden_sizes=[6], out_size=5, activation=None, seed=5)
     out, infos = enc(graph=custom_graph, get_info=False)
 
-    assert out.edges["A"].feature_array.shape[-1] == 5
-    assert out.edges["B"].feature_array.shape[-1] == 5
+    assert out.hyper_edge_sets["A"].feature_array.shape[-1] == 5
+    assert out.hyper_edge_sets["B"].feature_array.shape[-1] == 5
     expected_keys = {f"lat_{i}" for i in range(5)}
-    assert set(out.edges["A"].feature_names.keys()) == expected_keys
-    assert set(out.edges["B"].feature_names.keys()) == expected_keys
+    assert set(out.hyper_edge_sets["A"].feature_names.keys()) == expected_keys
+    assert set(out.hyper_edge_sets["B"].feature_names.keys()) == expected_keys
 
 
 def test_mlp_encoder_numeric_identity():
@@ -192,21 +192,21 @@ def test_mlp_encoder_numeric_identity():
     Build a graph and replace the MLPs by identity functions to expect exact equality
     (modulo fictitious masking).
     """
-    arrow_edge = jax_context.edges["arrow"]
-    source_edge = jax_context.edges["source"]
+    arrow_edge = jax_context.hyper_edge_sets["arrow"]
+    source_edge = jax_context.hyper_edge_sets["source"]
 
     n_obj_arrow = int(arrow_edge.feature_array.shape[0])
     n_obj_source = int(source_edge.feature_array.shape[0])
     d = 4
 
     # Create edges with linear values to verify identity mapping
-    e_arrow = JaxEdge(
+    e_arrow = JaxHyperEdgeSet(
         address_dict=arrow_edge.address_dict,
         feature_array=jnp.linspace(0.0, 1.0, num=n_obj_arrow * d, dtype=jnp.float32).reshape((n_obj_arrow, d)),
         feature_names={f"fa{i}": jnp.array(i) for i in range(d)},
         non_fictitious=arrow_edge.non_fictitious,
     )
-    e_source = JaxEdge(
+    e_source = JaxHyperEdgeSet(
         address_dict=source_edge.address_dict,
         feature_array=jnp.linspace(0.0, 1.0, num=n_obj_source * d, dtype=jnp.float32).reshape((n_obj_source, d)),
         feature_names={f"fs{i}": jnp.array(i) for i in range(d)},
@@ -230,5 +230,9 @@ def test_mlp_encoder_numeric_identity():
     expected_arrow = e_arrow.feature_array * jnp.expand_dims(e_arrow.non_fictitious, -1)
     expected_source = e_source.feature_array * jnp.expand_dims(e_source.non_fictitious, -1)
 
-    np.testing.assert_allclose(np.array(out.edges["arrow"].feature_array), np.array(expected_arrow), rtol=0.0, atol=1e-6)
-    np.testing.assert_allclose(np.array(out.edges["source"].feature_array), np.array(expected_source), rtol=0.0, atol=1e-6)
+    np.testing.assert_allclose(
+        np.array(out.hyper_edge_sets["arrow"].feature_array), np.array(expected_arrow), rtol=0.0, atol=1e-6
+    )
+    np.testing.assert_allclose(
+        np.array(out.hyper_edge_sets["source"].feature_array), np.array(expected_source), rtol=0.0, atol=1e-6
+    )

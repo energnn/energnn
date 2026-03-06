@@ -58,7 +58,7 @@ class JaxGraphShape(dict):
         return cls(edges=d[EDGES], addresses=d[ADDRESSES])
 
     @property
-    def edges(self) -> dict[str, jax.Array]:
+    def hyper_edge_sets(self) -> dict[str, jax.Array]:
         """Dictionary of edge shapes."""
         return self[EDGES]
 
@@ -81,7 +81,7 @@ class JaxGraphShape(dict):
         :param dtype: Desired floating-point precision for converted arrays (e.g., "float32", "float64").
         :return: A JAX-compatible version of the shape, ready for use in GNN pipelines.
         """
-        edges = np_to_jnp(shape.edges, device=device, dtype=dtype)
+        edges = np_to_jnp(shape.hyper_edge_sets, device=device, dtype=dtype)
         addresses = np_to_jnp(shape.addresses, device=device, dtype=dtype)
         return cls(edges=edges, addresses=addresses)
 
@@ -94,6 +94,6 @@ class JaxGraphShape(dict):
 
         :return: A classical ``GraphShape`` object with NumPy arrays.
         """
-        edges = jnp_to_np(self.edges)
+        edges = jnp_to_np(self.hyper_edge_sets)
         addresses = jnp_to_np(self.addresses)
-        return GraphShape(edges=edges, addresses=addresses)
+        return GraphShape(hyper_edge_sets=edges, addresses=addresses)

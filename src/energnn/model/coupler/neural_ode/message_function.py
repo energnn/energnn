@@ -147,7 +147,7 @@ class LocalSumMessageFunction(MessageFunction):
             )
 
         initializer = jnp.zeros((coordinates.shape[0], self.out_size))
-        edge_mlp_dict = {edge_key: (edge, self.mlp_tree[edge_key]) for edge_key, edge in graph.edges.items()}
+        edge_mlp_dict = {edge_key: (edge, self.mlp_tree[edge_key]) for edge_key, edge in graph.hyper_edge_sets.items()}
         accumulator = jax.tree.reduce(
             sum_over_edges,
             edge_mlp_dict,

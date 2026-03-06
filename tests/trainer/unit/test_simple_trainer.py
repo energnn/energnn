@@ -4,17 +4,18 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
-import jax
-import jax.numpy as jnp
-from flax import nnx
-import optax
 from unittest.mock import MagicMock
 
+import jax
+import jax.numpy as jnp
+import optax
+from flax import nnx
+
+from energnn.graph import JaxGraph, JaxHyperEdgeSet
+from energnn.model import IdentityEncoder, SimpleGNN
+from energnn.problem.example import LinearSystemProblemLoader
 from energnn.trainer import SimpleTrainer
 from energnn.trainer.simple_trainer import _cast_cotangent_to_primal_dtype
-from energnn.model import SimpleGNN, IdentityEncoder
-from energnn.graph import JaxGraph, JaxEdge
-from energnn.problem.example import LinearSystemProblemLoader
 
 
 class IdentityNormalizer(nnx.Module):
@@ -28,7 +29,7 @@ def create_tiny_model(context_structure):
             # No params here, just pass through
             decision = JaxGraph(
                 edges={
-                    "source": JaxEdge(
+                    "source": JaxHyperEdgeSet(
                         address_dict=None,
                         feature_array=coordinates,
                         feature_names={"value": jnp.array(0)},
@@ -47,7 +48,7 @@ def create_tiny_model(context_structure):
             self.linear = nnx.Linear(1, 1, rngs=nnx.Rngs(1))
 
         def __call__(self, graph, get_info=False):
-            x = graph.edges["source"].feature_array
+            x = graph.hyper_edge_sets["source"].feature_array
             return self.linear(x), {}
 
     return SimpleGNN(

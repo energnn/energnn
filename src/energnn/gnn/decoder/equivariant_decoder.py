@@ -13,7 +13,7 @@ import jax
 import jax.numpy as jnp
 
 from energnn.gnn.utils import MLP, gather
-from energnn.graph.jax.graph import JaxEdge, JaxGraph, JaxGraphShape
+from energnn.graph.jax.graph import JaxGraph, JaxGraphShape, JaxHyperEdgeSet
 
 
 class EquivariantDecoder(ABC):
@@ -98,23 +98,23 @@ class ZeroEquivariantDecoder(nn.Module, EquivariantDecoder):
     @nn.compact
     def __call__(self, *, context: JaxGraph, coordinates: jax.Array, get_info: bool = False) -> tuple[JaxGraph, dict]:
         edge_dict = {}
-        for key, edge in context.edges.items():
+        for key, edge in context.hyper_edge_sets.items():
             if key in self.out_structure:
                 n_obj = edge.feature_array.shape[0]
                 feature_names = self.out_structure[key]  # .unfreeze()
                 feature_array = jnp.zeros([n_obj, len(feature_names)])
-                edge_dict[key] = JaxEdge(
+                edge_dict[key] = JaxHyperEdgeSet(
                     feature_array=feature_array,
                     feature_names=feature_names,
                     non_fictitious=edge.non_fictitious,
                     address_dict=None,
                 )
         true_shape = JaxGraphShape(
-            edges={key: value for key, value in context.true_shape.edges.items() if key in self.out_structure},
+            edges={key: value for key, value in context.true_shape.hyper_edge_sets.items() if key in self.out_structure},
             addresses=jnp.array(0),
         )
         current_shape = JaxGraphShape(
-            edges={key: value for key, value in context.current_shape.edges.items() if key in self.out_structure},
+            edges={key: value for key, value in context.current_shape.hyper_edge_sets.items() if key in self.out_structure},
             addresses=jnp.array(0),
         )
 
@@ -174,13 +174,13 @@ class MLPEquivariantDecoder(nn.Module, EquivariantDecoder):
                 decoder_input.append(edge.feature_array)
             return jnp.concatenate(decoder_input, axis=-1)
 
-        edge_dict = {key: value for key, value in context.edges.items() if key in self.out_structure}
-        decoder_input_dict = jax.tree.map(gather_inputs, edge_dict, is_leaf=(lambda x: isinstance(x, JaxEdge)))
+        edge_dict = {key: value for key, value in context.hyper_edge_sets.items() if key in self.out_structure}
+        decoder_input_dict = jax.tree.map(gather_inputs, edge_dict, is_leaf=(lambda x: isinstance(x, JaxHyperEdgeSet)))
 
         def apply_mlp(edge, feature_names, decoder_input, mlp):
             decoder_output = mlp(decoder_input)
             decoder_output = decoder_output * jnp.expand_dims(edge.non_fictitious, -1)
-            return JaxEdge(
+            return JaxHyperEdgeSet(
                 feature_array=decoder_output,
                 feature_names=feature_names,
                 non_fictitious=edge.non_fictitious,
@@ -193,15 +193,15 @@ class MLPEquivariantDecoder(nn.Module, EquivariantDecoder):
             self.out_structure.unfreeze(),
             decoder_input_dict,
             mlp_dict,
-            is_leaf=(lambda x: isinstance(x, JaxEdge)),
+            is_leaf=(lambda x: isinstance(x, JaxHyperEdgeSet)),
         )
 
         true_shape = JaxGraphShape(
-            edges={key: value for key, value in context.true_shape.edges.items() if key in self.out_structure},
+            edges={key: value for key, value in context.true_shape.hyper_edge_sets.items() if key in self.out_structure},
             addresses=jnp.array(0),
         )
         current_shape = JaxGraphShape(
-            edges={key: value for key, value in context.current_shape.edges.items() if key in self.out_structure},
+            edges={key: value for key, value in context.current_shape.hyper_edge_sets.items() if key in self.out_structure},
             addresses=jnp.array(0),
         )
 

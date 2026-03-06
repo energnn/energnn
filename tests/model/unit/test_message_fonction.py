@@ -10,10 +10,10 @@ import jax.numpy as jnp
 import numpy as np
 from flax import nnx
 
-from energnn.model.coupler.neural_ode.message_function import LocalSumMessageFunction, IdentityMessageFunction
+from energnn.graph import EdgeStructure, GraphStructure
+from energnn.graph.jax import JaxGraph, JaxHyperEdgeSet
+from energnn.model.coupler.neural_ode.message_function import IdentityMessageFunction, LocalSumMessageFunction
 from energnn.model.utils import gather, scatter_add
-from energnn.graph import GraphStructure, EdgeStructure
-from energnn.graph.jax import JaxGraph, JaxEdge
 from energnn.problem.example import LinearSystemProblemLoader
 
 # deterministic
@@ -35,7 +35,7 @@ def _unbatch_graph(batched_graph: JaxGraph, coordinates_batch: jax.Array, idx: i
     """
     batch_size = int(coordinates_batch.shape[0])
     edges = {}
-    for k, e in batched_graph.edges.items():
+    for k, e in batched_graph.hyper_edge_sets.items():
         # feature_array
         fa = e.feature_array
         if fa is None:
@@ -63,7 +63,7 @@ def _unbatch_graph(batched_graph: JaxGraph, coordinates_batch: jax.Array, idx: i
                 else:
                     addr_s[aname] = aarr
 
-        edges[k] = JaxEdge(
+        edges[k] = JaxHyperEdgeSet(
             address_dict=addr_s,
             feature_array=fa_s,
             feature_names=e.feature_names,
@@ -112,7 +112,7 @@ def compute_expected_local_sum(
     if out_size is not None:
         acc = jnp.zeros((coords.shape[0], out_size), dtype=jnp.float32)
 
-    for edge_key, edge in graph.edges.items():
+    for edge_key, edge in graph.hyper_edge_sets.items():
         # build input_array
         parts = []
         if edge.feature_names is not None and edge.feature_array is not None:
@@ -256,7 +256,9 @@ def test_non_fictitious_masking():
     n_obj = 3
     non_fict = jnp.array([1.0, 0.0, 1.0])  # middle object fictitious
 
-    edge = JaxEdge(address_dict={"from": addr0, "to": addr1}, feature_array=None, feature_names=None, non_fictitious=non_fict)
+    edge = JaxHyperEdgeSet(
+        address_dict={"from": addr0, "to": addr1}, feature_array=None, feature_names=None, non_fictitious=non_fict
+    )
     small_context = JaxGraph(
         edges={"arrow": edge},
         non_fictitious_addresses=jnp.ones((n_addr,)),
@@ -317,7 +319,7 @@ def test_local_sum_numeric_identity_basic():
     addr0 = jnp.array([0, 1, 0])
     addr1 = jnp.array([1, 2, 3])
     n_obj = 3
-    edge = JaxEdge(
+    edge = JaxHyperEdgeSet(
         address_dict={"from": addr0, "to": addr1}, feature_array=None, feature_names=None, non_fictitious=jnp.ones((n_obj,))
     )
     small_context = JaxGraph(
@@ -351,7 +353,7 @@ def test_local_sum_with_features_included():
     addr1 = jnp.array([1, 2])
     n_obj = 2
     feat = jnp.array([[0.1, 0.2], [0.3, 0.4]])
-    edge = JaxEdge(
+    edge = JaxHyperEdgeSet(
         address_dict={"from": addr0, "to": addr1},
         feature_array=feat,
         feature_names={"a": jnp.array(0), "b": jnp.array(1)},
@@ -387,10 +389,12 @@ def test_multiple_edges_and_ports_independent_processing():
     addr_a0 = jnp.array([0, 1, 2])
     addr_a1 = jnp.array([1, 2, 3])
     addr_b = jnp.array([0, 1, 3])
-    edge_a = JaxEdge(
+    edge_a = JaxHyperEdgeSet(
         address_dict={"from": addr_a0, "to": addr_a1}, feature_array=None, feature_names=None, non_fictitious=jnp.ones((3,))
     )
-    edge_b = JaxEdge(address_dict={"id": addr_b}, feature_array=None, feature_names=None, non_fictitious=jnp.ones((3,)))
+    edge_b = JaxHyperEdgeSet(
+        address_dict={"id": addr_b}, feature_array=None, feature_names=None, non_fictitious=jnp.ones((3,))
+    )
     g = JaxGraph(
         edges={"arrow": edge_a, "source": edge_b},
         non_fictitious_addresses=jnp.ones((n_addr,)),
@@ -488,7 +492,7 @@ def test_addresses_out_of_bounds_handling():
     coords = jnp.array([[0.0, 0.0], [1.0, 0.0]])
     addr_from = jnp.array([0, 10])  # 10 is out of bounds
     addr_to = jnp.array([0, 1])
-    edge = JaxEdge(
+    edge = JaxHyperEdgeSet(
         address_dict={"from": addr_from, "to": addr_to}, feature_array=None, feature_names=None, non_fictitious=jnp.ones((2,))
     )
     g = JaxGraph(edges={"arrow": edge}, non_fictitious_addresses=jnp.ones((2,)), true_shape=None, current_shape=None)

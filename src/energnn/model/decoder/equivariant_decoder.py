@@ -13,7 +13,7 @@ from flax.nnx import initializers
 from flax.typing import Initializer
 
 from energnn.graph import GraphStructure
-from energnn.graph.jax.graph import JaxEdge, JaxGraph, JaxGraphShape
+from energnn.graph.jax.graph import JaxGraph, JaxGraphShape, JaxHyperEdgeSet
 from energnn.model.utils import Activation, MLP, gather
 from .decoder import Decoder
 
@@ -152,7 +152,7 @@ class MLPEquivariantDecoder(EquivariantDecoder):
             decoder_input = jnp.concatenate(decoder_input, axis=-1)
             decoder_output = mlp(decoder_input)
             decoder_output = decoder_output * jnp.expand_dims(edge.non_fictitious, -1)
-            return JaxEdge(
+            return JaxHyperEdgeSet(
                 feature_array=decoder_output,
                 feature_names=feature_names,
                 non_fictitious=edge.non_fictitious,
@@ -160,15 +160,17 @@ class MLPEquivariantDecoder(EquivariantDecoder):
             )
 
         edge_mlp_names_dict = {
-            k: (edge, self.mlp_dict[k], self.feature_names_dict[k]) for k, edge in graph.edges.items() if k in self.mlp_dict
+            k: (edge, self.mlp_dict[k], self.feature_names_dict[k])
+            for k, edge in graph.hyper_edge_sets.items()
+            if k in self.mlp_dict
         }
         edge_dict = jax.tree.map(apply_over_edge, edge_mlp_names_dict, is_leaf=(lambda x: isinstance(x, tuple)))
         true_shape = JaxGraphShape(
-            edges={key: value for key, value in graph.true_shape.edges.items() if key in self.feature_names_dict},
+            edges={key: value for key, value in graph.true_shape.hyper_edge_sets.items() if key in self.feature_names_dict},
             addresses=jnp.array(0),
         )
         current_shape = JaxGraphShape(
-            edges={key: value for key, value in graph.current_shape.edges.items() if key in self.feature_names_dict},
+            edges={key: value for key, value in graph.current_shape.hyper_edge_sets.items() if key in self.feature_names_dict},
             addresses=jnp.array(0),
         )
 

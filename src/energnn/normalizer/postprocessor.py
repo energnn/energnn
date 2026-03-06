@@ -5,6 +5,7 @@
 # SPDX-License-Identifier: MPL-2.0
 #
 from __future__ import annotations
+
 import logging
 import pickle
 from itertools import islice
@@ -87,8 +88,8 @@ class Postprocessor:
         if not self._fitted:
             raise RuntimeError("Postprocessor parameters not yet fitted. Call fit_problem_loader first.")
 
-        in_tree = {k: e.feature_array for k, e in in_graph.edges.items()}
-        non_fictitious_tree = {k: jnp.expand_dims(e.non_fictitious, -1) for k, e in in_graph.edges.items()}
+        in_tree = {k: e.feature_array for k, e in in_graph.hyper_edge_sets.items()}
+        non_fictitious_tree = {k: jnp.expand_dims(e.non_fictitious, -1) for k, e in in_graph.hyper_edge_sets.items()}
         out_tree = apply_inverse_tree(self.f, self.params, in_tree, non_fictitious_tree)
         out_graph = out_tree_to_graph(out_tree, in_graph)
         if get_info:
@@ -110,8 +111,8 @@ class Postprocessor:
         if not self._fitted:
             raise RuntimeError("Postprocessor parameters not yet fitted. Call fit_problem_loader first.")
 
-        in_tree = {k: e.feature_array for k, e in in_graph.edges.items()}
-        non_fictitious_tree = {k: jnp.expand_dims(e.non_fictitious, -1) for k, e in in_graph.edges.items()}
+        in_tree = {k: e.feature_array for k, e in in_graph.hyper_edge_sets.items()}
+        non_fictitious_tree = {k: jnp.expand_dims(e.non_fictitious, -1) for k, e in in_graph.hyper_edge_sets.items()}
         out_tree = jax.vmap(apply_inverse_tree, in_axes=(None, None, 0, 0))(self.f, self.params, in_tree, non_fictitious_tree)
         out_graph = out_tree_to_graph(out_tree, in_graph)
         if get_info:
@@ -133,10 +134,10 @@ class Postprocessor:
         if not self._fitted:
             raise RuntimeError("Postprocessor parameters not yet fitted. Call fit_problem_loader first.")
 
-        in_tree = {k: e.feature_array for k, e in out_graph.edges.items()}
-        non_fictitious_tree = {k: jnp.expand_dims(e.non_fictitious, -1) for k, e in out_graph.edges.items()}
+        in_tree = {k: e.feature_array for k, e in out_graph.hyper_edge_sets.items()}
+        non_fictitious_tree = {k: jnp.expand_dims(e.non_fictitious, -1) for k, e in out_graph.hyper_edge_sets.items()}
         prec_grad_tree = gradient_inverse_tree(self.f, self.params, in_tree, non_fictitious_tree)
-        grad_tree = {k: e.feature_array for k, e in grad_graph.edges.items()}
+        grad_tree = {k: e.feature_array for k, e in grad_graph.hyper_edge_sets.items()}
         prec_grad_tree = jax.tree.map(lambda a, b: a / b, grad_tree, prec_grad_tree)
         prec_grad_graph = out_tree_to_graph(prec_grad_tree, out_graph)
         if get_info:
@@ -158,12 +159,14 @@ class Postprocessor:
         if not self._fitted:
             raise RuntimeError("Postprocessor parameters not yet fitted. Call fit_problem_loader first.")
 
-        in_tree = {k: e.feature_array for k, e in out_graph.edges.items()}
-        non_fictitious_tree = {k: 1.0 + 0.0 * jnp.expand_dims(e.non_fictitious, -1) for k, e in out_graph.edges.items()}
+        in_tree = {k: e.feature_array for k, e in out_graph.hyper_edge_sets.items()}
+        non_fictitious_tree = {
+            k: 1.0 + 0.0 * jnp.expand_dims(e.non_fictitious, -1) for k, e in out_graph.hyper_edge_sets.items()
+        }
         prec_grad_tree = jax.vmap(gradient_inverse_tree, in_axes=(None, None, 0, 0))(
             self.f, self.params, in_tree, non_fictitious_tree
         )
-        grad_tree = {k: e.feature_array for k, e in grad_graph.edges.items()}
+        grad_tree = {k: e.feature_array for k, e in grad_graph.hyper_edge_sets.items()}
         prec_grad_tree = jax.tree.map(lambda a, b: a / b, grad_tree, prec_grad_tree)
         prec_grad_graph = out_tree_to_graph(prec_grad_tree, out_graph)
         if get_info:
@@ -203,7 +206,7 @@ class Postprocessor:
         gradient_batch, _ = problem_batch.get_gradient(decision=zero_decision, cfg=problem_cfg)
         gradients = separate_graphs(gradient_batch)
         jax_gradient = JaxGraph.from_numpy_graph(gradients[0], device=device)
-        in_tree = {k: e.feature_array for k, e in jax_gradient.edges.items()}
+        in_tree = {k: e.feature_array for k, e in jax_gradient.hyper_edge_sets.items()}
         aux = jax.tree.map(self.f.init_aux, in_tree)
 
         for pb_batch in tqdm(
@@ -218,7 +221,7 @@ class Postprocessor:
             for gradient in gradient_list:
                 gradient.unpad()
                 jax_gradient = JaxGraph.from_numpy_graph(gradient, device=device)
-                in_tree = {k: -e.feature_array for k, e in jax_gradient.edges.items()}
+                in_tree = {k: -e.feature_array for k, e in jax_gradient.hyper_edge_sets.items()}
                 aux = jax.tree.map(self.f.update_aux, in_tree, aux)
 
         self.params = jax.tree.map(self.f.compute_params, in_tree, aux)

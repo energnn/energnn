@@ -141,7 +141,7 @@ class SumLocalMessageFunction(nn.Module, LocalMessageFunction):
 
         mlp_tree = {
             key: {address_key: get_mlps(key, address_key) for address_key in edge.address_dict.keys()}
-            for key, edge in context.edges.items()
+            for key, edge in context.hyper_edge_sets.items()
         }
 
         def get_messages(edge, mlp_subtree):
@@ -173,7 +173,7 @@ class SumLocalMessageFunction(nn.Module, LocalMessageFunction):
 
             return latent_coordinates
 
-        edge_mlp_tree = {edge_key: (edge, mlp_tree[edge_key]) for edge_key, edge in context.edges.items()}
+        edge_mlp_tree = {edge_key: (edge, mlp_tree[edge_key]) for edge_key, edge in context.hyper_edge_sets.items()}
         neighbour_message = jax.tree.reduce(
             sum_messages_for_addresses, edge_mlp_tree, initializer=neighbour_message, is_leaf=lambda x: isinstance(x, tuple)
         )
