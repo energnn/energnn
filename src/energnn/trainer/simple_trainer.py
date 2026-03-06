@@ -3,7 +3,7 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 # SPDX-License-Identifier: MPL-2.0
-#
+
 from __future__ import annotations
 
 import logging
@@ -245,9 +245,7 @@ class SimpleTrainer:
             "step": self.train_step,
             "metrics": metrics,
         }
-        checkpoint_manager.save(
-            self.train_step, args=ocp.args.Composite(default=ocp.args.StandardSave(checkpoint_data))
-        )
+        checkpoint_manager.save(self.train_step, args=ocp.args.Composite(default=ocp.args.StandardSave(checkpoint_data)))
 
     def load_checkpoint(self, checkpoint_manager: CheckpointManager, step: int | None = None, best: bool = False) -> None:
         """Loads a checkpoint from the checkpoint manager.
