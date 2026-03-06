@@ -175,8 +175,7 @@ def test_save_load_checkpoint(tmp_path):
     m_cp.directory = tmp_path
     m_cp.save.return_value = True
 
-    path = trainer.save_checkpoint(checkpoint_manager=m_cp, metrics=0.123)
-    assert path == str(tmp_path / "42")
+    trainer.save_checkpoint(checkpoint_manager=m_cp, metrics=0.123)
     m_cp.save.assert_called_once()
 
     # Load checkpoint
@@ -226,11 +225,9 @@ def test_train_with_tracker_and_storage():
     trainer = SimpleTrainer(model=model, gradient_transformation=optax.sgd(1e-3))
 
     from energnn.tracker import Tracker
-    from energnn.storage import Storage
     from orbax.checkpoint import CheckpointManager
 
     m_tracker = MagicMock(spec=Tracker)
-    m_storage = MagicMock(spec=Storage)
     m_cp = MagicMock(spec=CheckpointManager)
     m_cp.save.return_value = True
     m_cp.directory = MagicMock()
@@ -241,7 +238,6 @@ def test_train_with_tracker_and_storage():
         val_loader=val_loader,
         n_epochs=1,
         tracker=m_tracker,
-        storage=m_storage,
         checkpoint_manager=m_cp,
         log_period=1,
         progress_bar=False,
@@ -250,7 +246,5 @@ def test_train_with_tracker_and_storage():
     # run_evaluation called (at least after epoch)
     # run_evaluation calls save_checkpoint which calls m_cp.save
     assert m_cp.save.called
-    # run_evaluation calls storage.upload if local_ckpt_path is not None
-    assert m_storage.upload.called
     # m_cp.wait_until_finished should be called at the end of train
     assert m_cp.wait_until_finished.called
