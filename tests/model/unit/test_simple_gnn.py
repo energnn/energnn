@@ -10,7 +10,7 @@ import jax
 import jax.numpy as jnp
 
 from energnn.model.simple_gnn import SimpleGNN
-from tests.utils import TestProblemLoader
+from energnn.problem.example import LinearSystemProblemLoader
 from flax import nnx
 
 from energnn.model.normalizer.normalizer import Normalizer
@@ -21,7 +21,7 @@ from energnn.model.decoder.decoder import Decoder
 
 np.random.seed(0)
 n = 10
-pb_loader = TestProblemLoader(seed=0)
+pb_loader = LinearSystemProblemLoader(seed=0)
 pb_batch = next(iter(pb_loader))
 jax_context_batch, _ = pb_batch.get_context()
 jax_context = jax.tree.map(lambda x: x[0], jax_context_batch)

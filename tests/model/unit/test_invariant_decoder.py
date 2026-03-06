@@ -15,11 +15,11 @@ from energnn.model.decoder.invariant_decoder import (
 )
 from energnn.model.utils import MLP
 from energnn.graph.jax import JaxGraph
-from tests.utils import TestProblemLoader
+from energnn.problem.example import LinearSystemProblemLoader
 
 
 np.random.seed(0)
-pb_loader = TestProblemLoader(seed=0, batch_size=4, n_max=10)
+pb_loader = LinearSystemProblemLoader(seed=0, batch_size=4, n_max=10)
 pb_batch = next(iter(pb_loader))
 jax_context_batch, _ = pb_batch.get_context()
 jax_context = jax.tree.map(lambda x: x[0], jax_context_batch)

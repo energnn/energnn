@@ -7,11 +7,11 @@ import diffrax
 from flax import nnx
 
 from energnn.model import LocalSumMessageFunction, MLP, MLPEquivariantDecoder, NeuralODECoupler
-from tests.utils import TestProblemLoader
+from energnn.problem.example import LinearSystemProblemLoader
 
 
 def test_mlp_equivariant_decoder():
-    loader = TestProblemLoader(seed=0).__iter__()
+    loader = LinearSystemProblemLoader(seed=0).__iter__()
     problem_batch = next(loader)
     context_batch, _ = problem_batch.get_context()
 

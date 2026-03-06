@@ -4,20 +4,19 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 import jax
-import jax.numpy as jnp
 from flax import nnx
 
 from energnn.model import (
     CenterReduceNormalizer,
     TDigestNormalizer,
 )
-from tests.utils import TestProblemLoader
+from energnn.problem.example import LinearSystemProblemLoader
 
 jax.config.update("jax_enable_x64", False)
 
 
 def test_center_reduce_normalizer():
-    loader = TestProblemLoader(seed=0).__iter__()
+    loader = LinearSystemProblemLoader(seed=0).__iter__()
     problem_batch = next(loader)
     context_batch, _ = problem_batch.get_context()
 
@@ -33,7 +32,7 @@ def test_center_reduce_normalizer():
 
 
 def test_t_digest_normalizer():
-    loader = TestProblemLoader(seed=0).__iter__()
+    loader = LinearSystemProblemLoader(seed=0).__iter__()
     problem_batch = next(loader)
     context_batch, _ = problem_batch.get_context()
 
