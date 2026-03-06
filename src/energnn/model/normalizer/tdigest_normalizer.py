@@ -398,7 +398,7 @@ class TDigestNormalizer(Normalizer):
     def _build_module_dict(self) -> dict[str, dict[str, TDigestModule]]:
         """Creates a TDigest module for each edge key in the graph structure."""
         module_dict = {}
-        for edge_key, edge_structure in self.in_structure.edges.items():
+        for edge_key, edge_structure in self.in_structure.hyper_edge_sets.items():
             if edge_structure.feature_list is not None:  # and len(edge_structure.feature_list) > 0:
                 in_size = len(edge_structure.feature_list)
                 module_dict[edge_key] = TDigestModule(

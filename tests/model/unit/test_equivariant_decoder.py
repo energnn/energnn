@@ -9,7 +9,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from energnn.graph import EdgeStructure, GraphStructure
+from energnn.graph import GraphStructure, HyperEdgeSetStructure
 from energnn.graph.jax import JaxGraph, JaxHyperEdgeSet
 from energnn.model.decoder.equivariant_decoder import MLPEquivariantDecoder
 from energnn.problem.example import LinearSystemProblemLoader
@@ -25,9 +25,9 @@ coordinates_batch = jnp.array(np.random.uniform(size=(4, 10, 7)))
 
 # out_structure must be a GraphStructure
 default_out_structure = GraphStructure(
-    edges={
-        "source": EdgeStructure(address_list=["id"], feature_list=["e"]),
-        "arrow": EdgeStructure(address_list=["from", "to"], feature_list=["f"]),
+    hyper_edge_sets={
+        "source": HyperEdgeSetStructure(address_list=["id"], feature_list=["e"]),
+        "arrow": HyperEdgeSetStructure(address_list=["from", "to"], feature_list=["f"]),
     }
 )
 
@@ -119,9 +119,9 @@ def test_mlp_equivariant_decoder_single_shapes_and_masking():
     )
 
     custom_in_structure = GraphStructure(
-        edges={
-            "source": EdgeStructure(address_list=["id"], feature_list=["a", "b"]),
-            "arrow": EdgeStructure(address_list=["from", "to"], feature_list=["c", "d", "e"]),
+        hyper_edge_sets={
+            "source": HyperEdgeSetStructure(address_list=["id"], feature_list=["a", "b"]),
+            "arrow": HyperEdgeSetStructure(address_list=["from", "to"], feature_list=["c", "d", "e"]),
         }
     )
 
@@ -137,12 +137,15 @@ def test_mlp_equivariant_decoder_single_shapes_and_masking():
     out, info = decoder(graph=custom_graph, coordinates=coordinates, get_info=True)
 
     # shapes
-    assert set(out.hyper_edge_sets.keys()) == set(default_out_structure.edges.keys())
+    assert set(out.hyper_edge_sets.keys()) == set(default_out_structure.hyper_edge_sets.keys())
     assert out.hyper_edge_sets["source"].feature_array.shape == (
         n_node,
-        len(default_out_structure.edges["source"].feature_list),
+        len(default_out_structure.hyper_edge_sets["source"].feature_list),
     )
-    assert out.hyper_edge_sets["arrow"].feature_array.shape == (n_edge, len(default_out_structure.edges["arrow"].feature_list))
+    assert out.hyper_edge_sets["arrow"].feature_array.shape == (
+        n_edge,
+        len(default_out_structure.hyper_edge_sets["arrow"].feature_list),
+    )
 
     # Masking: first row for source must be all zeros (we set non_fictitious[0]=0)
     node_out_np = np.array(out.hyper_edge_sets["source"].feature_array)
@@ -169,7 +172,9 @@ def test_mlp_equivariant_decoder_mlp_dict_initialization():
     """
     Check that MLPs are correctly initialized in decoder.mlp_dict based on out_structure.
     """
-    out_structure = GraphStructure(edges={"source": EdgeStructure(address_list=["id"], feature_list=["y0", "y1"])})
+    out_structure = GraphStructure(
+        hyper_edge_sets={"source": HyperEdgeSetStructure(address_list=["id"], feature_list=["y0", "y1"])}
+    )
     decoder = MLPEquivariantDecoder(
         in_graph_structure=pb_loader.context_structure,
         in_array_size=7,
@@ -191,7 +196,7 @@ def test_mlp_equivariant_decoder_numeric_identity_node():
     """
     d = coordinates.shape[1]
     out_struct_node = GraphStructure(
-        edges={"source": EdgeStructure(address_list=["id"], feature_list=[f"o{i}" for i in range(d)])}
+        hyper_edge_sets={"source": HyperEdgeSetStructure(address_list=["id"], feature_list=[f"o{i}" for i in range(d)])}
     )
     decoder = MLPEquivariantDecoder(
         in_graph_structure=pb_loader.context_structure,
@@ -228,7 +233,9 @@ def test_mlp_equivariant_decoder_numeric_identity_edge():
     edge_feature_dim = int(jax_context.hyper_edge_sets["arrow"].feature_array.shape[1])
     input_dim = 2 * d + edge_feature_dim
     out_struct_edge = GraphStructure(
-        edges={"arrow": EdgeStructure(address_list=["from", "to"], feature_list=[f"o{i}" for i in range(input_dim)])}
+        hyper_edge_sets={
+            "arrow": HyperEdgeSetStructure(address_list=["from", "to"], feature_list=[f"o{i}" for i in range(input_dim)])
+        }
     )
 
     decoder = MLPEquivariantDecoder(

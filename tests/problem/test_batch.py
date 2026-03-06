@@ -30,11 +30,11 @@ class StubProblemBatch(ProblemBatch):
 
     @property
     def context_structure(self) -> GraphStructure:
-        return GraphStructure(edges={})
+        return GraphStructure(hyper_edge_sets={})
 
     @property
     def decision_structure(self) -> GraphStructure:
-        return GraphStructure(edges={})
+        return GraphStructure(hyper_edge_sets={})
 
     def get_context(self, get_info: bool = False):
         info = {"cinfo": True} if get_info else {}

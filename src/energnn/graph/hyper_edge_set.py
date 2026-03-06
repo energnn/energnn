@@ -575,10 +575,10 @@ def check_valid_addresses(address_dict: dict[str, np.ndarray] | None) -> None:
 
 def _check_keys_consistency(hes_1, hes_2):
     if (hes_1.address_names is None) != (hes_2.address_names is None):
-        raise ValueError("Mismatch in presence of address_names among hyper edge sets.")
+        raise ValueError("Mismatch in presence of address_names among hyper-edge sets.")
     if (hes_1.feature_names is None) != (hes_2.feature_names is None):
-        raise ValueError("Mismatch in presence of feature_names among hyper edge sets.")
+        raise ValueError("Mismatch in presence of feature_names among hyper-edge sets.")
     if hes_1.address_names and hes_1.address_names.keys() != hes_2.address_names.keys():
-        raise ValueError("Inconsistent address_names keys among hyper edge sets.")
+        raise ValueError("Inconsistent address_names keys among hyper-edge sets.")
     if hes_1.feature_names and hes_1.feature_names.keys() != hes_2.feature_names.keys():
-        raise ValueError("Inconsistent feature_names keys among hyper edge sets.")
+        raise ValueError("Inconsistent feature_names keys among hyper-edge sets.")

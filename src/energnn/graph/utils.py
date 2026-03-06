@@ -3,12 +3,11 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 # SPDX-License-Identifier: MPL-2.0
-#
-import jax
 
-# import jax.numpy as jnp
-import numpy as np
 from typing import Any
+
+import jax
+import numpy as np
 
 
 def to_numpy(a: dict | np.ndarray | jax.Array | tuple | None) -> dict | np.ndarray | None:
@@ -47,27 +46,4 @@ def to_numpy(a: dict | np.ndarray | jax.Array | tuple | None) -> dict | np.ndarr
     if isinstance(a, (np.ndarray, jax.Array, np.ndarray, tuple, object)):
         return _to_np(a)
 
-    # elif isinstance(a, object): # A supprimer, car cette condition est toujours vraie
-    #    return a
-
     raise TypeError(f"Type {type(a)} non pris en charge par to_numpy")
-
-
-# def to_jax_numpy(a: dict | np.ndarray | jax.Array | tuple | None) -> dict | jax.Array | None:
-#     """Converts a dictionary of numpy values into a dictionary of jax.numpy objects."""
-#     if a is None:
-#         return None
-#     elif isinstance(a, np.ndarray) or isinstance(a, jax.Array) or isinstance(a, tuple):
-#         return jnp.array(a, dtype=jnp.dtype("float32"))
-#     elif isinstance(a, dict):
-#         output_dict = dict()
-#         for key, value in a.items():
-#             if isinstance(value, np.ndarray) or isinstance(value, jax.Array) or isinstance(value, tuple):
-#                 output_dict[key] = jnp.array(value, dtype=jnp.dtype("float32"))
-#             else:
-#                 output_dict[key] = value
-#         return output_dict
-#     elif isinstance(a, object):
-#         return a
-#     else:
-#         raise TypeError()

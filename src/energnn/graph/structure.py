@@ -6,12 +6,12 @@
 
 import pandas as pd
 
-EDGES = "edges"
+HYPER_EDGE_SETS = "hyper_edge_sets"
 FEATURE_LIST = "feature_list"
 ADDRESS_LIST = "address_list"
 
 
-class EdgeStructure(dict):
+class HyperEdgeSetStructure(dict):
     """Edge structure specification."""
 
     def __init__(self, *, address_list: list[str] | None, feature_list: list[str] | None):
@@ -20,7 +20,7 @@ class EdgeStructure(dict):
         self[FEATURE_LIST] = feature_list
 
     @classmethod
-    def from_list(cls, *, address_list: list[str] | None, feature_list: list[str] | None) -> "EdgeStructure":
+    def from_list(cls, *, address_list: list[str] | None, feature_list: list[str] | None) -> "HyperEdgeSetStructure":
         return cls(address_list=address_list, feature_list=feature_list)
 
     @property
@@ -35,23 +35,23 @@ class EdgeStructure(dict):
 class GraphStructure(dict):
     """Graph structure specification."""
 
-    def __init__(self, edges: dict[str, EdgeStructure]):
+    def __init__(self, hyper_edge_sets: dict[str, HyperEdgeSetStructure]):
         super().__init__()
-        self[EDGES] = edges
+        self[HYPER_EDGE_SETS] = hyper_edge_sets
 
     @classmethod
-    def from_dict(cls, *, edge_structure_dict: dict[str, EdgeStructure]) -> "GraphStructure":
-        return cls(edge_structure_dict)
+    def from_dict(cls, *, hyper_edge_set_structure_dict: dict[str, HyperEdgeSetStructure]) -> "GraphStructure":
+        return cls(hyper_edge_set_structure_dict)
 
     @property
-    def edges(self) -> dict[str, EdgeStructure]:
-        return self[EDGES]
+    def hyper_edge_sets(self) -> dict[str, HyperEdgeSetStructure]:
+        return self[HYPER_EDGE_SETS]
 
     def __str__(self):
         data = {
-            "Name": [edge_name for edge_name in self.edges.keys()],
-            "Addresses": [edge_structure.address_list for edge_structure in self.edges.values()],
-            "Features": [edge_structure.feature_list for edge_structure in self.edges.values()],
+            "Name": [edge_name for edge_name in self.hyper_edge_sets.keys()],
+            "Addresses": [edge_structure.address_list for edge_structure in self.hyper_edge_sets.values()],
+            "Features": [edge_structure.feature_list for edge_structure in self.hyper_edge_sets.values()],
         }
         df = pd.DataFrame(data).set_index("Name")
         return df.to_string()

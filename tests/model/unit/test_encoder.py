@@ -10,7 +10,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from energnn.graph import EdgeStructure, GraphStructure, JaxGraph, JaxHyperEdgeSet
+from energnn.graph import GraphStructure, HyperEdgeSetStructure, JaxGraph, JaxHyperEdgeSet
 from energnn.model.encoder.encoder import IdentityEncoder
 from energnn.model.encoder.mlp_encoder import MLPEncoder
 from energnn.problem.example import LinearSystemProblemLoader
@@ -171,9 +171,9 @@ def test_mlp_encoder_multiple_edge_types_independent_processing():
 
     # create a custom structure for this test
     custom_structure = GraphStructure(
-        edges={
-            "A": EdgeStructure(address_list=["from", "to"], feature_list=["a", "b"]),
-            "B": EdgeStructure(address_list=["id"], feature_list=["c", "d", "e"]),
+        hyper_edge_sets={
+            "A": HyperEdgeSetStructure(address_list=["from", "to"], feature_list=["a", "b"]),
+            "B": HyperEdgeSetStructure(address_list=["id"], feature_list=["c", "d", "e"]),
         }
     )
 

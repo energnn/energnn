@@ -37,11 +37,11 @@ class StubProblem(Problem):
 
     @property
     def context_structure(self) -> GraphStructure:
-        return GraphStructure(edges={})
+        return GraphStructure(hyper_edge_sets={})
 
     @property
     def decision_structure(self) -> GraphStructure:
-        return GraphStructure(edges={})
+        return GraphStructure(hyper_edge_sets={})
 
     def get_context(self, get_info=False):
         return make_dummy_graph_mock(edges={}), {}

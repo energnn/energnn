@@ -10,7 +10,7 @@ import jax.numpy as jnp
 import numpy as np
 from flax import nnx
 
-from energnn.graph import EdgeStructure, GraphStructure
+from energnn.graph import GraphStructure, HyperEdgeSetStructure
 from energnn.graph.jax import JaxGraph, JaxHyperEdgeSet
 from energnn.model.coupler.neural_ode.message_function import IdentityMessageFunction, LocalSumMessageFunction
 from energnn.model.utils import gather, scatter_add
@@ -197,10 +197,10 @@ def test_mlp_tree_initialization_from_structure():
         seed=0,
     )
     # Check that mlp_tree is correctly populated based on in_graph_structure
-    expected_keys = set(pb_loader.context_structure.edges.keys())
+    expected_keys = set(pb_loader.context_structure.hyper_edge_sets.keys())
     assert set(mf.mlp_tree.keys()) == expected_keys
     for ek in expected_keys:
-        edge_struct = pb_loader.context_structure.edges[ek]
+        edge_struct = pb_loader.context_structure.hyper_edge_sets[ek]
         assert set(mf.mlp_tree[ek].keys()) == set(edge_struct.address_list)
         for pk in mf.mlp_tree[ek].keys():
             assert callable(mf.mlp_tree[ek][pk])
@@ -209,9 +209,9 @@ def test_mlp_tree_initialization_from_structure():
 def test_mlp_tree_input_sizes_with_and_without_features():
     # create structure with one edge having features and one without
     struct = GraphStructure(
-        edges={
-            "A": EdgeStructure(address_list=["id"], feature_list=["v1", "v2"]),
-            "B": EdgeStructure(address_list=["id"], feature_list=None),
+        hyper_edge_sets={
+            "A": HyperEdgeSetStructure(address_list=["id"], feature_list=["v1", "v2"]),
+            "B": HyperEdgeSetStructure(address_list=["id"], feature_list=None),
         }
     )
     in_array_size = 5

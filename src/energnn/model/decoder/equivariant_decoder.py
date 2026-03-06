@@ -91,7 +91,7 @@ class MLPEquivariantDecoder(EquivariantDecoder):
         self.feature_names_dict = nnx.data(
             {
                 k: {kk: jnp.array([i]) for i, kk in enumerate(v.feature_list)}
-                for k, v in self.out_structure.edges.items()
+                for k, v in self.out_structure.hyper_edge_sets.items()
                 if v.feature_list is not None
             }
         )
@@ -103,9 +103,9 @@ class MLPEquivariantDecoder(EquivariantDecoder):
             raise ValueError("Seed must be None when rngs are provided.")
         mlp_dict = {}
 
-        for edge_key, out_edge_structure in self.out_structure.edges.items():
-            assert edge_key in self.in_graph_structure.edges.keys()
-            in_edge_structure = self.in_graph_structure.edges[edge_key]
+        for edge_key, out_edge_structure in self.out_structure.hyper_edge_sets.items():
+            assert edge_key in self.in_graph_structure.hyper_edge_sets.keys()
+            in_edge_structure = self.in_graph_structure.hyper_edge_sets[edge_key]
             assert len(in_edge_structure.address_list) > 0
             n_ports = len(in_edge_structure.address_list)
             in_size = self.in_array_size * n_ports

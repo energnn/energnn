@@ -79,7 +79,7 @@ class MLPEncoder(Encoder):
         elif seed is not None:
             raise ValueError("Seed must be None when rngs are provided.")
         mlp_dict = {}
-        for edge_key, edge_structure in self.in_structure.edges.items():
+        for edge_key, edge_structure in self.in_structure.hyper_edge_sets.items():
             if edge_structure.feature_list is not None and len(edge_structure.feature_list) > 0:
                 in_size = len(edge_structure.feature_list)
                 mlp_dict[edge_key] = MLP(

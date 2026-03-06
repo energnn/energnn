@@ -10,17 +10,19 @@ from copy import deepcopy
 import numpy as np
 from omegaconf import DictConfig
 
-from energnn.graph import EdgeStructure, Graph, GraphShape, GraphStructure, HyperEdgeSet, collate_graphs
+from energnn.graph import Graph, GraphShape, GraphStructure, HyperEdgeSet, HyperEdgeSetStructure, collate_graphs
 from energnn.graph.jax import JaxGraph
 from energnn.problem import Problem, ProblemBatch, ProblemLoader, ProblemMetadata
 
 LINEAR_SYSTEM_CONTEXT_STRUCTURE = GraphStructure(
-    edges={
-        "arrow": EdgeStructure(address_list=["from", "to"], feature_list=["value"]),
-        "source": EdgeStructure(address_list=["id"], feature_list=["value"]),
+    hyper_edge_sets={
+        "arrow": HyperEdgeSetStructure(address_list=["from", "to"], feature_list=["value"]),
+        "source": HyperEdgeSetStructure(address_list=["id"], feature_list=["value"]),
     }
 )
-LINEAR_SYSTEM_DECISION_STRUCTURE = GraphStructure(edges={"source": EdgeStructure(address_list=None, feature_list=["value"])})
+LINEAR_SYSTEM_DECISION_STRUCTURE = GraphStructure(
+    hyper_edge_sets={"source": HyperEdgeSetStructure(address_list=None, feature_list=["value"])}
+)
 
 
 class LinearSystemProblemBatch(ProblemBatch):

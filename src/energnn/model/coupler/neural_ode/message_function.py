@@ -93,7 +93,7 @@ class LocalSumMessageFunction(MessageFunction):
             raise ValueError("Seed must be None when rngs are provided.")
         mlp_tree = {}
 
-        for edge_key, edge_structure in self.in_graph_structure.edges.items():
+        for edge_key, edge_structure in self.in_graph_structure.hyper_edge_sets.items():
             if edge_structure.address_list is not None and len(edge_structure.address_list) > 0:
                 n_ports = len(edge_structure.address_list)
                 in_size = self.in_array_size * n_ports
