@@ -4,15 +4,15 @@ import jax.numpy as jnp
 import numpy as np
 
 from energnn.problem.batch import ProblemBatch
-from energnn.graph import GraphStructure, EdgeStructure
+from energnn.graph import GraphStructure
 from energnn.graph.jax import JaxGraph, JaxEdge
-from tests.utils import TestProblemLoader
+from energnn.problem.example import LinearSystemProblemLoader
 
 
 @pytest.fixture(scope="module")
 def pb_loader():
     # Small deterministic loader used in other tests of the repo
-    return TestProblemLoader(seed=0)
+    return LinearSystemProblemLoader(seed=0)
 
 
 @pytest.fixture(scope="module")
@@ -117,7 +117,7 @@ def test_get_decision_structure_conversions(feature_names, expected_values):
 
 def test_get_gradient_shapes_match_decision(pb_batch):
     """get_gradient must return a gradient Graph with the same edge keys and shapes as the decision input."""
-    # pb_batch fixture is already a valid TestProblemBatch (concrete ProblemBatch)
+    # pb_batch fixture is already a valid LinearSystemProblemBatch (concrete ProblemBatch)
     ctx, _ = pb_batch.get_context()
 
     # Use oracle as a valid decision to test gradient computation

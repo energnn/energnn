@@ -13,13 +13,14 @@ import pytest
 from energnn.model.encoder.encoder import IdentityEncoder
 from energnn.model.encoder.mlp_encoder import MLPEncoder
 from energnn.graph import JaxGraph, JaxEdge, GraphStructure, EdgeStructure
-from tests.utils import TestProblemLoader, compare_batched_graphs
+from energnn.problem.example import LinearSystemProblemLoader
+from tests.utils import compare_batched_graphs
 
 # make deterministic
 np.random.seed(0)
 
-# Prepare a small TestProblemLoader and example graphs
-pb_loader = TestProblemLoader(seed=0)
+# Prepare a small LinearSystemProblemLoader and example graphs
+pb_loader = LinearSystemProblemLoader(seed=0)
 pb_batch = next(iter(pb_loader))
 jax_context_batch, _ = pb_batch.get_context()
 jax_context = jax.tree.map(lambda x: x[0], jax_context_batch)

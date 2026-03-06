@@ -9,5 +9,7 @@ from .loader import ProblemLoader
 from .metadata import ProblemMetadata
 from .problem import Problem
 from .dataset import ProblemDataset
+from . import example
 
-__all__ = ["Problem", "ProblemBatch", "ProblemLoader", "ProblemDataset", "ProblemMetadata"]
+__all__ = ["Problem", "ProblemBatch", "ProblemLoader", "ProblemDataset", "ProblemMetadata", "example"]
+

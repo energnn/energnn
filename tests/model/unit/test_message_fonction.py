@@ -14,13 +14,13 @@ from energnn.model.coupler.neural_ode.message_function import LocalSumMessageFun
 from energnn.model.utils import gather, scatter_add
 from energnn.graph import GraphStructure, EdgeStructure
 from energnn.graph.jax import JaxGraph, JaxEdge
-from tests.utils import TestProblemLoader
+from energnn.problem.example import LinearSystemProblemLoader
 
 # deterministic
 np.random.seed(0)
 
-# Small fixture graphs from TestProblemLoader
-pb_loader = TestProblemLoader(seed=0, batch_size=4, n_max=10)
+# Small fixture graphs from LinearSystemProblemLoader
+pb_loader = LinearSystemProblemLoader(seed=0, batch_size=4, n_max=10)
 pb_batch = next(iter(pb_loader))
 jax_context_batch, _ = pb_batch.get_context()
 jax_context = jax.tree.map(lambda x: x[0], jax_context_batch)

@@ -12,11 +12,11 @@ from energnn.model import (
     NeuralODECoupler,
     RecurrentCoupler,
 )
-from tests.utils import TestProblemLoader
+from energnn.problem.example import LinearSystemProblemLoader
 
 
 def test_neural_ode_coupler():
-    loader = TestProblemLoader(seed=0).__iter__()
+    loader = LinearSystemProblemLoader(seed=0).__iter__()
     problem_batch = next(loader)
     context_batch, _ = problem_batch.get_context()
 
@@ -50,7 +50,7 @@ def test_neural_ode_coupler():
 
 
 def test_recurrent_coupler():
-    loader = TestProblemLoader(seed=0).__iter__()
+    loader = LinearSystemProblemLoader(seed=0).__iter__()
     problem_batch = next(loader)
     context_batch, _ = problem_batch.get_context()
 

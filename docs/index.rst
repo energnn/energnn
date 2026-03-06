@@ -45,12 +45,12 @@ This package considers the training of GNN models to solve distributions of opti
 
 .. code-block:: python
 
-    from energnn.tests.utils import TestProblemLoader
+    from energnn.problem.example import LinearSystemProblemLoader
     from energnn.model.ready_to_use import TinyRecurrentEquivariantGNN
     from energnn.trainer import SimpleTrainer
     import optax
 
-    problem_loader = TestProblemLoader(seed=1)
+    problem_loader = LinearSystemProblemLoader(seed=1)
     model = TinyRecurrentEquivariantGNN(
         in_structure=problem_loader.context_structure,
         out_structure=problem_loader.decision_structure,
@@ -58,7 +58,7 @@ This package considers the training of GNN models to solve distributions of opti
     trainer = SimpleTrainer(model=model, gradient_transformation=optax.adam(1e-3))
     trainer.train(train_loader=problem_loader, n_epochs=10)
 
-- The loader `TestProblemLoader` allows to iterate over multiple instances of the optimization problem class,
+- The loader `LinearSystemProblemLoader` allows to iterate over multiple instances of the optimization problem class,
   which encapsulate the business logic (input, output, objective, etc.).
 - The model processes graph data whose structure should match `in_structure` and returns graphs whose structure is
   defined as `out_structure`.
@@ -68,7 +68,7 @@ Once trained, the model can be applied on new problem instances as follows.
 
 .. code-block:: python
 
-    test_loader = TestProblemLoader(seed=3)
+    test_loader = LinearSystemProblemLoader(seed=3)
     for problem_batch in test_loader:
         context_batch, _ = problem_batch.get_context()                  # Extract input
         decision_batch, _ = model.forward_batch(graph=context_batch)    # Infer decisions

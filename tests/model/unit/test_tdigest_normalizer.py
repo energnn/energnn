@@ -14,7 +14,7 @@ from energnn.model.normalizer.tdigest_normalizer import (
     TDigestNormalizer,
 )
 from energnn.graph.jax import JaxEdge, JaxGraph
-from tests.utils import TestProblemLoader
+from energnn.problem.example import LinearSystemProblemLoader
 
 # TDigestNormalizer relies on float32 explicitly in io_callback.
 jax.config.update("jax_enable_x64", False)
@@ -24,7 +24,7 @@ np.random.seed(0)
 
 # small fixture graphs (used by some tests)
 n = 10
-pb_loader = TestProblemLoader(seed=0)
+pb_loader = LinearSystemProblemLoader(seed=0)
 pb_batch = next(iter(pb_loader))
 jax_context_batch, _ = pb_batch.get_context()
 jax_context = jax.tree.map(lambda x: x[0], jax_context_batch)  # single example usable in tests
