@@ -44,7 +44,6 @@ dev = [
     "boto3-stubs>=1.28.0",
     "types-tqdm>=4",
 ]
-
 docs = [
     "sphinx==8.1.3",
     "furo==2025.12.19",
