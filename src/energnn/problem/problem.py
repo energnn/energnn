@@ -3,7 +3,7 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 # SPDX-License-Identifier: MPL-2.0
-#
+
 from abc import ABC, abstractmethod
 
 from energnn.graph import GraphStructure, JaxGraph
@@ -32,7 +32,7 @@ class Problem(ABC):
         This constructor may accept parameters specific to the problem definition,
         such as hyperparameters, or graph dimensions.
 
-        :raises NotImplementedError: if subclass does not override this constructor.
+        :raises NotImplementedError: If the subclass does not override this constructor.
         """
         raise NotImplementedError
 
@@ -42,14 +42,14 @@ class Problem(ABC):
         Retrieve the context graph math:`x` of the problem instance.
 
         The context graph encompasses all fixed inputs required to define
-        the instance, such as node features, edge indices, and any static attributes.
+        the instance, such as node features, hyper-edge indices, and any static attributes.
 
         :param get_info: Flag indicating if additional information should be returned for tracking purpose.
         :return: A tuple containing:
             - **Graph**: The context graph object.
-            - **dict**: A dictionary of additional information (empty if get_info=False).
+            - **dict**: A dictionary of additional information (empty if `get_info=False`).
 
-        :raises NotImplementedError: if subclass does not override this constructor.
+        :raises NotImplementedError: If the subclass does not override this constructor.
         """
         raise NotImplementedError
 
@@ -62,12 +62,11 @@ class Problem(ABC):
 
         :param decision: A decision graph at which to evaluate the gradient.
         :param get_info: Flag indicating if additional information should be returned for tracking purpose.
-        :param cfg: An optional configuration dict.
         :return: A tuple containing:
-            - **Graph**: The gradient graph with same structure as decision.
-            - **dict**: A dictionary of additional information (empty if get_info=False).
+            - **Graph**: The gradient graph with the same structure as decision.
+            - **dict**: A dictionary of additional information (empty if `get_info=False`).
 
-        :raises NotImplementedError: if subclass does not override this constructor.
+        :raises NotImplementedError: If the subclass does not override this constructor.
         """
         raise NotImplementedError
 
@@ -77,12 +76,11 @@ class Problem(ABC):
 
         :param decision: The decision graph to evaluate.
         :param get_info: Flag indicating if additional information should be returned for tracking purpose.
-        :param cfg: An optional configuration dict.
         :return: A tuple containing:
             - **float**: A float as metric value.
-            - **dict**: A dictionary of additional information (empty if get_info=False).
+            - **dict**: A dictionary of additional information (empty if `get_info=False`).
 
-        :raises NotImplementedError: if subclass does not override this constructor.
+        :raises NotImplementedError: If the subclass does not override this constructor.
         """
         raise NotImplementedError
 
@@ -104,12 +102,12 @@ class Problem(ABC):
         """
         Serialize the problem instance to disk.
 
-        This method should persist all necessary state to reconstruct
+        This method should make all necessary states persist to reconstruct
         the problem later.
 
         :param path: Filesystem path or directory to save problem data.
 
-        :raises NotImplementedError: if subclass does not override this constructor.
+        :raises NotImplementedError: If the subclass does not override this constructor.
         """
         raise NotImplementedError
 

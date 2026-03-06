@@ -1,9 +1,9 @@
-#
 # Copyright (c) 2025, RTE (http://www.rte-france.com)
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
-#
+# SPDX-License-Identifier: MPL-2.0
+
 import copy
 from copy import deepcopy
 
@@ -12,7 +12,10 @@ from omegaconf import DictConfig
 
 from energnn.graph import Graph, GraphShape, GraphStructure, HyperEdgeSet, HyperEdgeSetStructure, collate_graphs
 from energnn.graph.jax import JaxGraph
-from energnn.problem import Problem, ProblemBatch, ProblemLoader, ProblemMetadata
+from ..batch import ProblemBatch
+from ..loader import ProblemLoader
+from ..metadata import ProblemMetadata
+from ..problem import Problem
 
 LINEAR_SYSTEM_CONTEXT_STRUCTURE = GraphStructure(
     hyper_edge_sets={
@@ -69,7 +72,7 @@ class LinearSystemProblemBatch(ProblemBatch):
     def get_metrics(
         self, decision: JaxGraph, cfg: DictConfig | None = None, get_info: bool = False
     ) -> tuple[list[float], dict]:
-        """Returns the mean squared error of the decision :class:`Graph` w.r.t. the oracle :class:`Graph`."""
+        """Returns the mean-squared error of the decision :class:`Graph` with regard to the oracle :class:`Graph`."""
         gradient = decision.to_numpy_graph()
         gradient.feature_flat_array = gradient.feature_flat_array - self.oracle.feature_flat_array
         objective = np.nanmean(np.square(gradient.feature_flat_array), axis=1)
@@ -124,7 +127,7 @@ class LinearSystemProblem(Problem):
         return jax_gradient, {}
 
     def get_metrics(self, decision: JaxGraph, cfg: DictConfig | None = None, get_info: bool = False) -> tuple[float, dict]:
-        """Returns the mean squared error of the decision :class:`Graph` w.r.t. the oracle :class:`Graph`."""
+        """Returns the mean-squared error of the decision :class:`Graph` with regard to the oracle :class:`Graph`."""
         gradient = decision.to_numpy_graph()
         gradient.feature_flat_array = gradient.feature_flat_array - self.oracle.feature_flat_array
         objective = np.nanmean(np.square(gradient.feature_flat_array))

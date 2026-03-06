@@ -173,7 +173,7 @@ class JaxGraph(dict):
 
         :return: A classical ``Graph`` object with NumPy arrays.
         """
-        hyper_edge_sets = {k: hyper_edge_set.to_numpy_edge() for k, hyper_edge_set in self.hyper_edge_sets.items()}
+        hyper_edge_sets = {k: hyper_edge_set.to_numpy_hyper_edge_set() for k, hyper_edge_set in self.hyper_edge_sets.items()}
         true_shape = self.true_shape.to_numpy_shape()
         current_shape = self.current_shape.to_numpy_shape()
         non_fictitious_addresses = jnp_to_np(self.non_fictitious_addresses)

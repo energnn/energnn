@@ -1,9 +1,8 @@
-#
 # Copyright (c) 2025, RTE (http://www.rte-france.com)
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
-#
+
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -26,7 +25,7 @@ def test_from_numpy_edge_and_to_numpy_edge_roundtrip():
         assert isinstance(v, jax.Array)
 
     # Convert back to numpy Edge and compare
-    np_edge_round = jax_edge.to_numpy_edge()
+    np_edge_round = jax_edge.to_numpy_hyper_edge_set()
     assert isinstance(np_edge_round, HyperEdgeSet)
     assert_edges_equal(np_edge, np_edge_round)
 
@@ -39,7 +38,7 @@ def test_from_numpy_edge_dtypes_64():
         # feature_array should have dtype float64 in JAX
         assert jax_edge.feature_array.dtype == jnp.float64
         # and back to numpy: dtype preserved as float64
-        back = jax_edge.to_numpy_edge()
+        back = jax_edge.to_numpy_hyper_edge_set()
         assert back.feature_array.dtype == np.float64
     finally:
         jax.config.update("jax_enable_x64", False)
@@ -51,7 +50,7 @@ def test_from_numpy_edge_dtypes_32():
     # feature_array should have dtype float32 in JAX
     assert jax_edge.feature_array.dtype == jnp.float32
     # and back to numpy: dtype preserved as float32
-    back = jax_edge.to_numpy_edge()
+    back = jax_edge.to_numpy_hyper_edge_set()
     assert back.feature_array.dtype == np.float32
 
 
@@ -61,7 +60,7 @@ def test_from_numpy_edge_dtypes_16():
     # feature_array should have dtype float16 in JAX
     assert jax_edge.feature_array.dtype == jnp.float16
     # and back to numpy: dtype preserved as float16
-    back = jax_edge.to_numpy_edge()
+    back = jax_edge.to_numpy_hyper_edge_set()
     assert back.feature_array.dtype == np.float16
 
 
@@ -111,7 +110,7 @@ def test_pytree_flatten_and_unflatten_roundtrip():
     reconstructed = jax.tree_util.tree_unflatten(aux, children)
     # reconstructed is a JaxEdge; convert to numpy and compare to original numpy edge
     assert isinstance(reconstructed, JaxHyperEdgeSet)
-    np_round = reconstructed.to_numpy_edge()
+    np_round = reconstructed.to_numpy_hyper_edge_set()
     assert_edges_equal(np_edge, np_round)
 
 

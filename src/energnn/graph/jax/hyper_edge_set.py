@@ -140,7 +140,7 @@ class JaxHyperEdgeSet(dict):
             address_dict=address_dict, feature_array=feature_array, feature_names=feature_names, non_fictitious=non_fictitious
         )
 
-    def to_numpy_edge(self) -> HyperEdgeSet:
+    def to_numpy_hyper_edge_set(self) -> HyperEdgeSet:
         """
         Convert a jax.numpy hyper-edge set for GNN processing to a classical numpy hyper-edge set.
 
