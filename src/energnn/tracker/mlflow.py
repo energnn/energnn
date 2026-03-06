@@ -13,7 +13,7 @@ import mlflow
 import numpy as np
 from omegaconf import DictConfig, OmegaConf
 
-from src.energnn.tracker import Tracker
+from .tracker import Tracker
 
 
 class MlflowTracker(Tracker):
