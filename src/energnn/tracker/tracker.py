@@ -3,7 +3,7 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 # SPDX-License-Identifier: MPL-2.0
-#
+
 from abc import ABC, abstractmethod
 
 from omegaconf import DictConfig
@@ -30,7 +30,7 @@ class Tracker(ABC):
 
     @abstractmethod
     def init_run(self, *, name: str, tags: dict[str, str], cfg: DictConfig):
-        """Should initialize a training run, associate it with tags and log its config.
+        """Should initialize a training run, associate it with tags, and log its config.
 
         :param name: Name for the run.
         :param tags: List of tags to categorize the run.
