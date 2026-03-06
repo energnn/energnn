@@ -3,7 +3,6 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 # SPDX-License-Identifier: MPL-2.0
-#
 
 import jax
 from flax import nnx
@@ -24,7 +23,7 @@ class SimpleGNN(nnx.Module):
 
     :param normalizer: Maps the input features to a learning-compatible range.
     :type normalizer: Normalizer
-    :param encoder: Embeds hyper-edge features into a latent space.
+    :param encoder: Embeds hyper-edge set features into a latent space.
     :type encoder: Encoder
     :param coupler: Outputs latent coordinates for each address present in the input graph.
     :type coupler: Coupler

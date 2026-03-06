@@ -3,7 +3,7 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 # SPDX-License-Identifier: MPL-2.0
-#
+
 from functools import partial
 from typing import Any, Sequence
 
@@ -364,7 +364,7 @@ class TDigestModule(nnx.Module):
 
 class TDigestNormalizer(Normalizer):
     """
-    Graph-level normalizer that maintains a TDigestModule for each edge type.
+    Graph-level normalizer that maintains a TDigestModule for each hyper-edge set type.
 
     This normalizer uses T-Digests to map feature distributions to a target grid
     (usually [-1, 1]), providing a non-parametric alternative to standard normalization.
@@ -396,12 +396,12 @@ class TDigestNormalizer(Normalizer):
         self.module_dict = self._build_module_dict()
 
     def _build_module_dict(self) -> dict[str, dict[str, TDigestModule]]:
-        """Creates a TDigest module for each edge key in the graph structure."""
+        """Creates a TDigest module for each hyper-edge set key in the graph structure."""
         module_dict = {}
-        for edge_key, edge_structure in self.in_structure.hyper_edge_sets.items():
-            if edge_structure.feature_list is not None:  # and len(edge_structure.feature_list) > 0:
-                in_size = len(edge_structure.feature_list)
-                module_dict[edge_key] = TDigestModule(
+        for key, hyper_edge_set_structure in self.in_structure.hyper_edge_sets.items():
+            if hyper_edge_set_structure.feature_list is not None:
+                in_size = len(hyper_edge_set_structure.feature_list)
+                module_dict[key] = TDigestModule(
                     in_size=in_size,
                     update_limit=self.update_limit,
                     n_breakpoints=self.n_breakpoints,
@@ -423,36 +423,41 @@ class TDigestNormalizer(Normalizer):
 
     def __call__(self, *, graph: JaxGraph, get_info: bool = False) -> tuple[JaxGraph, dict]:
         """
-        Apply normalization to edges within a JaxGraph context using TDigest modules. This method normalizes the
-        edges' feature arrays and updates the associated context graph accordingly.
+        Apply normalization to hyper-edge sets within a JaxGraph context using TDigest modules. This method normalizes the
+        hyper-edge sets' feature arrays and updates the associated context graph accordingly.
 
-        :param graph: JaxGraph representing the graph structure containing edges with feature arrays to be normalized.
+        :param graph: JaxGraph representing the graph structure containing hyper-edge sets with feature arrays
+                      to be normalized.
         :param get_info: Boolean flag that indicates whether to return additional information about input and output graphs.
         :return: A tuple containing the normalized JaxGraph and an optional dictionary holding quantile information
                  about the input and output graphs.
         """
 
-        edge_norm_dict = {
-            k: (edge, self.module_dict[k]) for k, edge in graph.hyper_edge_sets.items() if k in self.module_dict.keys()
+        hyper_edge_set_norm_dict = {
+            k: (hyper_edge_set, self.module_dict[k])
+            for k, hyper_edge_set in graph.hyper_edge_sets.items()
+            if k in self.module_dict.keys()
         }
 
         def apply_norm(edge_norm: tuple[JaxHyperEdgeSet, TDigestModule]) -> JaxHyperEdgeSet:
-            edge, normalizer = edge_norm
-            array = edge.feature_array
-            if edge.feature_array is not None:
-                if edge.feature_array.shape[-2] > 0:
-                    array = normalizer(array, jnp.expand_dims(edge.non_fictitious, -1))
+            hyper_edge_set, normalizer = edge_norm
+            array = hyper_edge_set.feature_array
+            if hyper_edge_set.feature_array is not None:
+                if hyper_edge_set.feature_array.shape[-2] > 0:
+                    array = normalizer(array, jnp.expand_dims(hyper_edge_set.non_fictitious, -1))
             return JaxHyperEdgeSet(
                 feature_array=array,
-                feature_names=edge.feature_names,
-                non_fictitious=edge.non_fictitious,
-                address_dict=edge.address_dict,
+                feature_names=hyper_edge_set.feature_names,
+                non_fictitious=hyper_edge_set.non_fictitious,
+                address_dict=hyper_edge_set.address_dict,
             )
 
-        normalized_edge_dict = jax.tree.map(apply_norm, edge_norm_dict, is_leaf=(lambda x: isinstance(x, tuple)))
+        normalized_hyper_edge_sets = jax.tree.map(
+            apply_norm, hyper_edge_set_norm_dict, is_leaf=(lambda x: isinstance(x, tuple))
+        )
 
         normalized_context = JaxGraph(
-            hyper_edge_sets=normalized_edge_dict,
+            hyper_edge_sets=normalized_hyper_edge_sets,
             non_fictitious_addresses=graph.non_fictitious_addresses,
             true_shape=graph.true_shape,
             current_shape=graph.current_shape,
