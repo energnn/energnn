@@ -5,23 +5,22 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
 import copy
-import os
-import pickle
+
 import numpy as np
 import pytest
 
-from energnn.graph.edge import Edge
-from energnn.graph.shape import GraphShape
 from energnn.graph.graph import (
     Graph,
-    collate_graphs,
-    separate_graphs,
-    concatenate_graphs,
-    check_edge_dict_type,
+    check_hyper_edge_set_dict_type,
     check_valid_addresses,
+    collate_graphs,
+    concatenate_graphs,
     get_statistics,
+    separate_graphs,
 )
-from tests.graph.utils import make_simple_edge, make_graph_with_registry
+from energnn.graph.hyper_edge_set import HyperEdgeSet
+from energnn.graph.shape import GraphShape
+from tests.graph.utils import make_graph_with_registry, make_simple_edge
 
 
 def test_from_dict_and_basic_props():
@@ -52,8 +51,7 @@ def test_feature_flat_array_getter_and_setter_and_shape_mismatch():
     e2 = make_simple_edge(n_obj=2)
     # rename features to ensure ordering across edges
     edges = {"a": e1, "b": e2}
-    registry = np.arange(4, dtype=np.float32)
-    g = Graph.from_dict(edge_dict=edges, registry=registry)
+    g = Graph.from_dict(hyper_edge_set_dict=edges, n_addresses=np.array(4))
     flat = g.feature_flat_array
     # Should be 1D since single graph
     assert flat.ndim == 1
@@ -69,19 +67,19 @@ def test_feature_flat_array_getter_and_setter_and_shape_mismatch():
 def test_pad_and_unpad_graph():
     g = make_graph_with_registry(n_addresses=5, n_obj=2)
     # create a target shape with larger counts per edge
-    target_edges = {k: np.array(int(v) + 3) for k, v in g.current_shape.edges.items()}
+    target_edges = {k: np.array(int(v) + 3) for k, v in g.current_shape.hyper_edge_sets.items()}
     target_addresses = np.array(int(g.current_shape.addresses) + 4)
-    target_shape = GraphShape(edges=target_edges, addresses=target_addresses)
+    target_shape = GraphShape(hyper_edge_sets=target_edges, addresses=target_addresses)
     # pad
     g.pad(target_shape)
     # after pad, shapes should match target
     for k in target_edges:
-        assert g.edges[k].n_obj == int(target_edges[k])
+        assert g.hyper_edge_sets[k].n_obj == int(target_edges[k])
     assert len(g.non_fictitious_addresses) == int(target_addresses)
     # unpad should restore true_shape
     g.unpad()
-    for k, v in g.true_shape.edges.items():
-        assert g.edges[k].n_obj == int(v)
+    for k, v in g.true_shape.hyper_edge_sets.items():
+        assert g.hyper_edge_sets[k].n_obj == int(v)
     assert len(g.non_fictitious_addresses) == int(g.true_shape.addresses)
 
 
@@ -90,9 +88,8 @@ def test_count_connected_components_simple():
     # Edge with two objects: one connects 0 and 1, the other connects only 2 (self-loop)
     address_dict = {"u": np.array([0, 2], dtype=np.float32), "v": np.array([1, 2], dtype=np.float32)}
     feature_dict = {"val": np.array([0.1, 0.2], dtype=np.float32)}
-    e = Edge.from_dict(address_dict=address_dict, feature_dict=feature_dict)
-    registry = np.arange(3, dtype=np.float32)
-    g = Graph.from_dict(edge_dict={"e": e}, registry=registry)
+    e = HyperEdgeSet.from_dict(port_dict=address_dict, feature_dict=feature_dict)
+    g = Graph.from_dict(hyper_edge_set_dict={"e": e}, n_addresses=np.array(3))
     n_comp, labels = g.count_connected_components()
     # Expect two components: {0,1} and {2}
     assert n_comp == 2
@@ -105,10 +102,10 @@ def test_count_connected_components_simple():
 
 def test_offset_addresses_affects_edges_but_not_registry():
     g1 = make_graph_with_registry(n_addresses=4, n_obj=2)
-    orig_a = copy.deepcopy(g1.edges["etype"].address_dict)
+    orig_a = copy.deepcopy(g1.hyper_edge_sets["etype"].port_dict)
     g1.offset_addresses(10)
     for k in orig_a:
-        np.testing.assert_allclose(g1.edges["etype"].address_dict[k], orig_a[k] + 10)
+        np.testing.assert_allclose(g1.hyper_edge_sets["etype"].port_dict[k], orig_a[k] + 10)
     # registry mask unchanged by edge offset
     assert len(g1.non_fictitious_addresses) == 4
 
@@ -116,8 +113,8 @@ def test_offset_addresses_affects_edges_but_not_registry():
 def test_quantiles_single_and_batch_behavior():
     # Single graph: feature array [0,1,2,3,4] -> known quantiles
     arr_single = np.array([0.0, 1.0, 2.0, 3.0, 4.0], dtype=np.float32)
-    e_single = Edge.from_dict(address_dict={"a": np.arange(arr_single.size)}, feature_dict={"f0": arr_single})
-    g_single = Graph.from_dict(edge_dict={"E": e_single}, registry=np.arange(10, dtype=np.float32))
+    e_single = HyperEdgeSet.from_dict(port_dict={"a": np.arange(arr_single.size)}, feature_dict={"f0": arr_single})
+    g_single = Graph.from_dict(hyper_edge_set_dict={"E": e_single}, n_addresses=np.array(10))
 
     q_single = g_single.quantiles(q_list=[0.0, 50.0, 100.0])
     # 0th -> 0, 50th -> 2, 100th -> 4
@@ -128,10 +125,10 @@ def test_quantiles_single_and_batch_behavior():
     # Batch case: two graphs with features [0,1,2] and [3,4,5]
     arr_a = np.array([0.0, 1.0, 2.0], dtype=np.float32)
     arr_b = np.array([3.0, 4.0, 5.0], dtype=np.float32)
-    ea = Edge.from_dict(address_dict={"a": np.arange(arr_a.size)}, feature_dict={"f0": arr_a})
-    eb = Edge.from_dict(address_dict={"a": np.arange(arr_b.size)}, feature_dict={"f0": arr_b})
-    ga = Graph.from_dict(edge_dict={"E": ea}, registry=np.arange(10, dtype=np.float32))
-    gb = Graph.from_dict(edge_dict={"E": eb}, registry=np.arange(10, dtype=np.float32))
+    ea = HyperEdgeSet.from_dict(port_dict={"a": np.arange(arr_a.size)}, feature_dict={"f0": arr_a})
+    eb = HyperEdgeSet.from_dict(port_dict={"a": np.arange(arr_b.size)}, feature_dict={"f0": arr_b})
+    ga = Graph.from_dict(hyper_edge_set_dict={"E": ea}, n_addresses=np.array(10))
+    gb = Graph.from_dict(hyper_edge_set_dict={"E": eb}, n_addresses=np.array(10))
     batch = collate_graphs([ga, gb])
 
     q_batch = batch.quantiles(q_list=[50.0])
@@ -149,7 +146,7 @@ def test_collate_and_separate_graphs_roundtrip():
     assert isinstance(separated, list)
     assert len(separated) == 2
     # compare some properties
-    assert separated[0].true_shape.edges.keys() == g1.true_shape.edges.keys()
+    assert separated[0].true_shape.hyper_edge_sets.keys() == g1.true_shape.hyper_edge_sets.keys()
     # addresses recovered
     assert len(separated[0].non_fictitious_addresses) == len(g1.non_fictitious_addresses)
 
@@ -167,23 +164,23 @@ def test_concatenate_graphs_preserves_counts_and_addresses():
 def test_check_edge_dict_type_and_valid_addresses_errors():
     # not a dict
     with pytest.raises(TypeError):
-        check_edge_dict_type("not a dict")
+        check_hyper_edge_set_dict_type("not a dict")
     # value not an Edge
     with pytest.raises(TypeError):
-        check_edge_dict_type({"a": 123})
+        check_hyper_edge_set_dict_type({"a": 123})
     # invalid addresses: create an edge with an address >= n_addresses
     e = make_simple_edge(n_obj=2)
-    e.address_dict["dst"] = np.array([0, 10], dtype=np.float32)  # 10 out of range for n_addresses=5
+    e.port_dict["dst"] = np.array([0, 10], dtype=np.float32)  # 10 out of range for n_addresses=5
     with pytest.raises(AssertionError):
         check_valid_addresses({"e": e}, np.array(5))
 
 
 def test_get_statistics_basic_and_with_norm():
     # Build two edges with small known features
-    e1 = Edge.from_dict(address_dict={"a": np.array([0, 1])}, feature_dict={"x": np.array([1.0, 2.0])})
-    e2 = Edge.from_dict(address_dict={"a": np.array([0, 1])}, feature_dict={"x": np.array([2.0, 4.0])})
-    g1 = Graph.from_dict(edge_dict={"T": e1}, registry=np.arange(2, dtype=np.float32))
-    g2 = Graph.from_dict(edge_dict={"T": e2}, registry=np.arange(2, dtype=np.float32))
+    e1 = HyperEdgeSet.from_dict(port_dict={"a": np.array([0, 1])}, feature_dict={"x": np.array([1.0, 2.0])})
+    e2 = HyperEdgeSet.from_dict(port_dict={"a": np.array([0, 1])}, feature_dict={"x": np.array([2.0, 4.0])})
+    g1 = Graph.from_dict(hyper_edge_set_dict={"T": e1}, n_addresses=np.array(2))
+    g2 = Graph.from_dict(hyper_edge_set_dict={"T": e2}, n_addresses=np.array(2))
 
     stats = get_statistics(g1, axis=None, norm_graph=g2)
 

@@ -3,7 +3,7 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 # SPDX-License-Identifier: MPL-2.0
-#
+
 import json
 import os
 import pickle
@@ -26,8 +26,8 @@ class ProblemDataset(dict):
     :param context_max_shape: Maximum dimensions of context graphs across instances.
     :param decision_max_shape: Maximum dimensions of decision graphs across instances.
     :param generation_date: Timestamp when the dataset was generated.
-    :param selection_criteria: A dictionnary that contains some criteria
-    :param tags: Key-value tags associated to the dataset for grouping or filtering.
+    :param selection_criteria: A dictionary that contains some criteria
+    :param tags: Key-value tags associated with the dataset for grouping or filtering.
     """
 
     def __init__(
@@ -92,7 +92,7 @@ class ProblemDataset(dict):
         """
         Serialize the dataset to a JSON file for human-readable archives.
 
-        Note: JSON output will not preserve Python types on load.
+        Note: JSON output will not preserve Python types on loading.
 
         :param file_path: Target JSON file path.
         :raises IOError: If writing to the file system fails.

@@ -4,16 +4,16 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
-import numpy as np
 import jax
 import jax.numpy as jnp
+import numpy as np
 
 import energnn.model.normalizer.tdigest_normalizer as tdn
+from energnn.graph.jax import JaxGraph, JaxHyperEdgeSet
 from energnn.model.normalizer.tdigest_normalizer import (
     TDigestModule,
     TDigestNormalizer,
 )
-from energnn.graph.jax import JaxEdge, JaxGraph
 from energnn.problem.example import LinearSystemProblemLoader
 
 # TDigestNormalizer relies on float32 explicitly in io_callback.
@@ -165,20 +165,20 @@ def test_tdigest_module_call_updates_and_maps_values():
 
 def test_tdigest_normalizer_apply_preserves_none_feature_edges(monkeypatch):
     # Build graph with one edge having None features and another with features
-    node_edge_with_none = JaxEdge(
-        address_dict=jax_context.edges["source"].address_dict,
+    node_edge_with_none = JaxHyperEdgeSet(
+        port_dict=jax_context.hyper_edge_sets["source"].port_dict,
         feature_array=None,
         feature_names=None,
-        non_fictitious=jax_context.edges["source"].non_fictitious,
+        non_fictitious=jax_context.hyper_edge_sets["source"].non_fictitious,
     )
-    edge_with_feat = JaxEdge(
-        address_dict=jax_context.edges["arrow"].address_dict,
-        feature_array=jnp.ones((jax_context.edges["arrow"].feature_array.shape[0], 2), dtype=jnp.float32),
+    edge_with_feat = JaxHyperEdgeSet(
+        port_dict=jax_context.hyper_edge_sets["arrow"].port_dict,
+        feature_array=jnp.ones((jax_context.hyper_edge_sets["arrow"].feature_array.shape[0], 2), dtype=jnp.float32),
         feature_names={"f1": jnp.array(0), "f2": jnp.array(1)},
-        non_fictitious=jax_context.edges["arrow"].non_fictitious,
+        non_fictitious=jax_context.hyper_edge_sets["arrow"].non_fictitious,
     )
     g = JaxGraph(
-        edges={"source": node_edge_with_none, "arrow": edge_with_feat},
+        hyper_edge_sets={"source": node_edge_with_none, "arrow": edge_with_feat},
         non_fictitious_addresses=jax_context.non_fictitious_addresses,
         true_shape=jax_context.true_shape,
         current_shape=jax_context.current_shape,
@@ -192,8 +192,8 @@ def test_tdigest_normalizer_apply_preserves_none_feature_edges(monkeypatch):
     out_graph, _ = normalizer(graph=g, get_info=False)
 
     # source edge had None -> must remain None
-    assert out_graph.edges["source"].feature_array is None
+    assert out_graph.hyper_edge_sets["source"].feature_array is None
     # edge with features must be multiplied by 2 and masked by non_fictitious
     mask2 = np.array(edge_with_feat.non_fictitious)
     expected = np.array(edge_with_feat.feature_array) * mask2[..., None] * 2.0
-    np.testing.assert_allclose(np.array(out_graph.edges["arrow"].feature_array), expected, rtol=1e-6, atol=1e-6)
+    np.testing.assert_allclose(np.array(out_graph.hyper_edge_sets["arrow"].feature_array), expected, rtol=1e-6, atol=1e-6)

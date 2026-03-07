@@ -11,15 +11,15 @@ from flax import nnx
 
 from energnn.model import (
     CenterReduceNormalizer,
-    LocalSumMessageFunction,
+    GNN,
+    LocalSumMessagePassingFunction,
     MLP,
     MLPEncoder,
     MLPEquivariantDecoder,
-    NeuralODECoupler,
-    SimpleGNN,
+    NODECoupler,
 )
-from energnn.trainer import SimpleTrainer
 from energnn.problem.example import LinearSystemProblemLoader
+from energnn.trainer import Trainer
 
 
 def test_simple_trainer(tmp_path):
@@ -38,10 +38,10 @@ def test_simple_trainer(tmp_path):
         out_size=4,
         seed=64,
     )
-    coupler = NeuralODECoupler(
+    coupler = NODECoupler(
         phi=MLP(in_size=4, hidden_sizes=[], out_size=4, seed=64, final_activation=nnx.tanh),
         message_functions=[
-            LocalSumMessageFunction(
+            LocalSumMessagePassingFunction(
                 in_graph_structure=train_loader.context_structure,
                 in_array_size=4,
                 out_size=4,
@@ -69,13 +69,13 @@ def test_simple_trainer(tmp_path):
         activation=nnx.leaky_relu,
         seed=64,
     )
-    model = SimpleGNN(normalizer=normalizer, encoder=encoder, coupler=coupler, decoder=decoder)
+    model = GNN(normalizer=normalizer, encoder=encoder, coupler=coupler, decoder=decoder)
 
     ckpt_manager = ocp.CheckpointManager(
         directory=tmp_path / "test_trainer", options=ocp.CheckpointManagerOptions(max_to_keep=10)
     )
 
-    trainer = SimpleTrainer(
+    trainer = Trainer(
         model=model,
         gradient_transformation=optax.adam(1e-3),
     )

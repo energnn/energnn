@@ -3,106 +3,110 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 # SPDX-License-Identifier: MPL-2.0
-#
+
 from __future__ import annotations
 
 import numpy as np
 
-from energnn.graph.edge import Edge
+from energnn.graph.hyper_edge_set import HyperEdgeSet
 
-EDGES = "edges"
+HYPER_EDGE_SETS = "hyper_edge_sets"
 ADDRESSES = "addresses"
 
 
 class GraphShape(dict):
     """
-    Represents the shape of a graph, including counts of edges per class and registry size.
+    Represents the shape of a graph, including counts of hyper-edge sets per class and registry size.
 
     This class extends `dict` and maintains two keys:
-    - ``EDGES``: dict mapping edge class names to count arrays.
-    - ``ADDRESSES``: array representing number of non-fictitious nodes.
+    - ``HYPER_EDGE_SETS``: dict mapping hyper-edge set class names to count arrays.
+    - ``ADDRESSES``: array representing the number of non-fictitious nodes.
 
-    :param edges: Dictionary of that contains the number of objects for each class.
+    :param hyper_edge_sets: Dictionary of that contains the number of objects for each class.
     :param addresses: Number of addresses in the graph.
     """
 
-    def __init__(self, *, edges: dict[str, np.ndarray], addresses: np.ndarray):
+    def __init__(self, *, hyper_edge_sets: dict[str, np.ndarray], addresses: np.ndarray):
         super().__init__()
-        self[EDGES] = edges
+        self[HYPER_EDGE_SETS] = hyper_edge_sets
         self[ADDRESSES] = addresses
 
     @classmethod
-    def from_dict(cls, edge_dict: dict[str, Edge], non_fictitious: np.ndarray) -> GraphShape:
+    def from_dict(cls, hyper_edge_set_dict: dict[str, HyperEdgeSet], non_fictitious: np.ndarray) -> GraphShape:
         """
-        Builds a new GraphShape object from edge dictionary and registry.
+        Builds a new GraphShape object from a hyper-edge set dictionary and registry.
 
-        :param edge_dict: mapping from edge class name to `Edge` instance.
-        :param non_fictitious: optional numpy array whose last dimension indicates registry size.
-        :return: new GraphShape instance.
+        :param hyper_edge_set_dict: Mapping from a hyper-edge set class name to a `HyperEdgeSet` instance.
+        :param non_fictitious: Optional numpy array whose last dimension indicates registry size.
+        :return: New GraphShape instance.
         """
-        edge_shape_dict = {k: np.array(v.n_obj) for (k, v) in edge_dict.items()}
+        hyper_edge_set_shape_dict = {k: np.array(v.n_obj) for (k, v) in hyper_edge_set_dict.items()}
         if non_fictitious is not None:
             addresses = np.array(non_fictitious.shape[0])
         else:
             addresses = np.array([0])
-        return cls(edges=edge_shape_dict, addresses=addresses)
+        return cls(hyper_edge_sets=hyper_edge_set_shape_dict, addresses=addresses)
 
     def to_jsonable_dict(self):
         """
         Serialize GraphShape to JSON-friendly dict.
 
-        :return: dict with 'edges' mapping to ints and 'addresses' as int.
+        :return: Dict with 'HyperEdgeSet' mapping to ints and 'addresses' as int.
         """
-        return {EDGES: {k: int(v) for k, v in self.edges.items()}, ADDRESSES: int(self.addresses)}
+        return {HYPER_EDGE_SETS: {k: int(v) for k, v in self.hyper_edge_sets.items()}, ADDRESSES: int(self.addresses)}
 
     @classmethod
     def from_jsonable_dict(cls, count_shape: dict) -> GraphShape:
         """
-        Deserialize GraphShape from JSON-friendly dict.
+        Deserialize GraphShape from a JSON-friendly dictionary.
 
-        :param count_shape: dict with 'edges' and 'addresses'.
+        :param count_shape: Dict with 'hyper_edge_sets' and 'addresses'.
         :return: Reconstructed GraphShape.
         """
-        edges = {k: np.array(v) for k, v in count_shape[EDGES].items()}
+        hyper_edge_sets = {k: np.array(v) for k, v in count_shape[HYPER_EDGE_SETS].items()}
         addresses = np.array(count_shape[ADDRESSES])
-        return cls(edges=edges, addresses=addresses)
+        return cls(hyper_edge_sets=hyper_edge_sets, addresses=addresses)
 
     @classmethod
     def max(cls, a: GraphShape, b: GraphShape) -> GraphShape:
         """
         Returns the maximum shape of 2 graph shapes.
 
-        :param a: first graph shape
-        :param b: second graph shape
-        :return: a graph shape with maxima per edge class and addresses
+        :param a: A first graph shape.
+        :param b: A second graph shape.
+        :return: A graph shape with maxima per hyper-edge set class and addresses.
         """
-        edge_classes = set(list(a.edges.keys()) + list(b.edges.keys()))
-        edge_shape_max = {}
-        for edge_class in edge_classes:
-            edge_shape_max[edge_class] = np.maximum(a.edges.get(edge_class, -np.inf), b.edges.get(edge_class, -np.inf))
+        hyper_edge_set_classes = set(list(a.hyper_edge_sets.keys()) + list(b.hyper_edge_sets.keys()))
+        hyper_edge_set_shape_max = {}
+        for hyper_edge_set_class in hyper_edge_set_classes:
+            hyper_edge_set_shape_max[hyper_edge_set_class] = np.maximum(
+                a.hyper_edge_sets.get(hyper_edge_set_class, -np.inf), b.hyper_edge_sets.get(hyper_edge_set_class, -np.inf)
+            )
         addresses = np.maximum(a.addresses, b.addresses)
-        return cls(edges=edge_shape_max, addresses=addresses)
+        return cls(hyper_edge_sets=hyper_edge_set_shape_max, addresses=addresses)
 
     @classmethod
     def sum(cls, a: GraphShape, b: GraphShape) -> GraphShape:
         """
         Returns the sum shape of 2 graph shapes.
 
-        :param a: first graph shape
-        :param b: second graph shape
-        :return: a graph shape with summed counts per edge class and addresses
+        :param a: A first graph shape.
+        :param b: A second graph shape.
+        :return: A graph shape with summed counts per hyper-edge set class and addresses.
         """
-        edge_classes = set(list(a.edges.keys()) + list(b.edges.keys()))
-        edge_shape_max = {}
-        for edge_class in edge_classes:
-            edge_shape_max[edge_class] = a.edges.get(edge_class, 0) + b.edges.get(edge_class, 0)
+        hyper_edge_set_classes = set(list(a.hyper_edge_sets.keys()) + list(b.hyper_edge_sets.keys()))
+        hyper_edge_set_shape_max = {}
+        for hyper_edge_set_class in hyper_edge_set_classes:
+            hyper_edge_set_shape_max[hyper_edge_set_class] = a.hyper_edge_sets.get(
+                hyper_edge_set_class, 0
+            ) + b.hyper_edge_sets.get(hyper_edge_set_class, 0)
         addresses = a.addresses + b.addresses
-        return cls(edges=edge_shape_max, addresses=addresses)
+        return cls(hyper_edge_sets=hyper_edge_set_shape_max, addresses=addresses)
 
     @property
-    def edges(self) -> dict[str, np.ndarray]:
-        """Dictionary of edge shapes."""
-        return self[EDGES]
+    def hyper_edge_sets(self) -> dict[str, np.ndarray]:
+        """Dictionary of hyper-edge set shapes."""
+        return self[HYPER_EDGE_SETS]
 
     @property
     def addresses(self) -> np.ndarray:
@@ -111,25 +115,25 @@ class GraphShape(dict):
 
     @property
     def array(self) -> np.ndarray:
-        """Concatenated edge shapes as a single array."""
-        return np.stack([v for v in self.edges.values()], axis=-1)
+        """Concatenated hyper-edge set shapes as a single array."""
+        return np.stack([v for v in self.hyper_edge_sets.values()], axis=-1)
 
     @property
     def is_single(self) -> bool:
-        """True if array is 1-D:"""
+        """True if the array is 1-D."""
         return len(self.array.shape) == 1
 
     @property
     def is_batch(self) -> bool:
-        """True if array is 2-D:"""
+        """True if the array is 2-D."""
         return len(self.array.shape) == 2
 
     @property
     def n_batch(self) -> int:
         """
-        Return the batch size
+        Return the batch size.
 
-        :raises ValueError: If GraphShape is not batched
+        :raises ValueError: If GraphShape is not batched.
         """
         if not self.is_batch:
             raise ValueError("GraphShape is not batched.")
@@ -138,38 +142,40 @@ class GraphShape(dict):
 
 def collate_shapes(shape_list: list[GraphShape]) -> GraphShape:
     """
-    Batch a list of GraphShape into one batched GraphShape.
+    Batches a list of GraphShape into one batched GraphShape.
 
-    :param shape_list: list of GraphShape objects (must share edge keys)
-    :return: batched GraphShape with stacked arrays
-    :raises ValueError: if input list is empty
+    :param shape_list: List of GraphShape objects (must share hyper-edge set keys).
+    :return: Batched GraphShape with stacked arrays.
+    :raises ValueError: If the input list is empty.
     """
     if not shape_list:
         raise ValueError("Empty shape list provided to collate_shapes.")
 
-    edge_shape_batch = {k: np.stack([s.edges[k] for s in shape_list], axis=0) for k in shape_list[0].edges}
+    hyper_edge_set_shape_batch = {
+        k: np.stack([s.hyper_edge_sets[k] for s in shape_list], axis=0) for k in shape_list[0].hyper_edge_sets
+    }
     addresses_batch = np.stack([s.addresses for s in shape_list], axis=0)
-    return GraphShape(edges=edge_shape_batch, addresses=addresses_batch)
+    return GraphShape(hyper_edge_sets=hyper_edge_set_shape_batch, addresses=addresses_batch)
 
 
 def separate_shapes(shape_batch: GraphShape) -> list[GraphShape]:
     """
-    Split a batched GraphShape into individual GraphShape instances.
+    Splits a batched GraphShape into individual GraphShape instances.
 
-    :param shape_batch: GraphShape with 2D edge and address arrays
-    :return: list of GraphShape (one per batch)
-    :raises ValueError: if input is not batched
+    :param shape_batch: GraphShape with 2D hyper-edge sets and address arrays.
+    :return: List of GraphShape (one per batch).
+    :raises ValueError: If input is not batched.
     """
     if not shape_batch.is_batch:
         raise ValueError("Input GraphShape must be batched for separation.")
 
     addresses_list = np.unstack(shape_batch.addresses, axis=0)
-    a = {k: np.unstack(shape_batch.edges[k]) for k in shape_batch.edges}
-    edges_list = [dict(zip(a, t)) for t in zip(*a.values())]  # TODO : vérifier que ça fonctionne comme on veut.
+    a = {k: np.unstack(shape_batch.hyper_edge_sets[k]) for k in shape_batch.hyper_edge_sets}
+    hyper_edge_set_list = [dict(zip(a, t)) for t in zip(*a.values())]
 
     shape_list = []
-    for a, e in zip(addresses_list, edges_list):
-        shape = GraphShape(edges=e, addresses=a)
+    for a, e in zip(addresses_list, hyper_edge_set_list):
+        shape = GraphShape(hyper_edge_sets=e, addresses=a)
         shape_list.append(shape)
     return shape_list
 
@@ -182,8 +188,8 @@ def max_shape(graph_shape_list: list[GraphShape]) -> GraphShape:
     are systematically included in the output.
 
     :param graph_shape_list: List of graph shapes to be compared.
-    :return: GraphShape with maxima per edge class and addresses
-    :raises ValueError: if list is empty or contains non-GraphShape
+    :return: GraphShape with maxima per hyper-edge set class and addresses.
+    :raises ValueError: If the list is empty or contains non-GraphShape.
     """
     if not graph_shape_list:
         raise ValueError("Empty input list given for max_shape.")
@@ -201,8 +207,8 @@ def sum_shapes(graph_shape_list: list[GraphShape]) -> GraphShape:
     Returns the sum graph shape from a list of graph shapes.
 
     :param graph_shape_list: List of graph shapes to be summed.
-    :return: GraphShape with summed counts per edge class and addresses
-    :raises ValueError: if list is empty or contains non-GraphShape
+    :return: GraphShape with summed counts per hyper-edge set class and addresses.
+    :raises ValueError: If the list is empty or contains non-GraphShape.
     """
     if not graph_shape_list:
         raise ValueError("Empty input list given for sum_shapes.")

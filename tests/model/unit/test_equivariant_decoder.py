@@ -4,14 +4,14 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
-import numpy as np
 import chex
 import jax
 import jax.numpy as jnp
+import numpy as np
 
+from energnn.graph import GraphStructure, HyperEdgeSetStructure
+from energnn.graph.jax import JaxGraph, JaxHyperEdgeSet
 from energnn.model.decoder.equivariant_decoder import MLPEquivariantDecoder
-from energnn.graph import GraphStructure, EdgeStructure
-from energnn.graph.jax import JaxGraph, JaxEdge
 from energnn.problem.example import LinearSystemProblemLoader
 
 # Prepare deterministic data and loader
@@ -25,9 +25,9 @@ coordinates_batch = jnp.array(np.random.uniform(size=(4, 10, 7)))
 
 # out_structure must be a GraphStructure
 default_out_structure = GraphStructure(
-    edges={
-        "source": EdgeStructure(address_list=["id"], feature_list=["e"]),
-        "arrow": EdgeStructure(address_list=["from", "to"], feature_list=["f"]),
+    hyper_edge_sets={
+        "source": HyperEdgeSetStructure(port_list=["id"], feature_list=["e"]),
+        "arrow": HyperEdgeSetStructure(port_list=["from", "to"], feature_list=["f"]),
     }
 )
 
@@ -84,8 +84,8 @@ def test_mlp_equivariant_decoder_init_deterministic():
 
 def test_mlp_equivariant_decoder_single_shapes_and_masking():
     # Construct custom graph where some objects are fictitious (mask 0)
-    node_edge = jax_context.edges["source"]
-    edge_edge = jax_context.edges["arrow"]
+    node_edge = jax_context.hyper_edge_sets["source"]
+    edge_edge = jax_context.hyper_edge_sets["arrow"]
 
     def n_obj_from(e):
         if e.feature_array is not None:
@@ -98,30 +98,30 @@ def test_mlp_equivariant_decoder_single_shapes_and_masking():
     # set first element fictitious for source edge to test masking
     node_nf = jnp.array(np.array(node_edge.non_fictitious))
     node_nf = node_nf.at[0].set(0)
-    e1 = JaxEdge(
-        address_dict=node_edge.address_dict,
+    e1 = JaxHyperEdgeSet(
+        port_dict=node_edge.port_dict,
         feature_array=jnp.ones((n_node, 2)),
         feature_names={"a": jnp.array(0), "b": jnp.array(1)},
         non_fictitious=node_nf,
     )
-    e2 = JaxEdge(
-        address_dict=edge_edge.address_dict,
+    e2 = JaxHyperEdgeSet(
+        port_dict=edge_edge.port_dict,
         feature_array=jnp.ones((n_edge, 3)),
         feature_names={"c": jnp.array(0), "d": jnp.array(1), "e": jnp.array(2)},
         non_fictitious=edge_edge.non_fictitious,
     )
 
     custom_graph = JaxGraph(
-        edges={"source": e1, "arrow": e2},
+        hyper_edge_sets={"source": e1, "arrow": e2},
         non_fictitious_addresses=jax_context.non_fictitious_addresses,
         true_shape=jax_context.true_shape,
         current_shape=jax_context.current_shape,
     )
 
     custom_in_structure = GraphStructure(
-        edges={
-            "source": EdgeStructure(address_list=["id"], feature_list=["a", "b"]),
-            "arrow": EdgeStructure(address_list=["from", "to"], feature_list=["c", "d", "e"]),
+        hyper_edge_sets={
+            "source": HyperEdgeSetStructure(port_list=["id"], feature_list=["a", "b"]),
+            "arrow": HyperEdgeSetStructure(port_list=["from", "to"], feature_list=["c", "d", "e"]),
         }
     )
 
@@ -137,12 +137,18 @@ def test_mlp_equivariant_decoder_single_shapes_and_masking():
     out, info = decoder(graph=custom_graph, coordinates=coordinates, get_info=True)
 
     # shapes
-    assert set(out.edges.keys()) == set(default_out_structure.edges.keys())
-    assert out.edges["source"].feature_array.shape == (n_node, len(default_out_structure.edges["source"].feature_list))
-    assert out.edges["arrow"].feature_array.shape == (n_edge, len(default_out_structure.edges["arrow"].feature_list))
+    assert set(out.hyper_edge_sets.keys()) == set(default_out_structure.hyper_edge_sets.keys())
+    assert out.hyper_edge_sets["source"].feature_array.shape == (
+        n_node,
+        len(default_out_structure.hyper_edge_sets["source"].feature_list),
+    )
+    assert out.hyper_edge_sets["arrow"].feature_array.shape == (
+        n_edge,
+        len(default_out_structure.hyper_edge_sets["arrow"].feature_list),
+    )
 
     # Masking: first row for source must be all zeros (we set non_fictitious[0]=0)
-    node_out_np = np.array(out.edges["source"].feature_array)
+    node_out_np = np.array(out.hyper_edge_sets["source"].feature_array)
     assert np.allclose(node_out_np[0], 0.0)
     # and at least one non-zero exists for other (unmasked) rows
     assert np.any(np.abs(node_out_np[1:]) > 1e-8)
@@ -166,7 +172,9 @@ def test_mlp_equivariant_decoder_mlp_dict_initialization():
     """
     Check that MLPs are correctly initialized in decoder.mlp_dict based on out_structure.
     """
-    out_structure = GraphStructure(edges={"source": EdgeStructure(address_list=["id"], feature_list=["y0", "y1"])})
+    out_structure = GraphStructure(
+        hyper_edge_sets={"source": HyperEdgeSetStructure(port_list=["id"], feature_list=["y0", "y1"])}
+    )
     decoder = MLPEquivariantDecoder(
         in_graph_structure=pb_loader.context_structure,
         in_array_size=7,
@@ -188,7 +196,7 @@ def test_mlp_equivariant_decoder_numeric_identity_node():
     """
     d = coordinates.shape[1]
     out_struct_node = GraphStructure(
-        edges={"source": EdgeStructure(address_list=["id"], feature_list=[f"o{i}" for i in range(d)])}
+        hyper_edge_sets={"source": HyperEdgeSetStructure(port_list=["id"], feature_list=[f"o{i}" for i in range(d)])}
     )
     decoder = MLPEquivariantDecoder(
         in_graph_structure=pb_loader.context_structure,
@@ -206,9 +214,9 @@ def test_mlp_equivariant_decoder_numeric_identity_node():
     decoder.mlp_dict["source"] = select_coords
 
     out_graph, _ = decoder(graph=jax_context, coordinates=coordinates, get_info=False)
-    node_out = out_graph.edges["source"].feature_array  # shape (n_obj, d)
-    node_edge = jax_context.edges["source"]
-    addr = np.array(node_edge.address_dict["id"]).astype(int)
+    node_out = out_graph.hyper_edge_sets["source"].feature_array  # shape (n_obj, d)
+    node_edge = jax_context.hyper_edge_sets["source"]
+    addr = np.array(node_edge.port_dict["id"]).astype(int)
     coords = np.array(coordinates)
     nf = np.array(node_edge.non_fictitious).astype(float)
     expected = coords[addr] * nf[:, None]
@@ -222,10 +230,12 @@ def test_mlp_equivariant_decoder_numeric_identity_edge():
     Expected: concat(coords[addr0], coords[addr1], feature_array) * non_fictitious
     """
     d = coordinates.shape[1]
-    edge_feature_dim = int(jax_context.edges["arrow"].feature_array.shape[1])
+    edge_feature_dim = int(jax_context.hyper_edge_sets["arrow"].feature_array.shape[1])
     input_dim = 2 * d + edge_feature_dim
     out_struct_edge = GraphStructure(
-        edges={"arrow": EdgeStructure(address_list=["from", "to"], feature_list=[f"o{i}" for i in range(input_dim)])}
+        hyper_edge_sets={
+            "arrow": HyperEdgeSetStructure(port_list=["from", "to"], feature_list=[f"o{i}" for i in range(input_dim)])
+        }
     )
 
     decoder = MLPEquivariantDecoder(
@@ -243,11 +253,11 @@ def test_mlp_equivariant_decoder_numeric_identity_edge():
     decoder.mlp_dict["arrow"] = identity
 
     out_graph, _ = decoder(graph=jax_context, coordinates=coordinates, get_info=False)
-    edge_out = out_graph.edges["arrow"].feature_array  # shape (n_obj, input_dim)
+    edge_out = out_graph.hyper_edge_sets["arrow"].feature_array  # shape (n_obj, input_dim)
 
-    edge = jax_context.edges["arrow"]
-    addr0 = np.array(edge.address_dict["from"]).astype(int)
-    addr1 = np.array(edge.address_dict["to"]).astype(int)
+    edge = jax_context.hyper_edge_sets["arrow"]
+    addr0 = np.array(edge.port_dict["from"]).astype(int)
+    addr1 = np.array(edge.port_dict["to"]).astype(int)
     coords = np.array(coordinates)
     feats = np.array(edge.feature_array)
     nf = np.array(edge.non_fictitious).astype(float)

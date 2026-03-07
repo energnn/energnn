@@ -1,26 +1,31 @@
-#
 # Copyright (c) 2025, RTE (http://www.rte-france.com)
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
-#
+# SPDX-License-Identifier: MPL-2.0
+
 import copy
 from copy import deepcopy
 
 import numpy as np
 from omegaconf import DictConfig
 
-from energnn.graph import Edge, EdgeStructure, Graph, GraphShape, GraphStructure, collate_graphs
+from energnn.graph import Graph, GraphShape, GraphStructure, HyperEdgeSet, HyperEdgeSetStructure, collate_graphs
 from energnn.graph.jax import JaxGraph
-from energnn.problem import Problem, ProblemBatch, ProblemLoader, ProblemMetadata
+from ..batch import ProblemBatch
+from ..loader import ProblemLoader
+from ..metadata import ProblemMetadata
+from ..problem import Problem
 
 LINEAR_SYSTEM_CONTEXT_STRUCTURE = GraphStructure(
-    edges={
-        "arrow": EdgeStructure(address_list=["from", "to"], feature_list=["value"]),
-        "source": EdgeStructure(address_list=["id"], feature_list=["value"]),
+    hyper_edge_sets={
+        "arrow": HyperEdgeSetStructure(port_list=["from", "to"], feature_list=["value"]),
+        "source": HyperEdgeSetStructure(port_list=["id"], feature_list=["value"]),
     }
 )
-LINEAR_SYSTEM_DECISION_STRUCTURE = GraphStructure(edges={"source": EdgeStructure(address_list=None, feature_list=["value"])})
+LINEAR_SYSTEM_DECISION_STRUCTURE = GraphStructure(
+    hyper_edge_sets={"source": HyperEdgeSetStructure(port_list=None, feature_list=["value"])}
+)
 
 
 class LinearSystemProblemBatch(ProblemBatch):
@@ -64,10 +69,8 @@ class LinearSystemProblemBatch(ProblemBatch):
         jax_gradient = JaxGraph.from_numpy_graph(gradient)
         return jax_gradient, {}
 
-    def get_metrics(
-        self, decision: JaxGraph, cfg: DictConfig | None = None, get_info: bool = False
-    ) -> tuple[list[float], dict]:
-        """Returns the mean squared error of the decision :class:`Graph` w.r.t. the oracle :class:`Graph`."""
+    def get_score(self, decision: JaxGraph, cfg: DictConfig | None = None, get_info: bool = False) -> tuple[list[float], dict]:
+        """Returns the mean-squared error of the decision :class:`Graph` with regard to the oracle :class:`Graph`."""
         gradient = decision.to_numpy_graph()
         gradient.feature_flat_array = gradient.feature_flat_array - self.oracle.feature_flat_array
         objective = np.nanmean(np.square(gradient.feature_flat_array), axis=1)
@@ -121,8 +124,8 @@ class LinearSystemProblem(Problem):
         jax_gradient = JaxGraph.from_numpy_graph(gradient)
         return jax_gradient, {}
 
-    def get_metrics(self, decision: JaxGraph, cfg: DictConfig | None = None, get_info: bool = False) -> tuple[float, dict]:
-        """Returns the mean squared error of the decision :class:`Graph` w.r.t. the oracle :class:`Graph`."""
+    def get_score(self, decision: JaxGraph, cfg: DictConfig | None = None, get_info: bool = False) -> tuple[float, dict]:
+        """Returns the mean-squared error of the decision :class:`Graph` with regard to the oracle :class:`Graph`."""
         gradient = decision.to_numpy_graph()
         gradient.feature_flat_array = gradient.feature_flat_array - self.oracle.feature_flat_array
         objective = np.nanmean(np.square(gradient.feature_flat_array))
@@ -162,15 +165,15 @@ class LinearSystemProblemGenerator:
         A, b, x = _generate_sparse_linear_system(n, m)
 
         # Context
-        arrow_edge = Edge.from_dict(
-            address_dict={"from": np.nonzero(A)[0], "to": np.nonzero(A)[1]}, feature_dict={"value": A[np.nonzero(A)]}
+        arrow_edge = HyperEdgeSet.from_dict(
+            port_dict={"from": np.nonzero(A)[0], "to": np.nonzero(A)[1]}, feature_dict={"value": A[np.nonzero(A)]}
         )
-        source_edge = Edge.from_dict(address_dict={"id": np.arange(n)}, feature_dict={"value": b})
-        context = Graph.from_dict(edge_dict={"arrow": arrow_edge, "source": source_edge}, registry=np.arange(n))
+        source_edge = HyperEdgeSet.from_dict(port_dict={"id": np.arange(n)}, feature_dict={"value": b})
+        context = Graph.from_dict(hyper_edge_set_dict={"arrow": arrow_edge, "source": source_edge}, n_addresses=n)
 
         # Oracle
-        source_edge = Edge.from_dict(address_dict=None, feature_dict={"value": x})
-        oracle = Graph.from_dict(edge_dict={"source": source_edge}, registry=np.arange(n))
+        source_edge = HyperEdgeSet.from_dict(port_dict=None, feature_dict={"value": x})
+        oracle = Graph.from_dict(hyper_edge_set_dict={"source": source_edge}, n_addresses=n)
 
         return LinearSystemProblem(context=context, oracle=oracle)
 
@@ -186,9 +189,9 @@ class LinearSystemProblemGenerator:
             oracle_list.append(oracle)
 
         max_context_shape = GraphShape(
-            edges={"arrow": np.array(self.n_max**2), "source": np.array(self.n_max)}, addresses=np.array(self.n_max)
+            hyper_edge_sets={"arrow": np.array(self.n_max**2), "source": np.array(self.n_max)}, addresses=np.array(self.n_max)
         )
-        max_oracle_shape = GraphShape(edges={"source": np.array(self.n_max)}, addresses=np.array(self.n_max))
+        max_oracle_shape = GraphShape(hyper_edge_sets={"source": np.array(self.n_max)}, addresses=np.array(self.n_max))
 
         [context.pad(target_shape=max_context_shape) for context in context_list]
         [oracle.pad(target_shape=max_oracle_shape) for oracle in oracle_list]
@@ -250,21 +253,23 @@ def compare_single_graphs(a: JaxGraph, b: JaxGraph, rtol=1e-5, atol=1e-6):
     """
     Compare two single (non-batched) JaxGraph objects component-wise.
     """
-    assert set(a.edges.keys()) == set(b.edges.keys()), f"Edge keys differ: {set(a.edges.keys())} vs {set(b.edges.keys())}"
-    for k in a.edges:
-        ae = a.edges[k]
-        be = b.edges[k]
+    assert set(a.hyper_edge_sets.keys()) == set(
+        b.hyper_edge_sets.keys()
+    ), f"Edge keys differ: {set(a.hyper_edge_sets.keys())} vs {set(b.hyper_edge_sets.keys())}"
+    for k in a.hyper_edge_sets:
+        ae = a.hyper_edge_sets[k]
+        be = b.hyper_edge_sets[k]
         # feature arrays
         if (ae.feature_array is None) != (be.feature_array is None):
             raise AssertionError(f"Feature presence mismatch for edge {k}")
         if ae.feature_array is not None:
             np.testing.assert_allclose(np.array(ae.feature_array), np.array(be.feature_array), rtol=rtol, atol=atol)
         # address_dict keys
-        a_keys = set(ae.address_dict.keys()) if ae.address_dict is not None else set()
-        b_keys = set(be.address_dict.keys()) if be.address_dict is not None else set()
+        a_keys = set(ae.port_dict.keys()) if ae.port_dict is not None else set()
+        b_keys = set(be.port_dict.keys()) if be.port_dict is not None else set()
         assert a_keys == b_keys
         for ak in a_keys:
-            np.testing.assert_allclose(np.array(ae.address_dict[ak]), np.array(be.address_dict[ak]), rtol=rtol, atol=atol)
+            np.testing.assert_allclose(np.array(ae.port_dict[ak]), np.array(be.port_dict[ak]), rtol=rtol, atol=atol)
         # non_fictitious mask
         if ae.non_fictitious is None or be.non_fictitious is None:
             assert ae.non_fictitious is be.non_fictitious

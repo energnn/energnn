@@ -3,7 +3,7 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 # SPDX-License-Identifier: MPL-2.0
-#
+
 from __future__ import annotations
 
 import jax
@@ -13,7 +13,7 @@ from jax.tree_util import register_pytree_node_class
 from energnn.graph.jax.utils import jnp_to_np, np_to_jnp
 from energnn.graph.shape import GraphShape
 
-EDGES = "edges"
+HYPER_EDGE_SETS = "hyper_edge_sets"
 ADDRESSES = "addresses"
 
 
@@ -23,23 +23,23 @@ class JaxGraphShape(dict):
     PyTree container for storing the number of objects in each class, and addresses in the graph.
 
     This class inherits from `dict` and stores two keys:
-    :param edges: Dictionary of that contains the number of objects for each class.
+    :param hyper_edge_sets: Dictionary of that contains the number of objects for each class.
     :param addresses: Number of addresses in the graph.
 
     The PyTree methods ``tree_flatten`` and ``tree_unflatten`` make this object
     compatible with JAX transformations (jit, vmap, etc.).
     """
 
-    def __init__(self, *, edges: dict[str, jax.Array], addresses: jax.Array):
+    def __init__(self, *, hyper_edge_sets: dict[str, jax.Array], addresses: jax.Array):
         super().__init__()
-        self[EDGES] = edges
+        self[HYPER_EDGE_SETS] = hyper_edge_sets
         self[ADDRESSES] = addresses
 
     def tree_flatten(self):
         """
         Flatten the JaxGraphShape for JAX PyTree compatibility.
 
-        :returns: flat children and auxiliary data (the keys order).
+        :returns: Flat children and auxiliary data (the keys order).
         """
         children = self.values()
         aux = self.keys()
@@ -50,17 +50,17 @@ class JaxGraphShape(dict):
         """
         Reconstruct a JaxGraphShape from flattened data, required for JAX compatibility.
 
-        :param aux_data: sequence of keys matching children order.
-        :param children: sequence of array values.
-        :return: a reconstructed JaxGraphShape instance.
+        :param aux_data: Sequence of keys matching the order of the children.
+        :param children: Sequence of array values.
+        :return: A reconstructed JaxGraphShape instance.
         """
         d = dict(zip(aux_data, children))
-        return cls(edges=d[EDGES], addresses=d[ADDRESSES])
+        return cls(hyper_edge_sets=d[HYPER_EDGE_SETS], addresses=d[ADDRESSES])
 
     @property
-    def edges(self) -> dict[str, jax.Array]:
+    def hyper_edge_sets(self) -> dict[str, jax.Array]:
         """Dictionary of edge shapes."""
-        return self[EDGES]
+        return self[HYPER_EDGE_SETS]
 
     @property
     def addresses(self) -> jax.Array:
@@ -72,7 +72,7 @@ class JaxGraphShape(dict):
         """
         Convert a classical numpy shape to a jax.numpy format for GNN processing.
 
-        This method transforms all array-like attributes of an ``GraphShape`` object into
+        This method transforms all array-like attributes of a ``GraphShape`` object into
         their JAX equivalents, allowing efficient use with JAX transformations and accelerators.
 
         :param shape: A shape object containing NumPy arrays to convert.
@@ -81,9 +81,9 @@ class JaxGraphShape(dict):
         :param dtype: Desired floating-point precision for converted arrays (e.g., "float32", "float64").
         :return: A JAX-compatible version of the shape, ready for use in GNN pipelines.
         """
-        edges = np_to_jnp(shape.edges, device=device, dtype=dtype)
+        hyper_edge_sets = np_to_jnp(shape.hyper_edge_sets, device=device, dtype=dtype)
         addresses = np_to_jnp(shape.addresses, device=device, dtype=dtype)
-        return cls(edges=edges, addresses=addresses)
+        return cls(hyper_edge_sets=hyper_edge_sets, addresses=addresses)
 
     def to_numpy_shape(self) -> GraphShape:
         """
@@ -94,6 +94,6 @@ class JaxGraphShape(dict):
 
         :return: A classical ``GraphShape`` object with NumPy arrays.
         """
-        edges = jnp_to_np(self.edges)
+        hyper_edge_sets = jnp_to_np(self.hyper_edge_sets)
         addresses = jnp_to_np(self.addresses)
-        return GraphShape(edges=edges, addresses=addresses)
+        return GraphShape(hyper_edge_sets=hyper_edge_sets, addresses=addresses)

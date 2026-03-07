@@ -87,7 +87,7 @@ It must implement:
 - :meth:`~energnn.problem.Problem.get_gradient`: Computes the gradient :math:`\nabla_y f` for a given decision :math:`y`.
   Depending on the use-case, the
   gradient can either be straightforward to compute, or require more expensive Monte-Carlo computations.
-- :meth:`~energnn.problem.Problem.get_metrics`: Evaluates the quality of a decision
+- :meth:`~energnn.problem.Problem.get_score`: Evaluates the quality of a decision
   (which may or may not coincide with the objective function).
 
 ProblemBatch
@@ -127,7 +127,13 @@ are all represented as **H2MGs** (*Hyper Heterogeneous Multi Graphs*).
 .. image:: _static/energnn_h2mg_white.png
     :class: only-dark
 
-In practice, a :class:`~energnn.graph.Graph` is a dictionary of :class:`~energnn.graph.Edge` objects, one per object class.
+H2MGs are made of hyper-edges (*i.e.* objects), which are interconnected via addresses.
+These addresses do not bear any numerical feature, and only serve as interface between hyper-edges, as illustrated
+by the figure above.
+All hyper-edges of the same class share the same feature and port keys.
+The order of an hyper-edge is the cardinality of its ports.
+
+In practice, a :class:`~energnn.graph.Graph` is a dictionary of :class:`~energnn.graph.HyperEdgeSet` objects.
 For computations with JAX, we use :class:`energnn.graph.JaxGraph`,
 which is an optimized version compatible with automatic differentiation.
 
@@ -139,11 +145,11 @@ Graph Neural Network Models
 ---------------------------
 
 **EnerGNN** provides a modular and parametrizable GNN library designed to natively process H2MG data.
-The main model, :class:`~energnn.model.SimpleGNN`, follows a modular pipeline:
+The main model, :class:`~energnn.model.GNN`, follows a modular pipeline:
 
 1. **Normalizer**. Adjusts the distribution of input features (e.g., uniformly distributed between -1 and 1).
 2. **Encoder**. Embeds input features into a latent space.
-3. **Coupler**. Handles information propagation (e.g., via Message Passing or Neural ODE) over the graph structure.
+3. **Coupler**. Handles information propagation (e.g., via iterative message passing) over the graph structure.
 4. **Decoder**. Produces the final decision from coupled latent representations.
 
 All modules inherit from :class:`flax.nnx.Module`, allowing great flexibility and perfect integration with the JAX ecosystem.
@@ -168,19 +174,19 @@ Notice that the GNN needs to know about the context and decision structures defi
 Trainer
 -------
 
-The :class:`~energnn.trainer.SimpleTrainer` orchestrates the learning process.
+The :class:`~energnn.trainer.Trainer` orchestrates the learning process.
 It takes as input a model, a gradient transformation (via `optax`), and handles the training loop.
 
 .. code-block:: python
 
     import optax
 
-    trainer = SimpleTrainer(model=model, gradient_transformation=optax.adam(1e-3))
+    trainer = Trainer(model=model, gradient_transformation=optax.adam(1e-3))
     trainer.train(train_loader=loader, n_epochs=10)
 
 Additionally, evaluation can be periodically run,
 checkpoints can be saved using `orbax`,
-and metrics / infos can be monitored using an experiment tracker.
+and score / infos can be monitored using an experiment tracker.
 
 .. code-block:: python
 

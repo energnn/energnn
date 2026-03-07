@@ -20,19 +20,19 @@ def compare_batched_graphs(*graphs, rtol=1e-6, atol=1e-6):
         return
 
     # check keys
-    keys0 = set(graphs[0].edges.keys())
+    keys0 = set(graphs[0].hyper_edge_sets.keys())
     for g in graphs[1:]:
-        if set(g.edges.keys()) != keys0:
-            raise AssertionError(f"Edge keys differ: {keys0} vs {set(g.edges.keys())}")
+        if set(g.hyper_edge_sets.keys()) != keys0:
+            raise AssertionError(f"Edge keys differ: {keys0} vs {set(g.hyper_edge_sets.keys())}")
 
     # for each edge key, compare feature_array, address_dict, non_fictitious
     for key in keys0:
-        base = graphs[0].edges[key]
+        base = graphs[0].hyper_edge_sets[key]
         # FEATURE ARRAYS (may be None)
         base_feat = base.feature_array
         base_np = None if base_feat is None else np.array(base_feat)
         for g in graphs[1:]:
-            feat = g.edges[key].feature_array
+            feat = g.hyper_edge_sets[key].feature_array
             feat_np = None if feat is None else np.array(feat)
             # both None -> ok
             if base_np is None and feat_np is None:
@@ -48,16 +48,18 @@ def compare_batched_graphs(*graphs, rtol=1e-6, atol=1e-6):
             np.testing.assert_allclose(base_np, feat_np, rtol=rtol, atol=atol)
 
         # ADDRESS DICTS: keys must match, arrays comparable (possibly batched)
-        base_addr_keys = set(base.address_dict.keys()) if base.address_dict is not None else set()
+        base_addr_keys = set(base.port_dict.keys()) if base.port_dict is not None else set()
         for g in graphs[1:]:
-            other_addr_keys = set(g.edges[key].address_dict.keys()) if g.edges[key].address_dict is not None else set()
+            other_addr_keys = (
+                set(g.hyper_edge_sets[key].port_dict.keys()) if g.hyper_edge_sets[key].port_dict is not None else set()
+            )
             if base_addr_keys != other_addr_keys:
                 raise AssertionError(f"Address dict keys differ for edge '{key}': {base_addr_keys} vs {other_addr_keys}")
 
         for ak in base_addr_keys:
-            base_addr_np = np.array(base.address_dict[ak])
+            base_addr_np = np.array(base.port_dict[ak])
             for g in graphs[1:]:
-                other_addr_np = np.array(g.edges[key].address_dict[ak])
+                other_addr_np = np.array(g.hyper_edge_sets[key].port_dict[ak])
                 if base_addr_np.shape != other_addr_np.shape:
                     raise AssertionError(
                         f"Address array shapes differ for edge '{key}' addr '{ak}': {base_addr_np.shape} vs {other_addr_np.shape}"
@@ -67,7 +69,9 @@ def compare_batched_graphs(*graphs, rtol=1e-6, atol=1e-6):
         # non_fictitious masks
         base_nf = np.array(base.non_fictitious) if base.non_fictitious is not None else None
         for g in graphs[1:]:
-            other_nf = np.array(g.edges[key].non_fictitious) if g.edges[key].non_fictitious is not None else None
+            other_nf = (
+                np.array(g.hyper_edge_sets[key].non_fictitious) if g.hyper_edge_sets[key].non_fictitious is not None else None
+            )
             if (base_nf is None) != (other_nf is None):
                 raise AssertionError(f"Non-fictitious presence mismatch for edge '{key}'")
             if base_nf is not None:
