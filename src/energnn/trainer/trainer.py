@@ -74,6 +74,14 @@ def _update_params(optimizer: nnx.Optimizer, model: GNN, gradient: nnx.State, ge
     return infos
 
 
+def _setup_ckpt_mngr(checkpoint_manager: CheckpointManager, optim_mode: Literal["minimize", "maximize"]):
+    checkpoint_manager._options.best_fn = lambda x: x["score"]
+    if optim_mode == "minimize":
+        checkpoint_manager._options.best_mode = "max"
+    elif optim_mode == "maximize":
+        checkpoint_manager._options.best_mode = "min"
+
+
 class Trainer:
     r"""
     Trainer implementation.
@@ -144,13 +152,8 @@ class Trainer:
         :param progress_bar: If true, display a progress bar during training.
         :return: Best average score obtained on the validation loader.
         """
-
         if checkpoint_manager is not None:
-            checkpoint_manager._options.best_fn = lambda x: x["score"]
-            if optim_mode == "minimize":
-                checkpoint_manager._options.best_mode = "max"
-            elif optim_mode == "maximize":
-                checkpoint_manager._options.best_mode = "min"
+            _setup_ckpt_mngr(checkpoint_manager, optim_mode=optim_mode)
 
         # Evaluation over the full validation loader before training.
         if eval_before_training and (val_loader is not None):
