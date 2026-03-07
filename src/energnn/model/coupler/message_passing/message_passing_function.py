@@ -16,7 +16,7 @@ from energnn.graph import GraphStructure, JaxGraph
 from energnn.model.utils import Activation, MLP, gather, scatter_add
 
 
-class MessageFunction(nnx.Module, ABC):
+class MessagePassingFunction(nnx.Module, ABC):
     r"""Interface for a message function :math:`\xi_\theta` in a GNN message passing scheme."""
 
     @abstractmethod
@@ -25,7 +25,7 @@ class MessageFunction(nnx.Module, ABC):
         raise NotImplementedError
 
 
-class LocalSumMessageFunction(MessageFunction):
+class LocalSumMessagePassingFunction(MessagePassingFunction):
     r"""
     Local sum-based message function module for GNN message passing.
 
@@ -164,7 +164,7 @@ class LocalSumMessageFunction(MessageFunction):
         return self.outer_activation(accumulator), {}
 
 
-class IdentityMessageFunction(MessageFunction):
+class IdentityMessagePassingFunction(MessagePassingFunction):
     r"""
     Identity local message function module for GNN message passing.
 
