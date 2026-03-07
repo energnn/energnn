@@ -12,7 +12,10 @@ from flax import nnx
 
 from energnn.graph import GraphStructure, HyperEdgeSetStructure
 from energnn.graph.jax import JaxGraph, JaxHyperEdgeSet
-from energnn.model.coupler.neural_ode.message_function import IdentityMessageFunction, LocalSumMessageFunction
+from energnn.model.coupler.message_passing.message_passing_function import (
+    IdentityMessagePassingFunction,
+    LocalSumMessagePassingFunction,
+)
 from energnn.model.utils import gather, scatter_add
 from energnn.problem.example import LinearSystemProblemLoader
 
@@ -94,7 +97,7 @@ class ConstantMLP:
         return jnp.tile(self.out_vec[None, :], (n, 1))
 
 
-def patch_all_mlps_to_identity(mf: LocalSumMessageFunction):
+def patch_all_mlps_to_identity(mf: LocalSumMessagePassingFunction):
     for ek in list(mf.mlp_tree.keys()):
         for pk in list(mf.mlp_tree[ek].keys()):
             mf.mlp_tree[ek][pk] = IdentityMLP()
@@ -158,14 +161,14 @@ def _assert_vmap_jit_consistent(mf, ctx_batch: JaxGraph, coords_batch: jnp.ndarr
 
 # Tests for IdentityMessageFunction
 def test_identity_returns_coordinates():
-    imf = IdentityMessageFunction()
+    imf = IdentityMessagePassingFunction()
     out, info = imf(graph=jax_context, coordinates=coordinates, get_info=True)
     np.testing.assert_allclose(np.array(out), np.array(coordinates))
     assert info == {}
 
 
 def test_identity_vmapped_and_jitted():
-    imf = IdentityMessageFunction()
+    imf = IdentityMessagePassingFunction()
     # batch vmapped
     out_b, _ = jax.vmap(lambda g, c, gi: imf(graph=g, coordinates=c, get_info=gi), in_axes=(0, 0, None))(
         jax_context_batch, coordinates_batch, False
@@ -179,7 +182,7 @@ def test_identity_vmapped_and_jitted():
 
 
 def test_identity_dtype_and_shape():
-    imf = IdentityMessageFunction()
+    imf = IdentityMessagePassingFunction()
     out, _ = imf(graph=jax_context, coordinates=coordinates, get_info=False)
     assert isinstance(out, jnp.ndarray)
     assert out.shape == coordinates.shape
@@ -187,7 +190,7 @@ def test_identity_dtype_and_shape():
 
 # Tests for LocalSumMessageFunction
 def test_mlp_tree_initialization_from_structure():
-    mf = LocalSumMessageFunction(
+    mf = LocalSumMessagePassingFunction(
         in_graph_structure=pb_loader.context_structure,
         in_array_size=coordinates.shape[1],
         hidden_sizes=[4],
@@ -215,7 +218,7 @@ def test_mlp_tree_input_sizes_with_and_without_features():
         }
     )
     in_array_size = 5
-    mf = LocalSumMessageFunction(
+    mf = LocalSumMessagePassingFunction(
         in_graph_structure=struct,
         in_array_size=in_array_size,
         hidden_sizes=[2],
@@ -231,7 +234,7 @@ def test_mlp_tree_input_sizes_with_and_without_features():
 
 def test_output_shape_and_dtype():
     out_size = 5
-    mf = LocalSumMessageFunction(
+    mf = LocalSumMessagePassingFunction(
         in_graph_structure=pb_loader.context_structure,
         in_array_size=coordinates.shape[1],
         hidden_sizes=[4],
@@ -266,7 +269,7 @@ def test_non_fictitious_masking():
         current_shape=jax_context.current_shape,
     )
 
-    mf = LocalSumMessageFunction(
+    mf = LocalSumMessagePassingFunction(
         in_graph_structure=pb_loader.context_structure,
         in_array_size=d,
         hidden_sizes=[],
@@ -292,7 +295,7 @@ def test_non_fictitious_masking():
 
 def test_final_activation_applied():
     # test with tanh activation
-    mf = LocalSumMessageFunction(
+    mf = LocalSumMessagePassingFunction(
         in_graph_structure=pb_loader.context_structure,
         in_array_size=coordinates.shape[1],
         hidden_sizes=[],
@@ -329,7 +332,7 @@ def test_local_sum_numeric_identity_basic():
         current_shape=jax_context.current_shape,
     )
 
-    mf = LocalSumMessageFunction(
+    mf = LocalSumMessagePassingFunction(
         in_graph_structure=pb_loader.context_structure,
         in_array_size=d,
         hidden_sizes=[],
@@ -366,7 +369,7 @@ def test_local_sum_with_features_included():
         current_shape=jax_context.current_shape,
     )
 
-    mf = LocalSumMessageFunction(
+    mf = LocalSumMessagePassingFunction(
         in_graph_structure=pb_loader.context_structure,
         in_array_size=coords.shape[1],
         hidden_sizes=[],
@@ -400,7 +403,7 @@ def test_multiple_edges_and_ports_independent_processing():
         current_shape=jax_context.current_shape,
     )
 
-    mf = LocalSumMessageFunction(
+    mf = LocalSumMessagePassingFunction(
         in_graph_structure=pb_loader.context_structure,
         in_array_size=coords.shape[1],
         hidden_sizes=[],
@@ -430,7 +433,7 @@ def test_multiple_edges_and_ports_independent_processing():
 
 
 def test_deterministic_with_seed():
-    mf1 = LocalSumMessageFunction(
+    mf1 = LocalSumMessagePassingFunction(
         in_graph_structure=pb_loader.context_structure,
         in_array_size=coordinates.shape[1],
         hidden_sizes=[4],
@@ -439,7 +442,7 @@ def test_deterministic_with_seed():
         outer_activation=nnx.identity,
         seed=7,
     )
-    mf2 = LocalSumMessageFunction(
+    mf2 = LocalSumMessagePassingFunction(
         in_graph_structure=pb_loader.context_structure,
         in_array_size=coordinates.shape[1],
         hidden_sizes=[4],
@@ -454,7 +457,7 @@ def test_deterministic_with_seed():
 
 
 def test_vmap_jit_safety_after_build():
-    mf = LocalSumMessageFunction(
+    mf = LocalSumMessagePassingFunction(
         in_graph_structure=pb_loader.context_structure,
         in_array_size=coordinates.shape[1],
         hidden_sizes=[2],
@@ -471,7 +474,7 @@ def test_vmap_jit_safety_after_build():
 def test_empty_graph_returns_zeros():
     # graph with no edges
     g = JaxGraph(hyper_edge_sets={}, non_fictitious_addresses=jnp.ones((5,)), true_shape=None, current_shape=None)
-    mf = LocalSumMessageFunction(
+    mf = LocalSumMessagePassingFunction(
         in_graph_structure=pb_loader.context_structure,
         in_array_size=3,
         hidden_sizes=[2],
@@ -494,7 +497,7 @@ def test_addresses_out_of_bounds_handling():
         port_dict={"from": addr_from, "to": addr_to}, feature_array=None, feature_names=None, non_fictitious=jnp.ones((2,))
     )
     g = JaxGraph(hyper_edge_sets={"arrow": edge}, non_fictitious_addresses=jnp.ones((2,)), true_shape=None, current_shape=None)
-    mf = LocalSumMessageFunction(
+    mf = LocalSumMessagePassingFunction(
         in_graph_structure=pb_loader.context_structure,
         in_array_size=coords.shape[1],
         hidden_sizes=[],

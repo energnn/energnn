@@ -5,13 +5,19 @@
 # SPDX-License-Identifier: MPL-2.0
 
 from .coupler import Coupler
-from .neural_ode import IdentityMessageFunction, LocalSumMessageFunction, MessageFunction, NeuralODECoupler, RecurrentCoupler
+from .message_passing import (
+    IdentityMessagePassingFunction,
+    LocalSumMessagePassingFunction,
+    MessagePassingFunction,
+    NODECoupler,
+    RecurrentCoupler,
+)
 
 __all__ = [
     "Coupler",
-    "NeuralODECoupler",
-    "IdentityMessageFunction",
-    "LocalSumMessageFunction",
-    "MessageFunction",
+    "NODECoupler",
+    "IdentityMessagePassingFunction",
+    "LocalSumMessagePassingFunction",
+    "MessagePassingFunction",
     "RecurrentCoupler",
 ]

@@ -4,7 +4,7 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 # SPDX-License-Identifier: MPL-2.0
 
-from .coupler import Coupler, LocalSumMessageFunction, NeuralODECoupler, RecurrentCoupler
+from .coupler import Coupler, LocalSumMessagePassingFunction, NODECoupler, RecurrentCoupler
 from .decoder import Decoder, EquivariantDecoder, InvariantDecoder, MLPEquivariantDecoder
 from .encoder import Encoder, IdentityEncoder, MLPEncoder
 from .gnn import GNN
@@ -23,8 +23,8 @@ __all__ = [
     "EquivariantDecoder",
     "TDigestNormalizer",
     "CenterReduceNormalizer",
-    "NeuralODECoupler",
-    "LocalSumMessageFunction",
+    "NODECoupler",
+    "LocalSumMessagePassingFunction",
     "MLPEquivariantDecoder",
     "MLP",
     "RecurrentCoupler",
