@@ -69,9 +69,7 @@ class LinearSystemProblemBatch(ProblemBatch):
         jax_gradient = JaxGraph.from_numpy_graph(gradient)
         return jax_gradient, {}
 
-    def get_metrics(
-        self, decision: JaxGraph, cfg: DictConfig | None = None, get_info: bool = False
-    ) -> tuple[list[float], dict]:
+    def get_score(self, decision: JaxGraph, cfg: DictConfig | None = None, get_info: bool = False) -> tuple[list[float], dict]:
         """Returns the mean-squared error of the decision :class:`Graph` with regard to the oracle :class:`Graph`."""
         gradient = decision.to_numpy_graph()
         gradient.feature_flat_array = gradient.feature_flat_array - self.oracle.feature_flat_array
@@ -126,7 +124,7 @@ class LinearSystemProblem(Problem):
         jax_gradient = JaxGraph.from_numpy_graph(gradient)
         return jax_gradient, {}
 
-    def get_metrics(self, decision: JaxGraph, cfg: DictConfig | None = None, get_info: bool = False) -> tuple[float, dict]:
+    def get_score(self, decision: JaxGraph, cfg: DictConfig | None = None, get_info: bool = False) -> tuple[float, dict]:
         """Returns the mean-squared error of the decision :class:`Graph` with regard to the oracle :class:`Graph`."""
         gradient = decision.to_numpy_graph()
         gradient.feature_flat_array = gradient.feature_flat_array - self.oracle.feature_flat_array

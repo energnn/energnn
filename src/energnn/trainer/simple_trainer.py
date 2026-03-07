@@ -80,7 +80,7 @@ class SimpleTrainer:
     This basic trainer relies on the training of a permutation-equivariant
     Graph Neural Network :math:`\hat{y}_\theta` over a dataset of problem instances.
     For a fixed problem instance with objective function :math:`f`
-    and context :math:`x`, the parameter :math:`\theta` is updated as follows,
+    and context :math:`x`, the parameter :math:`\theta` is updated in the following gradient descent step,
 
     .. math::
         \theta \gets \theta - \alpha . J_\theta[\hat{y}_\theta](x)^\top .
@@ -110,7 +110,7 @@ class SimpleTrainer:
         self.model: SimpleGNN = model
         self.optimizer = nnx.Optimizer(self.model, gradient_transformation, wrt=nnx.Param)
         self.train_step: int = 0
-        self.best_metrics: float = float("inf")
+        self.best_score: float | None = None
 
     def train(
         self,
@@ -125,6 +125,7 @@ class SimpleTrainer:
         eval_before_training: bool = False,
         eval_after_epoch: bool = True,
         progress_bar: bool = True,
+        optim_mode: Literal["minimize", "maximize"] = "minimize",
     ) -> float:
         r"""
         Trains the model over the train loader, periodically validates the model, tracks metrics, and checkpoints the model.
@@ -132,6 +133,7 @@ class SimpleTrainer:
         :param train_loader: Problem loader used for training.
         :param val_loader: Problem loader used for validation.
         :param checkpoint_manager: Checkpoint manager for saving checkpoints.
+        :param optim_mode: Optimization mode, either "minimize" or "maximize". Overrides the checkpoint manager's `best_mode`.
         :param n_epochs: Number of training epochs to perform.
         :param tracker: Experiment tracker.
         :param log_period: Number of training iterations between two logs, None for no logs.
@@ -139,8 +141,15 @@ class SimpleTrainer:
         :param eval_before_training: If true, evaluate metrics over the full validation loader before training.
         :param eval_after_epoch: If true, evaluate metrics over the full validation loader after each epoch.
         :param progress_bar: If true, display a progress bar during training.
-        :return: Best average metrics obtained on the validation loader.
+        :return: Best average score obtained on the validation loader.
         """
+
+        if checkpoint_manager is not None:
+            checkpoint_manager._options.best_fn = lambda x: x["score"]
+            if optim_mode == "minimize":
+                checkpoint_manager._options.best_mode = "max"
+            elif optim_mode == "maximize":
+                checkpoint_manager._options.best_mode = "min"
 
         # Evaluation over the full validation loader before training.
         if eval_before_training and (val_loader is not None):
@@ -149,6 +158,7 @@ class SimpleTrainer:
                 progress_bar=progress_bar,
                 tracker=tracker,
                 checkpoint_manager=checkpoint_manager,
+                optim_mode=optim_mode,
                 position=0,
             )
 
@@ -173,6 +183,7 @@ class SimpleTrainer:
                         progress_bar=progress_bar,
                         tracker=tracker,
                         checkpoint_manager=checkpoint_manager,
+                        optim_mode=optim_mode,
                         position=0,
                     )
 
@@ -187,12 +198,13 @@ class SimpleTrainer:
                     progress_bar=progress_bar,
                     tracker=tracker,
                     checkpoint_manager=checkpoint_manager,
+                    optim_mode=optim_mode,
                     position=0,
                 )
 
         if checkpoint_manager is not None:
             checkpoint_manager.wait_until_finished()
-        return self.best_metrics
+        return self.best_score
 
     def run_evaluation(
         self,
@@ -201,6 +213,7 @@ class SimpleTrainer:
         progress_bar: bool = True,
         tracker: Tracker = None,
         checkpoint_manager: CheckpointManager | None = None,
+        optim_mode: Literal["minimize", "maximize"] = "minimize",
         position: int = 0,
     ) -> float:
         """
@@ -211,27 +224,32 @@ class SimpleTrainer:
         :param tracker: Experiment tracker.
         :param checkpoint_manager: Checkpoint manager for saving checkpoints.
         :param position: Position of the progress bar if shown.
-        :return: Average metrics obtained on the validation set.
+        :return: Average score obtained on the validation set.
         """
         self.model.eval()  # Set model to eval mode
 
-        metrics, infos = self.eval(val_loader, progress_bar=progress_bar, position=position)
-        if metrics < self.best_metrics:
-            self.best_metrics = metrics
+        mean_score, infos = self.eval(val_loader, progress_bar=progress_bar, position=position)
+        if self.best_score is None:
+            self.best_score = mean_score
+        else:
+            if (optim_mode == "minimize") and (mean_score < self.best_score):
+                self.best_score = mean_score
+            elif (optim_mode == "maximize") and (mean_score > self.best_score):
+                self.best_score = mean_score
 
         if tracker is not None:
             tracker.run_append(infos={"eval": infos}, step=self.train_step)
 
         if checkpoint_manager is not None:
-            self.save_checkpoint(checkpoint_manager=checkpoint_manager, metrics=metrics)
+            self.save_checkpoint(checkpoint_manager=checkpoint_manager, score=mean_score)
 
-        return metrics
+        return mean_score
 
-    def save_checkpoint(self, *, checkpoint_manager: CheckpointManager, metrics: float) -> None:
+    def save_checkpoint(self, *, checkpoint_manager: CheckpointManager, score: float) -> None:
         """Saves the current model and optimizer state as a checkpoint.
 
         :param checkpoint_manager: Checkpoint manager to use for saving the checkpoint.
-        :param metrics: Metrics obtained on the validation set.
+        :param score: Mean score obtained on the validation set.
 
         Returns:
             str | None: Local path to the saved checkpoint directory,
@@ -243,7 +261,7 @@ class SimpleTrainer:
             "model": model_state,
             "optimizer": opt_state,
             "step": self.train_step,
-            "metrics": metrics,
+            "score": score,
         }
         checkpoint_manager.save(self.train_step, args=ocp.args.Composite(default=ocp.args.StandardSave(checkpoint_data)))
 
@@ -261,7 +279,7 @@ class SimpleTrainer:
 
         _, model_state = nnx.split(self.model)
         _, opt_state = nnx.split(self.optimizer)
-        abstract_checkpoint_data = {"model": model_state, "optimizer": opt_state, "step": self.train_step, "metrics": 0.0}
+        abstract_checkpoint_data = {"model": model_state, "optimizer": opt_state, "step": self.train_step, "score": 0.0}
         restored = checkpoint_manager.restore(
             step, args=ocp.args.Composite(default=ocp.args.StandardRestore(abstract_checkpoint_data))
         )
@@ -272,23 +290,23 @@ class SimpleTrainer:
 
     def eval(self, loader: ProblemLoader, progress_bar: bool = False, position: int = 0) -> tuple[float, dict]:
         """
-        Evaluates the amortizer over a problem loader by averaging the metrics scalar.
+        Evaluates the amortizer over a problem loader by averaging the score scalar.
 
         :param loader: Problem loader over which the amortizer is evaluated.
         :param progress_bar: If true, display a progress bar during evaluation.
         :param position: Position of the progress bar if shown.
-        :return: Average metrics obtained over the problem loader.
+        :return: Average score obtained over the problem loader.
         """
-        metrics_list, infos_list = [], []
+        score_list, infos_list = [], []
         pbar = tqdm(loader, desc="Validation", unit="batch", leave=True, disable=not progress_bar, position=position)
         for step, problem_batch in enumerate(pbar):
-            metrics_batch, info_batch = self.eval_step(step, problem_batch)
-            metrics_list.append(metrics_batch)
+            score_batch, info_batch = self.eval_step(step, problem_batch)
+            score_list.append(score_batch)
             infos_list.append(info_batch)
             if progress_bar:
-                pbar.set_postfix(metrics=f"{np.nanmean(np.concatenate(metrics_list)):.4e}")
+                pbar.set_postfix(score=f"{np.nanmean(np.concatenate(score_list)):.4e}")
 
-        metrics = np.nanmean(np.concatenate(metrics_list)).astype(float)
+        mean_score = np.nanmean(np.concatenate(score_list)).astype(float)
 
         # Concatenate all infos together.
         keys = set.union(*[set(info_batch.keys()) for info_batch in infos_list])
@@ -299,9 +317,9 @@ class SimpleTrainer:
                 infos[k] = np.stack(vals)
             else:
                 infos[k] = np.concatenate(vals)
-        infos["metrics"] = metrics
+        infos["score"] = mean_score
 
-        return metrics, infos
+        return mean_score, infos
 
     def training_step(self, problem_batch: ProblemBatch, get_info: bool) -> dict:
         """
@@ -359,7 +377,7 @@ class SimpleTrainer:
 
         :param eval_step: Index of the current evaluation step.
         :param problem_batch: A problem batch.
-        :return: A batch of metrics and a dictionary of batched information.
+        :return: A batch of scores and a dictionary of batched information.
         """
         with TaskLogger(logger, f"Eval step {eval_step}"):
             infos = {}
@@ -373,10 +391,10 @@ class SimpleTrainer:
 
             jax_decision, infos["2_forward"], rest_updated = nnx.jit(f)(model=self.model, context=jax_context)
 
-            metrics, infos["3_metrics"] = problem_batch.get_metrics(decision=jax_decision, get_info=True)
+            score, infos["3_score"] = problem_batch.get_score(decision=jax_decision, get_info=True)
 
         # Flatten and numpify infos
         infos = flatdict.FlatDict(infos, delimiter="/")
         infos = {k: np.array(v) for k, v in infos.items()}
 
-        return metrics, infos
+        return score, infos

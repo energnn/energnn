@@ -52,7 +52,7 @@ class StubProblem(Problem):
     def get_gradient(self, *, decision, get_info=False, cfg=None):
         return decision, {}
 
-    def get_metrics(self, *, decision, get_info=False, cfg=None):
+    def get_score(self, *, decision, get_info=False, cfg=None):
         return 0.0, {}
 
     def get_metadata(self):
@@ -135,7 +135,7 @@ def test_get_methods_return_tuple_and_info():
             info = {"ginfo": "ok"} if get_info else {}
             return g, info
 
-        def get_metrics(self, *, decision, get_info=False, cfg=None):
+        def get_score(self, *, decision, get_info=False, cfg=None):
             metric = 3.14
             info = {"minfo": "m"} if get_info else {}
             return metric, info
@@ -156,7 +156,7 @@ def test_get_methods_return_tuple_and_info():
     assert isinstance(grad, Graph)
     assert g_info == {"ginfo": "ok"}
 
-    metric, m_info = p.get_metrics(decision=zd, get_info=True)
+    metric, m_info = p.get_score(decision=zd, get_info=True)
     assert isinstance(metric, float)
     assert m_info == {"minfo": "m"}
 
@@ -201,7 +201,7 @@ def test_save_writes_file(tmp_path):
 
 
 def test_integration_minimal_pipeline():
-    """Integration: context -> zero_decision -> gradient -> metrics with numeric checks."""
+    """Integration: context -> zero_decision -> gradient -> score with numeric checks."""
 
     class P(StubProblem):
         def get_context(self, get_info=False):
@@ -218,7 +218,7 @@ def test_integration_minimal_pipeline():
                 g[k] = make_dummy_edge_mock(feature_names=e.feature_names, feature_array=2.0 * e.feature_array)
             return make_dummy_graph_mock(edges=g), {}
 
-        def get_metrics(self, *, decision, get_info=False, cfg=None):
+        def get_score(self, *, decision, get_info=False, cfg=None):
             total = 0.0
             for e in decision.hyper_edge_sets.values():
                 total += float(jnp.sum(e.feature_array**2))
@@ -232,6 +232,6 @@ def test_integration_minimal_pipeline():
         np.testing.assert_allclose(
             np.array(grad.hyper_edge_sets[k].feature_array), 2.0 * np.array(decision.hyper_edge_sets[k].feature_array)
         )
-    metric, _ = p.get_metrics(decision=decision)
+    metric, _ = p.get_score(decision=decision)
     # for decision [[1],[2]] metric = 1^2 + 2^2 = 5.0
     assert pytest.approx(metric, rel=1e-6) == 1.0**2 + 2.0**2

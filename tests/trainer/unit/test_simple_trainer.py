@@ -79,7 +79,7 @@ def test_trainer_init():
     assert trainer.model is model
     assert isinstance(trainer.optimizer, nnx.Optimizer)
     assert trainer.train_step == 0
-    assert trainer.best_metrics == float("inf")
+    assert trainer.best_score == None
 
 
 def test_training_step_basic():
@@ -123,14 +123,14 @@ def test_eval_step():
     trainer = SimpleTrainer(model=model, gradient_transformation=optax.sgd(1e-3))
 
     batch = next(iter(loader))
-    metrics, infos = trainer.eval_step(0, batch)
+    score, infos = trainer.eval_step(0, batch)
 
-    assert isinstance(metrics, list)
-    assert len(metrics) == 4
+    assert isinstance(score, list)
+    assert len(score) == 4
     assert isinstance(infos, dict)
     assert any(k.startswith("1_context") for k in infos.keys())
     assert any(k.startswith("2_forward") for k in infos.keys())
-    assert any(k.startswith("3_metrics") for k in infos.keys())
+    assert any(k.startswith("3_score") for k in infos.keys())
 
 
 def test_eval():
@@ -138,15 +138,15 @@ def test_eval():
     model = create_tiny_model(loader.context_structure)
     trainer = SimpleTrainer(model=model, gradient_transformation=optax.sgd(1e-3))
 
-    metrics, infos = trainer.eval(loader)
+    score, infos = trainer.eval(loader)
 
-    assert isinstance(metrics, float)
+    assert isinstance(score, float)
     assert isinstance(infos, dict)
-    assert "metrics" in infos
-    assert infos["metrics"] == metrics
+    assert "score" in infos
+    assert infos["score"] == score
 
 
-def test_run_evaluation_updates_best_metrics():
+def test_run_evaluation_updates_best_score():
     loader = LinearSystemProblemLoader(dataset_size=4, batch_size=4)
     model = create_tiny_model(loader.context_structure)
     trainer = SimpleTrainer(model=model, gradient_transformation=optax.sgd(1e-3))
@@ -155,13 +155,13 @@ def test_run_evaluation_updates_best_metrics():
 
     res = trainer.run_evaluation(val_loader=loader)
     assert res == 0.5
-    assert trainer.best_metrics == 0.5
+    assert trainer.best_score == 0.5
 
-    # Second call with worse metrics
+    # Second call with worse score
     trainer.eval = MagicMock(return_value=(0.8, {"some": "info"}))
     res = trainer.run_evaluation(val_loader=loader)
     assert res == 0.8
-    assert trainer.best_metrics == 0.5  # Kept previous best
+    assert trainer.best_score == 0.5  # Kept previous best
 
 
 def test_save_load_checkpoint(tmp_path):
@@ -176,14 +176,14 @@ def test_save_load_checkpoint(tmp_path):
     m_cp.directory = tmp_path
     m_cp.save.return_value = True
 
-    trainer.save_checkpoint(checkpoint_manager=m_cp, metrics=0.123)
+    trainer.save_checkpoint(checkpoint_manager=m_cp, score=0.123)
     m_cp.save.assert_called_once()
 
     # Load checkpoint
     m_cp.latest_step.return_value = 42
     _, model_state = nnx.split(model)
     _, opt_state = nnx.split(trainer.optimizer)
-    restored_data = {"default": {"model": model_state, "optimizer": opt_state, "step": 42, "metrics": 0.123}}
+    restored_data = {"default": {"model": model_state, "optimizer": opt_state, "step": 42, "score": 0.123}}
     m_cp.restore.return_value = restored_data
 
     trainer.train_step = 0  # reset
@@ -226,10 +226,11 @@ def test_train_with_tracker_and_storage():
     trainer = SimpleTrainer(model=model, gradient_transformation=optax.sgd(1e-3))
 
     from energnn.tracker import Tracker
-    from orbax.checkpoint import CheckpointManager
+    from orbax.checkpoint import CheckpointManager, CheckpointManagerOptions
 
     m_tracker = MagicMock(spec=Tracker)
     m_cp = MagicMock(spec=CheckpointManager)
+    m_cp._options = MagicMock(spec=CheckpointManagerOptions)
     m_cp.save.return_value = True
     m_cp.directory = MagicMock()
     m_cp.directory.__truediv__.return_value = "path/to/ckpt"

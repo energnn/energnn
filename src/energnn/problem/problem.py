@@ -15,7 +15,7 @@ class Problem(ABC):
     Base abstract class for graph-based optimization or learning problems.
 
     Subclasses must implement methods to retrieve the problem context graph,
-    an initial zero decision graph, compute gradients, evaluate metrics,
+    an initial zero decision graph, compute gradients, evaluate score,
     and provide problem metadata.
 
     Notes:
@@ -71,13 +71,13 @@ class Problem(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def get_metrics(self, *, decision: JaxGraph, get_info: bool = False) -> tuple[float, dict]:
-        """Should return a scalar metrics that evaluates the decision graph :math:`y`.
+    def get_score(self, *, decision: JaxGraph, get_info: bool = False) -> tuple[float, dict]:
+        """Should return a scalar `score` that evaluates the decision graph :math:`y`.
 
         :param decision: The decision graph to evaluate.
         :param get_info: Flag indicating if additional information should be returned for tracking purpose.
         :return: A tuple containing:
-            - **float**: A float as metric value.
+            - **float**: A float as score value.
             - **dict**: A dictionary of additional information (empty if `get_info=False`).
 
         :raises NotImplementedError: If the subclass does not override this constructor.

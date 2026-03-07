@@ -43,7 +43,7 @@ class FakeProblemBatch(ProblemBatch):
     def get_gradient(self, *, decision, get_info: bool = False, cfg=None):
         raise NotImplementedError
 
-    def get_metrics(self, *, decision, get_info: bool = False, cfg=None):
+    def get_score(self, *, decision, get_info: bool = False, cfg=None):
         raise NotImplementedError
 
     def get_zero_decision(self, get_info: bool = False):

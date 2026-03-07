@@ -44,7 +44,7 @@ class StubProblemBatch(ProblemBatch):
         info = {"ginfo": "ok"} if get_info else {}
         return decision, info
 
-    def get_metrics(self, *, decision, get_info: bool = False):
+    def get_score(self, *, decision, get_info: bool = False):
         info = {"minfo": "m"} if get_info else {}
         return [0.0], info
 
@@ -86,8 +86,8 @@ def test_methods_return_tuple_and_info():
     assert info == {"ginfo": "ok"}
 
     # get_metrics
-    metrics, info = pb.get_metrics(decision=dummy_graph, get_info=True)
-    assert isinstance(metrics, list)
+    score, info = pb.get_score(decision=dummy_graph, get_info=True)
+    assert isinstance(score, list)
     assert info == {"minfo": "m"}
 
 
