@@ -127,6 +127,12 @@ are all represented as **H2MGs** (*Hyper Heterogeneous Multi Graphs*).
 .. image:: _static/energnn_h2mg_white.png
     :class: only-dark
 
+H2MGs are made of hyper-edges (*i.e.* objects), which are interconnected via addresses.
+These addresses do not bear any numerical feature, and only serve as interface between hyper-edges, as illustrated
+by the figure above.
+All hyper-edges of the same class share the same feature and port keys.
+The order of an hyper-edge is the cardinality of its ports.
+
 In practice, a :class:`~energnn.graph.Graph` is a dictionary of :class:`~energnn.graph.HyperEdgeSet` objects.
 For computations with JAX, we use :class:`energnn.graph.JaxGraph`,
 which is an optimized version compatible with automatic differentiation.
