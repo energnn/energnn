@@ -101,7 +101,7 @@ def test_methods_return_tuple_and_info():
 def test_get_decision_structure_conversions(feature_names, expected_values):
     """get_decision_structure should correctly convert various int-like types to native ints."""
     edge = JaxHyperEdgeSet(
-        address_dict=None,
+        port_dict=None,
         feature_array=jnp.zeros((1, 2)),
         feature_names=feature_names,
         non_fictitious=jnp.ones((1,)),

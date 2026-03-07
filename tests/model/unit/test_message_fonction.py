@@ -55,16 +55,16 @@ def _unbatch_graph(batched_graph: JaxGraph, coordinates_batch: jax.Array, idx: i
 
         # address_dict
         addr_s = None
-        if e.address_dict is not None:
+        if e.port_dict is not None:
             addr_s = {}
-            for aname, aarr in e.address_dict.items():
+            for aname, aarr in e.port_dict.items():
                 if hasattr(aarr, "shape") and aarr.shape[0] == batch_size:
                     addr_s[aname] = aarr[idx]
                 else:
                     addr_s[aname] = aarr
 
         edges[k] = JaxHyperEdgeSet(
-            address_dict=addr_s,
+            port_dict=addr_s,
             feature_array=fa_s,
             feature_names=e.feature_names,
             non_fictitious=nf_s,
@@ -117,12 +117,12 @@ def compute_expected_local_sum(
         parts = []
         if edge.feature_names is not None and edge.feature_array is not None:
             parts.append(edge.feature_array)
-        for port_name, port_addr in edge.address_dict.items():
+        for port_name, port_addr in edge.port_dict.items():
             parts.append(gather(coordinates=coords, addresses=port_addr))
         input_array = jnp.concatenate(parts, axis=-1)
         non_fict = jnp.expand_dims(edge.non_fictitious, -1)
 
-        for port_name, port_addr in edge.address_dict.items():
+        for port_name, port_addr in edge.port_dict.items():
             if mlp_tree_funcs is None:
                 mlp = nnx.identity  # identity
             else:
@@ -201,7 +201,7 @@ def test_mlp_tree_initialization_from_structure():
     assert set(mf.mlp_tree.keys()) == expected_keys
     for ek in expected_keys:
         edge_struct = pb_loader.context_structure.hyper_edge_sets[ek]
-        assert set(mf.mlp_tree[ek].keys()) == set(edge_struct.address_list)
+        assert set(mf.mlp_tree[ek].keys()) == set(edge_struct.port_list)
         for pk in mf.mlp_tree[ek].keys():
             assert callable(mf.mlp_tree[ek][pk])
 
@@ -210,8 +210,8 @@ def test_mlp_tree_input_sizes_with_and_without_features():
     # create structure with one edge having features and one without
     struct = GraphStructure(
         hyper_edge_sets={
-            "A": HyperEdgeSetStructure(address_list=["id"], feature_list=["v1", "v2"]),
-            "B": HyperEdgeSetStructure(address_list=["id"], feature_list=None),
+            "A": HyperEdgeSetStructure(port_list=["id"], feature_list=["v1", "v2"]),
+            "B": HyperEdgeSetStructure(port_list=["id"], feature_list=None),
         }
     )
     in_array_size = 5
@@ -257,7 +257,7 @@ def test_non_fictitious_masking():
     non_fict = jnp.array([1.0, 0.0, 1.0])  # middle object fictitious
 
     edge = JaxHyperEdgeSet(
-        address_dict={"from": addr0, "to": addr1}, feature_array=None, feature_names=None, non_fictitious=non_fict
+        port_dict={"from": addr0, "to": addr1}, feature_array=None, feature_names=None, non_fictitious=non_fict
     )
     small_context = JaxGraph(
         hyper_edge_sets={"arrow": edge},
@@ -320,7 +320,7 @@ def test_local_sum_numeric_identity_basic():
     addr1 = jnp.array([1, 2, 3])
     n_obj = 3
     edge = JaxHyperEdgeSet(
-        address_dict={"from": addr0, "to": addr1}, feature_array=None, feature_names=None, non_fictitious=jnp.ones((n_obj,))
+        port_dict={"from": addr0, "to": addr1}, feature_array=None, feature_names=None, non_fictitious=jnp.ones((n_obj,))
     )
     small_context = JaxGraph(
         hyper_edge_sets={"arrow": edge},
@@ -354,7 +354,7 @@ def test_local_sum_with_features_included():
     n_obj = 2
     feat = jnp.array([[0.1, 0.2], [0.3, 0.4]])
     edge = JaxHyperEdgeSet(
-        address_dict={"from": addr0, "to": addr1},
+        port_dict={"from": addr0, "to": addr1},
         feature_array=feat,
         feature_names={"a": jnp.array(0), "b": jnp.array(1)},
         non_fictitious=jnp.ones((n_obj,)),
@@ -390,11 +390,9 @@ def test_multiple_edges_and_ports_independent_processing():
     addr_a1 = jnp.array([1, 2, 3])
     addr_b = jnp.array([0, 1, 3])
     edge_a = JaxHyperEdgeSet(
-        address_dict={"from": addr_a0, "to": addr_a1}, feature_array=None, feature_names=None, non_fictitious=jnp.ones((3,))
+        port_dict={"from": addr_a0, "to": addr_a1}, feature_array=None, feature_names=None, non_fictitious=jnp.ones((3,))
     )
-    edge_b = JaxHyperEdgeSet(
-        address_dict={"id": addr_b}, feature_array=None, feature_names=None, non_fictitious=jnp.ones((3,))
-    )
+    edge_b = JaxHyperEdgeSet(port_dict={"id": addr_b}, feature_array=None, feature_names=None, non_fictitious=jnp.ones((3,)))
     g = JaxGraph(
         hyper_edge_sets={"arrow": edge_a, "source": edge_b},
         non_fictitious_addresses=jnp.ones((n_addr,)),
@@ -493,7 +491,7 @@ def test_addresses_out_of_bounds_handling():
     addr_from = jnp.array([0, 10])  # 10 is out of bounds
     addr_to = jnp.array([0, 1])
     edge = JaxHyperEdgeSet(
-        address_dict={"from": addr_from, "to": addr_to}, feature_array=None, feature_names=None, non_fictitious=jnp.ones((2,))
+        port_dict={"from": addr_from, "to": addr_to}, feature_array=None, feature_names=None, non_fictitious=jnp.ones((2,))
     )
     g = JaxGraph(hyper_edge_sets={"arrow": edge}, non_fictitious_addresses=jnp.ones((2,)), true_shape=None, current_shape=None)
     mf = LocalSumMessageFunction(

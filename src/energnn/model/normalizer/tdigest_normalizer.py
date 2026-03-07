@@ -449,7 +449,7 @@ class TDigestNormalizer(Normalizer):
                 feature_array=array,
                 feature_names=hyper_edge_set.feature_names,
                 non_fictitious=hyper_edge_set.non_fictitious,
-                address_dict=hyper_edge_set.address_dict,
+                port_dict=hyper_edge_set.port_dict,
             )
 
         normalized_hyper_edge_sets = jax.tree.map(

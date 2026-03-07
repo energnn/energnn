@@ -14,8 +14,8 @@ from flax import nnx
 from energnn.graph import JaxGraph, JaxHyperEdgeSet
 from energnn.model import IdentityEncoder, SimpleGNN
 from energnn.problem.example import LinearSystemProblemLoader
-from energnn.trainer import SimpleTrainer
-from energnn.trainer.simple_trainer import _cast_cotangent_to_primal_dtype
+from energnn.trainer import Trainer
+from energnn.trainer.trainer import _cast_cotangent_to_primal_dtype
 
 
 class IdentityNormalizer(nnx.Module):
@@ -30,7 +30,7 @@ def create_tiny_model(context_structure):
             decision = JaxGraph(
                 hyper_edge_sets={
                     "source": JaxHyperEdgeSet(
-                        address_dict=None,
+                        port_dict=None,
                         feature_array=coordinates,
                         feature_names={"value": jnp.array(0)},
                         non_fictitious=jnp.ones(coordinates.shape[0]),
@@ -74,7 +74,7 @@ def test_trainer_init():
     loader = LinearSystemProblemLoader()
     model = create_tiny_model(loader.context_structure)
     optimizer = optax.sgd(1e-3)
-    trainer = SimpleTrainer(model=model, gradient_transformation=optimizer)
+    trainer = Trainer(model=model, gradient_transformation=optimizer)
 
     assert trainer.model is model
     assert isinstance(trainer.optimizer, nnx.Optimizer)
@@ -87,7 +87,7 @@ def test_training_step_basic():
     model = create_tiny_model(loader.context_structure)
     # Using SGD with huge learning rate to be absolutely sure we see a change
     optimizer = optax.sgd(100.0)
-    trainer = SimpleTrainer(model=model, gradient_transformation=optimizer)
+    trainer = Trainer(model=model, gradient_transformation=optimizer)
 
     batch = next(iter(loader))
 
@@ -120,7 +120,7 @@ def test_training_step_basic():
 def test_eval_step():
     loader = LinearSystemProblemLoader(dataset_size=4, batch_size=4)
     model = create_tiny_model(loader.context_structure)
-    trainer = SimpleTrainer(model=model, gradient_transformation=optax.sgd(1e-3))
+    trainer = Trainer(model=model, gradient_transformation=optax.sgd(1e-3))
 
     batch = next(iter(loader))
     score, infos = trainer.eval_step(0, batch)
@@ -136,7 +136,7 @@ def test_eval_step():
 def test_eval():
     loader = LinearSystemProblemLoader(dataset_size=8, batch_size=4)
     model = create_tiny_model(loader.context_structure)
-    trainer = SimpleTrainer(model=model, gradient_transformation=optax.sgd(1e-3))
+    trainer = Trainer(model=model, gradient_transformation=optax.sgd(1e-3))
 
     score, infos = trainer.eval(loader)
 
@@ -149,7 +149,7 @@ def test_eval():
 def test_run_evaluation_updates_best_score():
     loader = LinearSystemProblemLoader(dataset_size=4, batch_size=4)
     model = create_tiny_model(loader.context_structure)
-    trainer = SimpleTrainer(model=model, gradient_transformation=optax.sgd(1e-3))
+    trainer = Trainer(model=model, gradient_transformation=optax.sgd(1e-3))
 
     trainer.eval = MagicMock(return_value=(0.5, {"some": "info"}))
 
@@ -169,7 +169,7 @@ def test_save_load_checkpoint(tmp_path):
 
     loader = LinearSystemProblemLoader()
     model = create_tiny_model(loader.context_structure)
-    trainer = SimpleTrainer(model=model, gradient_transformation=optax.sgd(1e-3))
+    trainer = Trainer(model=model, gradient_transformation=optax.sgd(1e-3))
     trainer.train_step = 42
 
     m_cp = MagicMock(spec=CheckpointManager)
@@ -197,7 +197,7 @@ def test_train_loop_basic():
     val_loader = LinearSystemProblemLoader(dataset_size=2, batch_size=2)
 
     model = create_tiny_model(train_loader.context_structure)
-    trainer = SimpleTrainer(model=model, gradient_transformation=optax.sgd(1e-3))
+    trainer = Trainer(model=model, gradient_transformation=optax.sgd(1e-3))
 
     # Mock run_evaluation to avoid real eval overhead and just track calls
     trainer.run_evaluation = MagicMock(return_value=0.1)
@@ -223,7 +223,7 @@ def test_train_with_tracker_and_storage():
     train_loader = LinearSystemProblemLoader(dataset_size=2, batch_size=2)
     val_loader = LinearSystemProblemLoader(dataset_size=2, batch_size=2)
     model = create_tiny_model(train_loader.context_structure)
-    trainer = SimpleTrainer(model=model, gradient_transformation=optax.sgd(1e-3))
+    trainer = Trainer(model=model, gradient_transformation=optax.sgd(1e-3))
 
     from energnn.tracker import Tracker
     from orbax.checkpoint import CheckpointManager, CheckpointManagerOptions

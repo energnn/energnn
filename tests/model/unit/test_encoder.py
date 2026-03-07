@@ -95,7 +95,7 @@ def test_mlp_encoder_single_shapes_and_feature_names():
 def test_mlp_encoder_handles_none_feature_array_gracefully():
     # Build a JaxGraph with one edge having feature_array=None
     edge_with_none = JaxHyperEdgeSet(
-        address_dict=jax_context.hyper_edge_sets["arrow"].address_dict,
+        port_dict=jax_context.hyper_edge_sets["arrow"].port_dict,
         feature_array=None,
         feature_names=None,
         non_fictitious=jax_context.hyper_edge_sets["arrow"].non_fictitious,
@@ -150,13 +150,13 @@ def test_mlp_encoder_multiple_edge_types_independent_processing():
     n_obj_source = _n_obj(source_edge)
 
     e1 = JaxHyperEdgeSet(
-        address_dict=arrow_edge.address_dict,
+        port_dict=arrow_edge.port_dict,
         feature_array=jnp.ones((n_obj_arrow, 2), dtype=jnp.float32),
         feature_names={"a": jnp.array(0), "b": jnp.array(1)},
         non_fictitious=arrow_edge.non_fictitious,
     )
     e2 = JaxHyperEdgeSet(
-        address_dict=source_edge.address_dict,
+        port_dict=source_edge.port_dict,
         feature_array=jnp.ones((n_obj_source, 3), dtype=jnp.float32),
         feature_names={"c": jnp.array(0), "d": jnp.array(1), "e": jnp.array(2)},
         non_fictitious=source_edge.non_fictitious,
@@ -172,8 +172,8 @@ def test_mlp_encoder_multiple_edge_types_independent_processing():
     # create a custom structure for this test
     custom_structure = GraphStructure(
         hyper_edge_sets={
-            "A": HyperEdgeSetStructure(address_list=["from", "to"], feature_list=["a", "b"]),
-            "B": HyperEdgeSetStructure(address_list=["id"], feature_list=["c", "d", "e"]),
+            "A": HyperEdgeSetStructure(port_list=["from", "to"], feature_list=["a", "b"]),
+            "B": HyperEdgeSetStructure(port_list=["id"], feature_list=["c", "d", "e"]),
         }
     )
 
@@ -201,13 +201,13 @@ def test_mlp_encoder_numeric_identity():
 
     # Create edges with linear values to verify identity mapping
     e_arrow = JaxHyperEdgeSet(
-        address_dict=arrow_edge.address_dict,
+        port_dict=arrow_edge.port_dict,
         feature_array=jnp.linspace(0.0, 1.0, num=n_obj_arrow * d, dtype=jnp.float32).reshape((n_obj_arrow, d)),
         feature_names={f"fa{i}": jnp.array(i) for i in range(d)},
         non_fictitious=arrow_edge.non_fictitious,
     )
     e_source = JaxHyperEdgeSet(
-        address_dict=source_edge.address_dict,
+        port_dict=source_edge.port_dict,
         feature_array=jnp.linspace(0.0, 1.0, num=n_obj_source * d, dtype=jnp.float32).reshape((n_obj_source, d)),
         feature_names={f"fs{i}": jnp.array(i) for i in range(d)},
         non_fictitious=source_edge.non_fictitious,

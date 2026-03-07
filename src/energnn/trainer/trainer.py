@@ -73,9 +73,9 @@ def _update_params(optimizer: nnx.Optimizer, model: SimpleGNN, gradient: nnx.Sta
     return infos
 
 
-class SimpleTrainer:
+class Trainer:
     r"""
-    Simple trainer implementation.
+    Trainer implementation.
 
     This basic trainer relies on the training of a permutation-equivariant
     Graph Neural Network :math:`\hat{y}_\theta` over a dataset of problem instances.

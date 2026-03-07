@@ -12,7 +12,7 @@ from energnn.graph.hyper_edge_set import (
     check_dict_or_none,
     check_dict_shape,
     check_no_nan,
-    check_valid_addresses,
+    check_valid_ports,
     collate_hyper_edge_sets,
     concatenate_hyper_edge_sets,
     dict2array,
@@ -65,7 +65,7 @@ def test_pad_and_unpad_single():
     # feature padding should add rows (zeros)
     assert edge.feature_array.shape[0] == 4
     # addresses padded too
-    for k, v in edge.address_dict.items():
+    for k, v in edge.port_dict.items():
         assert v.shape[0] == 4
     # unpad back to original
     edge.unpad(old_n)
@@ -91,10 +91,10 @@ def test_unpad_on_batch_raises():
 
 def test_offset_addresses():
     edge = get_fixed_edge()
-    orig = {k: v.copy() for k, v in edge.address_dict.items()}
+    orig = {k: v.copy() for k, v in edge.port_dict.items()}
     edge.offset_addresses(10)
     for k in orig:
-        np.testing.assert_allclose(edge.address_dict[k], orig[k] + 10)
+        np.testing.assert_allclose(edge.port_dict[k], orig[k] + 10)
 
 
 def test_collate_and_separate_roundtrip():
@@ -109,8 +109,8 @@ def test_collate_and_separate_roundtrip():
     assert isinstance(separated, list)
     assert len(separated) == 2
     # first separated edge should equal e1 (addresses, features)
-    np.testing.assert_array_equal(separated[0].address_dict["dst"], e1.address_dict["dst"])
-    np.testing.assert_array_equal(separated[1].address_dict["dst"], e2.address_dict["dst"])
+    np.testing.assert_array_equal(separated[0].port_dict["dst"], e1.port_dict["dst"])
+    np.testing.assert_array_equal(separated[1].port_dict["dst"], e2.port_dict["dst"])
 
 
 def test_collate_empty_raises():
@@ -122,7 +122,7 @@ def test_collate_inconsistent_keys_raises():
     e1 = get_fixed_edge()
     e2 = get_fixed_edge()
     # remove addresses from e2 to produce mismatch
-    e2.address_dict = None
+    e2.port_dict = None
     with pytest.raises(ValueError):
         collate_hyper_edge_sets([e1, e2])
 
@@ -134,8 +134,8 @@ def test_concatenate_edges():
     # n_obj should be sum
     assert concatenated.n_obj == e1.n_obj + e2.n_obj
     # addresses concatenated
-    np.testing.assert_array_equal(concatenated.address_dict["dst"][:2], e1.address_dict["dst"])
-    np.testing.assert_array_equal(concatenated.address_dict["dst"][2:], e2.address_dict["dst"])
+    np.testing.assert_array_equal(concatenated.port_dict["dst"][:2], e1.port_dict["dst"])
+    np.testing.assert_array_equal(concatenated.port_dict["dst"][2:], e2.port_dict["dst"])
 
 
 def test_check_dict_shape_and_build_edge_shape_errors():
@@ -145,7 +145,7 @@ def test_check_dict_shape_and_build_edge_shape_errors():
         check_dict_shape(d=d1, n_objects=None)
     # build_edge_shape with both None should raise
     with pytest.raises(ValueError):
-        build_hyper_edge_set_shape(address_dict=None, feature_dict=None)
+        build_hyper_edge_set_shape(port_dict=None, feature_dict=None)
 
 
 def test_dict2array_and_sorting():
@@ -163,22 +163,22 @@ def test_check_dict_or_none_and_nan_and_valid_addresses():
         check_dict_or_none(np.array([1, 2, 3]))
     # NaN detection in address
     with pytest.raises(ValueError):
-        check_no_nan(address_dict={"a": np.array([0.0, np.nan], dtype=np.float32)}, feature_dict=None)
+        check_no_nan(port_dict={"a": np.array([0.0, np.nan], dtype=np.float32)}, feature_dict=None)
     # NaN detection in feature
     with pytest.raises(ValueError):
-        check_no_nan(address_dict=None, feature_dict={"f": np.array([np.nan, 1.0], dtype=np.float32)})
+        check_no_nan(port_dict=None, feature_dict={"f": np.array([np.nan, 1.0], dtype=np.float32)})
     # valid addresses: float values but integer-valued pass (1.0)
-    check_valid_addresses({"x": np.array([1.0, 2.0], dtype=np.float32)})
+    check_valid_ports({"x": np.array([1.0, 2.0], dtype=np.float32)})
     # non-integer valued should raise
     with pytest.raises(ValueError):
-        check_valid_addresses({"x": np.array([1.0, 2.3], dtype=np.float32)})
+        check_valid_ports({"x": np.array([1.0, 2.3], dtype=np.float32)})
 
 
 def test_str_repr_single_and_batch():
     e = get_fixed_edge()
     s = str(e)
-    assert "features" in s and "addresses" in s
+    assert "features" in s and "ports" in s
     # batch
     b = collate_hyper_edge_sets([e, e])
     s2 = str(b)
-    assert "features" in s2 and "addresses" in s2
+    assert "features" in s2 and "ports" in s2

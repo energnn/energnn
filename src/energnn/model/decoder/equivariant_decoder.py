@@ -106,8 +106,8 @@ class MLPEquivariantDecoder(EquivariantDecoder):
         for key, out_hyper_edge_set_structure in self.out_structure.hyper_edge_sets.items():
             assert key in self.in_graph_structure.hyper_edge_sets.keys()
             in_hyper_edge_set_structure = self.in_graph_structure.hyper_edge_sets[key]
-            assert len(in_hyper_edge_set_structure.address_list) > 0
-            n_ports = len(in_hyper_edge_set_structure.address_list)
+            assert len(in_hyper_edge_set_structure.port_list) > 0
+            n_ports = len(in_hyper_edge_set_structure.port_list)
             in_size = self.in_array_size * n_ports
             if in_hyper_edge_set_structure.feature_list is not None and len(in_hyper_edge_set_structure.feature_list) > 0:
                 if self.encoded_feature_size is not None:
@@ -145,7 +145,7 @@ class MLPEquivariantDecoder(EquivariantDecoder):
             hyper_edge_set, mlp, feature_names = edge_mlp_names
 
             decoder_input = []
-            for _, address_array in hyper_edge_set.address_dict.items():
+            for _, address_array in hyper_edge_set.port_dict.items():
                 decoder_input.append(gather(coordinates=coordinates, addresses=address_array))
             if hyper_edge_set.feature_array is not None:
                 decoder_input.append(hyper_edge_set.feature_array)
@@ -156,7 +156,7 @@ class MLPEquivariantDecoder(EquivariantDecoder):
                 feature_array=decoder_output,
                 feature_names=feature_names,
                 non_fictitious=hyper_edge_set.non_fictitious,
-                address_dict=None,
+                port_dict=None,
             )
 
         edge_mlp_names_dict = {

@@ -17,7 +17,7 @@ from energnn.graph.jax.utils import jnp_to_np, np_to_jnp
 
 FEATURE_ARRAY = "feature_array"
 FEATURE_NAMES = "feature_names"
-ADDRESS_DICT = "address_dict"
+PORT_DICT = "port_dict"
 NON_FICTITIOUS = "non_fictitious"
 
 
@@ -28,7 +28,7 @@ class JaxHyperEdgeSet(dict):
 
     Internally this is just a dict storing four entries.
 
-    :param address_dict: Dictionary that contains address keys and address values.
+    :param port_dict: Dictionary that maps port names to address values.
     :param feature_array: Array that contains all hyper-edge features.
     :param feature_names: Dictionary from feature names to index in `feature_array`.
     :param non_fictitious: Binary mask filled with ones for non-fictitious objects.
@@ -37,13 +37,13 @@ class JaxHyperEdgeSet(dict):
     def __init__(
         self,
         *,
-        address_dict: dict[str, jax.Array] | None,
+        port_dict: dict[str, jax.Array] | None,
         feature_array: jax.Array | None,
         feature_names: dict[str, jax.Array] | None,
         non_fictitious: jax.Array,
     ):
         super().__init__()
-        self[ADDRESS_DICT] = address_dict
+        self[PORT_DICT] = port_dict
         self[FEATURE_ARRAY] = feature_array
         self[FEATURE_NAMES] = feature_names
         self[NON_FICTITIOUS] = non_fictitious
@@ -71,7 +71,7 @@ class JaxHyperEdgeSet(dict):
         """
         d = dict(zip(aux_data, children))
         return cls(
-            address_dict=d[ADDRESS_DICT],
+            port_dict=d[PORT_DICT],
             feature_array=d[FEATURE_ARRAY],
             feature_names=d[FEATURE_NAMES],
             non_fictitious=d[NON_FICTITIOUS],
@@ -82,8 +82,8 @@ class JaxHyperEdgeSet(dict):
         return self[FEATURE_NAMES]
 
     @property
-    def address_dict(self) -> dict[str, jax.Array] | None:
-        return self[ADDRESS_DICT]
+    def port_dict(self) -> dict[str, jax.Array] | None:
+        return self[PORT_DICT]
 
     @property
     def non_fictitious(self) -> jax.Array:
@@ -132,12 +132,12 @@ class JaxHyperEdgeSet(dict):
         :param dtype: Desired floating-point precision for converted arrays (e.g., "float32", "float64").
         :return: A JAX-compatible version of the hyper-edge set, ready for use in GNN pipelines.
         """
-        address_dict = np_to_jnp(hyper_edge_set.address_dict, device=device, dtype=dtype)
+        port_dict = np_to_jnp(hyper_edge_set.port_dict, device=device, dtype=dtype)
         feature_array = np_to_jnp(hyper_edge_set.feature_array, device=device, dtype=dtype)
         feature_names = np_to_jnp(hyper_edge_set.feature_names, device=device, dtype=dtype)
         non_fictitious = np_to_jnp(hyper_edge_set.non_fictitious, device=device, dtype=dtype)
         return cls(
-            address_dict=address_dict, feature_array=feature_array, feature_names=feature_names, non_fictitious=non_fictitious
+            port_dict=port_dict, feature_array=feature_array, feature_names=feature_names, non_fictitious=non_fictitious
         )
 
     def to_numpy_hyper_edge_set(self) -> HyperEdgeSet:
@@ -149,10 +149,10 @@ class JaxHyperEdgeSet(dict):
 
         :return: A classical ``HyperEdgeSet`` object with NumPy arrays.
         """
-        address_dict = jnp_to_np(self.address_dict)
+        port_dict = jnp_to_np(self.port_dict)
         feature_array = jnp_to_np(self.feature_array)
         feature_names = jnp_to_np(self.feature_names)
         non_fictitious = jnp_to_np(self.non_fictitious)
         return HyperEdgeSet(
-            address_dict=address_dict, feature_array=feature_array, feature_names=feature_names, non_fictitious=non_fictitious
+            port_dict=port_dict, feature_array=feature_array, feature_names=feature_names, non_fictitious=non_fictitious
         )

@@ -8,24 +8,24 @@ import pandas as pd
 
 HYPER_EDGE_SETS = "hyper_edge_sets"
 FEATURE_LIST = "feature_list"
-ADDRESS_LIST = "address_list"
+PORT_LIST = "port_list"
 
 
 class HyperEdgeSetStructure(dict):
     """Edge structure specification."""
 
-    def __init__(self, *, address_list: list[str] | None, feature_list: list[str] | None):
+    def __init__(self, *, port_list: list[str] | None, feature_list: list[str] | None):
         super().__init__()
-        self[ADDRESS_LIST] = address_list
+        self[PORT_LIST] = port_list
         self[FEATURE_LIST] = feature_list
 
     @classmethod
-    def from_list(cls, *, address_list: list[str] | None, feature_list: list[str] | None) -> "HyperEdgeSetStructure":
-        return cls(address_list=address_list, feature_list=feature_list)
+    def from_list(cls, *, port_list: list[str] | None, feature_list: list[str] | None) -> "HyperEdgeSetStructure":
+        return cls(port_list=port_list, feature_list=feature_list)
 
     @property
-    def address_list(self) -> list[str] | None:
-        return self[ADDRESS_LIST]
+    def port_list(self) -> list[str] | None:
+        return self[PORT_LIST]
 
     @property
     def feature_list(self) -> list[str] | None:
@@ -50,7 +50,7 @@ class GraphStructure(dict):
     def __str__(self):
         data = {
             "Name": [edge_name for edge_name in self.hyper_edge_sets.keys()],
-            "Addresses": [edge_structure.address_list for edge_structure in self.hyper_edge_sets.values()],
+            "Ports": [edge_structure.port_list for edge_structure in self.hyper_edge_sets.values()],
             "Features": [edge_structure.feature_list for edge_structure in self.hyper_edge_sets.values()],
         }
         df = pd.DataFrame(data).set_index("Name")

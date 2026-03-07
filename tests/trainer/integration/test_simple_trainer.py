@@ -18,8 +18,8 @@ from energnn.model import (
     NeuralODECoupler,
     SimpleGNN,
 )
-from energnn.trainer import SimpleTrainer
 from energnn.problem.example import LinearSystemProblemLoader
+from energnn.trainer import Trainer
 
 
 def test_simple_trainer(tmp_path):
@@ -75,7 +75,7 @@ def test_simple_trainer(tmp_path):
         directory=tmp_path / "test_trainer", options=ocp.CheckpointManagerOptions(max_to_keep=10)
     )
 
-    trainer = SimpleTrainer(
+    trainer = Trainer(
         model=model,
         gradient_transformation=optax.adam(1e-3),
     )

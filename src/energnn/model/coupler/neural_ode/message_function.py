@@ -100,8 +100,8 @@ class LocalSumMessageFunction(MessageFunction):
         mlp_tree = {}
 
         for key, hyper_edge_set_structure in self.in_graph_structure.hyper_edge_sets.items():
-            if hyper_edge_set_structure.address_list is not None and len(hyper_edge_set_structure.address_list) > 0:
-                n_ports = len(hyper_edge_set_structure.address_list)
+            if hyper_edge_set_structure.port_list is not None and len(hyper_edge_set_structure.port_list) > 0:
+                n_ports = len(hyper_edge_set_structure.port_list)
                 in_size = self.in_array_size * n_ports
                 if hyper_edge_set_structure.feature_list is not None and len(hyper_edge_set_structure.feature_list) > 0:
                     if self.encoded_feature_size is not None:
@@ -112,7 +112,7 @@ class LocalSumMessageFunction(MessageFunction):
                 if key not in mlp_tree.keys():
                     mlp_tree[key] = {}
 
-                for port_key in hyper_edge_set_structure.address_list:
+                for port_key in hyper_edge_set_structure.port_list:
                     if port_key not in self.port_scatter_blacklist.get(key, []):
                         mlp_tree[key][port_key] = MLP(
                             in_size=in_size,
@@ -136,7 +136,7 @@ class LocalSumMessageFunction(MessageFunction):
             input_array = []
             if hyper_edge_set.feature_names is not None:
                 input_array.append(hyper_edge_set.feature_array)
-            for port_name, port_array in hyper_edge_set.address_dict.items():
+            for port_name, port_array in hyper_edge_set.port_dict.items():
                 input_array.append(gather(coordinates=coordinates, addresses=port_array))
             input_array = jnp.concatenate(input_array, axis=-1)
             non_fictitious_mask = jnp.expand_dims(hyper_edge_set.non_fictitious, -1)
@@ -147,7 +147,7 @@ class LocalSumMessageFunction(MessageFunction):
                 increment = mlp(input_array * non_fictitious_mask) * non_fictitious_mask
                 return scatter_add(accumulator=__accumulator, increment=increment, addresses=_port_array)
 
-            mlp_port_dict = {port_name: (mlp, hyper_edge_set.address_dict[port_name]) for port_name, mlp in mlp_dict.items()}
+            mlp_port_dict = {port_name: (mlp, hyper_edge_set.port_dict[port_name]) for port_name, mlp in mlp_dict.items()}
             return jax.tree.reduce(
                 sum_over_ports, mlp_port_dict, initializer=_accumulator, is_leaf=lambda x: isinstance(x, tuple)
             )

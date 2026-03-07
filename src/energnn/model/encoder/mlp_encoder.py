@@ -131,7 +131,7 @@ class MLPEncoder(Encoder):
                 feature_array=feature_array,
                 feature_names=feature_names,
                 non_fictitious=hyper_edge_set.non_fictitious,
-                address_dict=hyper_edge_set.address_dict,
+                port_dict=hyper_edge_set.port_dict,
             )
 
         encoded_hyper_edge_sets = jax.tree.map(apply_mlp, edge_mlp_dict, is_leaf=(lambda x: isinstance(x, tuple)))

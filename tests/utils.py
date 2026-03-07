@@ -48,18 +48,18 @@ def compare_batched_graphs(*graphs, rtol=1e-6, atol=1e-6):
             np.testing.assert_allclose(base_np, feat_np, rtol=rtol, atol=atol)
 
         # ADDRESS DICTS: keys must match, arrays comparable (possibly batched)
-        base_addr_keys = set(base.address_dict.keys()) if base.address_dict is not None else set()
+        base_addr_keys = set(base.port_dict.keys()) if base.port_dict is not None else set()
         for g in graphs[1:]:
             other_addr_keys = (
-                set(g.hyper_edge_sets[key].address_dict.keys()) if g.hyper_edge_sets[key].address_dict is not None else set()
+                set(g.hyper_edge_sets[key].port_dict.keys()) if g.hyper_edge_sets[key].port_dict is not None else set()
             )
             if base_addr_keys != other_addr_keys:
                 raise AssertionError(f"Address dict keys differ for edge '{key}': {base_addr_keys} vs {other_addr_keys}")
 
         for ak in base_addr_keys:
-            base_addr_np = np.array(base.address_dict[ak])
+            base_addr_np = np.array(base.port_dict[ak])
             for g in graphs[1:]:
-                other_addr_np = np.array(g.hyper_edge_sets[key].address_dict[ak])
+                other_addr_np = np.array(g.hyper_edge_sets[key].port_dict[ak])
                 if base_addr_np.shape != other_addr_np.shape:
                     raise AssertionError(
                         f"Address array shapes differ for edge '{key}' addr '{ak}': {base_addr_np.shape} vs {other_addr_np.shape}"

@@ -26,8 +26,8 @@ coordinates_batch = jnp.array(np.random.uniform(size=(4, 10, 7)))
 # out_structure must be a GraphStructure
 default_out_structure = GraphStructure(
     hyper_edge_sets={
-        "source": HyperEdgeSetStructure(address_list=["id"], feature_list=["e"]),
-        "arrow": HyperEdgeSetStructure(address_list=["from", "to"], feature_list=["f"]),
+        "source": HyperEdgeSetStructure(port_list=["id"], feature_list=["e"]),
+        "arrow": HyperEdgeSetStructure(port_list=["from", "to"], feature_list=["f"]),
     }
 )
 
@@ -99,13 +99,13 @@ def test_mlp_equivariant_decoder_single_shapes_and_masking():
     node_nf = jnp.array(np.array(node_edge.non_fictitious))
     node_nf = node_nf.at[0].set(0)
     e1 = JaxHyperEdgeSet(
-        address_dict=node_edge.address_dict,
+        port_dict=node_edge.port_dict,
         feature_array=jnp.ones((n_node, 2)),
         feature_names={"a": jnp.array(0), "b": jnp.array(1)},
         non_fictitious=node_nf,
     )
     e2 = JaxHyperEdgeSet(
-        address_dict=edge_edge.address_dict,
+        port_dict=edge_edge.port_dict,
         feature_array=jnp.ones((n_edge, 3)),
         feature_names={"c": jnp.array(0), "d": jnp.array(1), "e": jnp.array(2)},
         non_fictitious=edge_edge.non_fictitious,
@@ -120,8 +120,8 @@ def test_mlp_equivariant_decoder_single_shapes_and_masking():
 
     custom_in_structure = GraphStructure(
         hyper_edge_sets={
-            "source": HyperEdgeSetStructure(address_list=["id"], feature_list=["a", "b"]),
-            "arrow": HyperEdgeSetStructure(address_list=["from", "to"], feature_list=["c", "d", "e"]),
+            "source": HyperEdgeSetStructure(port_list=["id"], feature_list=["a", "b"]),
+            "arrow": HyperEdgeSetStructure(port_list=["from", "to"], feature_list=["c", "d", "e"]),
         }
     )
 
@@ -173,7 +173,7 @@ def test_mlp_equivariant_decoder_mlp_dict_initialization():
     Check that MLPs are correctly initialized in decoder.mlp_dict based on out_structure.
     """
     out_structure = GraphStructure(
-        hyper_edge_sets={"source": HyperEdgeSetStructure(address_list=["id"], feature_list=["y0", "y1"])}
+        hyper_edge_sets={"source": HyperEdgeSetStructure(port_list=["id"], feature_list=["y0", "y1"])}
     )
     decoder = MLPEquivariantDecoder(
         in_graph_structure=pb_loader.context_structure,
@@ -196,7 +196,7 @@ def test_mlp_equivariant_decoder_numeric_identity_node():
     """
     d = coordinates.shape[1]
     out_struct_node = GraphStructure(
-        hyper_edge_sets={"source": HyperEdgeSetStructure(address_list=["id"], feature_list=[f"o{i}" for i in range(d)])}
+        hyper_edge_sets={"source": HyperEdgeSetStructure(port_list=["id"], feature_list=[f"o{i}" for i in range(d)])}
     )
     decoder = MLPEquivariantDecoder(
         in_graph_structure=pb_loader.context_structure,
@@ -216,7 +216,7 @@ def test_mlp_equivariant_decoder_numeric_identity_node():
     out_graph, _ = decoder(graph=jax_context, coordinates=coordinates, get_info=False)
     node_out = out_graph.hyper_edge_sets["source"].feature_array  # shape (n_obj, d)
     node_edge = jax_context.hyper_edge_sets["source"]
-    addr = np.array(node_edge.address_dict["id"]).astype(int)
+    addr = np.array(node_edge.port_dict["id"]).astype(int)
     coords = np.array(coordinates)
     nf = np.array(node_edge.non_fictitious).astype(float)
     expected = coords[addr] * nf[:, None]
@@ -234,7 +234,7 @@ def test_mlp_equivariant_decoder_numeric_identity_edge():
     input_dim = 2 * d + edge_feature_dim
     out_struct_edge = GraphStructure(
         hyper_edge_sets={
-            "arrow": HyperEdgeSetStructure(address_list=["from", "to"], feature_list=[f"o{i}" for i in range(input_dim)])
+            "arrow": HyperEdgeSetStructure(port_list=["from", "to"], feature_list=[f"o{i}" for i in range(input_dim)])
         }
     )
 
@@ -256,8 +256,8 @@ def test_mlp_equivariant_decoder_numeric_identity_edge():
     edge_out = out_graph.hyper_edge_sets["arrow"].feature_array  # shape (n_obj, input_dim)
 
     edge = jax_context.hyper_edge_sets["arrow"]
-    addr0 = np.array(edge.address_dict["from"]).astype(int)
-    addr1 = np.array(edge.address_dict["to"]).astype(int)
+    addr0 = np.array(edge.port_dict["from"]).astype(int)
+    addr1 = np.array(edge.port_dict["to"]).astype(int)
     coords = np.array(coordinates)
     feats = np.array(edge.feature_array)
     nf = np.array(edge.non_fictitious).astype(float)

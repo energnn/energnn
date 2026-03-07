@@ -166,13 +166,13 @@ def test_tdigest_module_call_updates_and_maps_values():
 def test_tdigest_normalizer_apply_preserves_none_feature_edges(monkeypatch):
     # Build graph with one edge having None features and another with features
     node_edge_with_none = JaxHyperEdgeSet(
-        address_dict=jax_context.hyper_edge_sets["source"].address_dict,
+        port_dict=jax_context.hyper_edge_sets["source"].port_dict,
         feature_array=None,
         feature_names=None,
         non_fictitious=jax_context.hyper_edge_sets["source"].non_fictitious,
     )
     edge_with_feat = JaxHyperEdgeSet(
-        address_dict=jax_context.hyper_edge_sets["arrow"].address_dict,
+        port_dict=jax_context.hyper_edge_sets["arrow"].port_dict,
         feature_array=jnp.ones((jax_context.hyper_edge_sets["arrow"].feature_array.shape[0], 2), dtype=jnp.float32),
         feature_names={"f1": jnp.array(0), "f2": jnp.array(1)},
         non_fictitious=jax_context.hyper_edge_sets["arrow"].non_fictitious,

@@ -19,12 +19,12 @@ from ..problem import Problem
 
 LINEAR_SYSTEM_CONTEXT_STRUCTURE = GraphStructure(
     hyper_edge_sets={
-        "arrow": HyperEdgeSetStructure(address_list=["from", "to"], feature_list=["value"]),
-        "source": HyperEdgeSetStructure(address_list=["id"], feature_list=["value"]),
+        "arrow": HyperEdgeSetStructure(port_list=["from", "to"], feature_list=["value"]),
+        "source": HyperEdgeSetStructure(port_list=["id"], feature_list=["value"]),
     }
 )
 LINEAR_SYSTEM_DECISION_STRUCTURE = GraphStructure(
-    hyper_edge_sets={"source": HyperEdgeSetStructure(address_list=None, feature_list=["value"])}
+    hyper_edge_sets={"source": HyperEdgeSetStructure(port_list=None, feature_list=["value"])}
 )
 
 
@@ -166,14 +166,14 @@ class LinearSystemProblemGenerator:
 
         # Context
         arrow_edge = HyperEdgeSet.from_dict(
-            address_dict={"from": np.nonzero(A)[0], "to": np.nonzero(A)[1]}, feature_dict={"value": A[np.nonzero(A)]}
+            port_dict={"from": np.nonzero(A)[0], "to": np.nonzero(A)[1]}, feature_dict={"value": A[np.nonzero(A)]}
         )
-        source_edge = HyperEdgeSet.from_dict(address_dict={"id": np.arange(n)}, feature_dict={"value": b})
-        context = Graph.from_dict(hyper_edge_set_dict={"arrow": arrow_edge, "source": source_edge}, registry=np.arange(n))
+        source_edge = HyperEdgeSet.from_dict(port_dict={"id": np.arange(n)}, feature_dict={"value": b})
+        context = Graph.from_dict(hyper_edge_set_dict={"arrow": arrow_edge, "source": source_edge}, n_addresses=n)
 
         # Oracle
-        source_edge = HyperEdgeSet.from_dict(address_dict=None, feature_dict={"value": x})
-        oracle = Graph.from_dict(hyper_edge_set_dict={"source": source_edge}, registry=np.arange(n))
+        source_edge = HyperEdgeSet.from_dict(port_dict=None, feature_dict={"value": x})
+        oracle = Graph.from_dict(hyper_edge_set_dict={"source": source_edge}, n_addresses=n)
 
         return LinearSystemProblem(context=context, oracle=oracle)
 
@@ -265,11 +265,11 @@ def compare_single_graphs(a: JaxGraph, b: JaxGraph, rtol=1e-5, atol=1e-6):
         if ae.feature_array is not None:
             np.testing.assert_allclose(np.array(ae.feature_array), np.array(be.feature_array), rtol=rtol, atol=atol)
         # address_dict keys
-        a_keys = set(ae.address_dict.keys()) if ae.address_dict is not None else set()
-        b_keys = set(be.address_dict.keys()) if be.address_dict is not None else set()
+        a_keys = set(ae.port_dict.keys()) if ae.port_dict is not None else set()
+        b_keys = set(be.port_dict.keys()) if be.port_dict is not None else set()
         assert a_keys == b_keys
         for ak in a_keys:
-            np.testing.assert_allclose(np.array(ae.address_dict[ak]), np.array(be.address_dict[ak]), rtol=rtol, atol=atol)
+            np.testing.assert_allclose(np.array(ae.port_dict[ak]), np.array(be.port_dict[ak]), rtol=rtol, atol=atol)
         # non_fictitious mask
         if ae.non_fictitious is None or be.non_fictitious is None:
             assert ae.non_fictitious is be.non_fictitious

@@ -3,7 +3,7 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 # SPDX-License-Identifier: MPL-2.0
-#
+
 from __future__ import annotations
 
 from typing import Any
@@ -15,7 +15,7 @@ from energnn.graph.utils import to_numpy
 
 FEATURE_ARRAY = "feature_array"
 FEATURE_NAMES = "feature_names"
-ADDRESS_DICT = "address_dict"
+PORT_DICT = "port_dict"
 NON_FICTITIOUS = "non_fictitious"
 
 
@@ -25,8 +25,7 @@ class HyperEdgeSet(dict):
 
     Internally this is just a dict storing four entries.
 
-    :param address_dict: Mapping from a port name to an array of shape `(n_edges,)` or `(batch, n_edges)`.
-        Dictionary that contains all hyper-edge addresses.
+    :param port_dict: Mapping from a port name to an array of shape `(n_edges,)` or `(batch, n_edges)`.
     :param feature_array: Array that contains all hyper-edge features.
     :param feature_names: Dictionary from feature names to index in `feature_array`.
     :param non_fictitious: Mask array set to 1 for non-fictitious objects and to 0 for fictitious objects.
@@ -35,13 +34,13 @@ class HyperEdgeSet(dict):
     def __init__(
         self,
         *,
-        address_dict: dict[str, np.ndarray] | None,
+        port_dict: dict[str, np.ndarray] | None,
         feature_array: np.ndarray | None,
         feature_names: dict[str, int] | None,
         non_fictitious: np.ndarray,
     ) -> None:
         super().__init__()
-        self[ADDRESS_DICT] = address_dict
+        self[PORT_DICT] = port_dict
         self[FEATURE_ARRAY] = feature_array
         self[FEATURE_NAMES] = feature_names
         self[NON_FICTITIOUS] = non_fictitious
@@ -50,28 +49,28 @@ class HyperEdgeSet(dict):
     def from_dict(
         cls,
         *,
-        address_dict: dict[str, Any] | None = None,
+        port_dict: dict[str, Any] | None = None,
         feature_dict: dict[str, Any] | None = None,
     ) -> HyperEdgeSet:
         """
-        Build a HyperEdgeSet from raw dicts of addresses and features.
+        Build a HyperEdgeSet from raw dicts of ports and features.
 
         Both inputs may be None, in which case the corresponding properties
         are set to None and only `non_fictitious` of length zero is created.
 
-        :param address_dict: Dictionary of addresses, each key corresponds to a port name and to the values are the
+        :param port_dict: Dictionary of ports, each key corresponds to a port name and to the values are the
                              corresponding addresses for each object stored into an array.
         :param feature_dict: Dictionary of features, each key corresponds to a feature name and to the values are the
                              corresponding features for each object stored into an array.
         :returns: A properly structured `HyperEdgeSet` instance.
-        :raises ValueError: If addresses or features contain NaNs or if shapes mismatch.
+        :raises ValueError: If ports or features contain NaNs or if shapes mismatch.
         """
         # Convert inputs to pure numpy arrays / dicts
-        address_dict = check_dict_or_none(to_numpy(address_dict))
+        port_dict = check_dict_or_none(to_numpy(port_dict))
         feature_dict = check_dict_or_none(to_numpy(feature_dict))
 
-        check_valid_addresses(address_dict)
-        check_no_nan(address_dict=address_dict, feature_dict=feature_dict)
+        check_valid_ports(port_dict)
+        check_no_nan(port_dict=port_dict, feature_dict=feature_dict)
 
         # Build feature_names and feature_array
         if feature_dict is not None:
@@ -81,11 +80,11 @@ class HyperEdgeSet(dict):
             feature_names, feature_array = None, None
 
         # Build a non-fictitious mask.
-        shape = build_hyper_edge_set_shape(address_dict=address_dict, feature_dict=feature_dict)
+        shape = build_hyper_edge_set_shape(port_dict=port_dict, feature_dict=feature_dict)
         non_fictitious = np.ones(int(shape))
 
         return cls(
-            address_dict=address_dict,
+            port_dict=port_dict,
             feature_array=feature_array,
             feature_names=feature_names,
             non_fictitious=non_fictitious,
@@ -116,9 +115,9 @@ class HyperEdgeSet(dict):
             raise ValueError("HyperEdgeSet is neither single nor batched.")
 
         d = {}
-        if self.address_names is not None:
-            for k, v in sorted(self.address_dict.items()):
-                d[("addresses", k)] = v.reshape([-1])
+        if self.port_names is not None:
+            for k, v in sorted(self.port_dict.items()):
+                d[("ports", k)] = v.reshape([-1])
         if self.feature_names is not None:
             for k, v in sorted(self.feature_dict.items()):
                 d[("features", k)] = v.reshape([-1])
@@ -128,7 +127,7 @@ class HyperEdgeSet(dict):
     @property
     def array(self) -> np.ndarray:
         """
-        Concatenate (features, addresses) along the last axis.
+        Concatenate (features, ports) along the last axis.
 
         :returns:
             Combined array of shape
@@ -138,8 +137,8 @@ class HyperEdgeSet(dict):
         array = []
         if self.feature_array is not None:
             array.append(self.feature_array)
-        if self.address_array is not None:
-            array.append(self.address_array)
+        if self.port_array is not None:
+            array.append(self.port_array)
         return np.concatenate(array, axis=-1)
 
     @property
@@ -192,30 +191,30 @@ class HyperEdgeSet(dict):
         return self[FEATURE_NAMES]
 
     @property
-    def address_array(self) -> np.ndarray | None:
+    def port_array(self) -> np.ndarray | None:
         """
-        Returns the stacked array of addresses, of shape `(n_obj, n_ports)` or `(batch, n_obj, n_ports)`.
+        Returns the stacked array of ports, of shape `(n_obj, n_ports)` or `(batch, n_obj, n_ports)`.
         """
-        if self.address_dict is None:
+        if self.port_dict is None:
             return None
-        return dict2array(self.address_dict)
+        return dict2array(self.port_dict)
 
     @property
-    def address_names(self) -> dict[str, np.ndarray] | None:
+    def port_names(self) -> dict[str, np.ndarray] | None:
         """
-        Maps a port name to a column index in `address_array`.
+        Maps a port name to a column index in `port_array`.
         """
-        if self.address_dict is None:
+        if self.port_dict is None:
             return None
-        return {k: np.array(idx) for idx, k in enumerate(sorted(self.address_dict.keys()))}
+        return {k: np.array(idx) for idx, k in enumerate(sorted(self.port_dict.keys()))}
 
     @property
-    def address_dict(self) -> dict[str, np.ndarray] | None:
-        return self[ADDRESS_DICT]
+    def port_dict(self) -> dict[str, np.ndarray] | None:
+        return self[PORT_DICT]
 
-    @address_dict.setter
-    def address_dict(self, value: dict[str, np.ndarray] | None) -> None:
-        self[ADDRESS_DICT] = value
+    @port_dict.setter
+    def port_dict(self, value: dict[str, np.ndarray] | None) -> None:
+        self[PORT_DICT] = value
 
     @property
     def non_fictitious(self) -> np.ndarray:
@@ -282,7 +281,7 @@ class HyperEdgeSet(dict):
 
     def pad(self, target_shape: np.ndarray | int) -> None:
         """
-        Pad a *single* HyperEdgeSet with a series of zeros for features and max-int for addresses
+        Pad a *single* HyperEdgeSet with a series of zeros for features and max-int for ports
         so that shapes match the `target_shape`.
 
         :param target_shape: Desired n_obj after padding; must be ≥ current n_obj.
@@ -300,10 +299,10 @@ class HyperEdgeSet(dict):
         if self.feature_array is not None:
             self.feature_array = np.pad(self.feature_array, [(0, int(target_shape) - old_n_obj), (0, 0)])
 
-        # Pad addresses
-        if self.address_dict is not None:
-            for k, v in self.address_dict.items():
-                self.address_dict[k] = np.pad(v, [0, int(target_shape) - old_n_obj])
+        # Pad ports
+        if self.port_dict is not None:
+            for k, v in self.port_dict.items():
+                self.port_dict[k] = np.pad(v, [0, int(target_shape) - old_n_obj])
 
         # Pad fictitious mask
         if self.non_fictitious is not None:
@@ -327,10 +326,10 @@ class HyperEdgeSet(dict):
         if self.feature_array is not None:
             self.feature_array = self.feature_array[: int(target_shape)]
 
-        # Unpad addresses
-        if self.address_dict is not None:
-            for k, v in self.address_dict.items():
-                self.address_dict[k] = v[: int(target_shape)]
+        # Unpad ports
+        if self.port_dict is not None:
+            for k, v in self.port_dict.items():
+                self.port_dict[k] = v[: int(target_shape)]
 
         # Unpad fictitious mask
         if self.non_fictitious is not None:
@@ -341,21 +340,21 @@ class HyperEdgeSet(dict):
 
         :param offset: Scalar or array to add to each address array.
         """
-        self.address_dict = {k: a + np.array(offset) for k, a in self.address_dict.items()}
+        self.port_dict = {k: a + np.array(offset) for k, a in self.port_dict.items()}
 
 
 def collate_hyper_edge_sets(hyper_edge_set_list: list[HyperEdgeSet]) -> HyperEdgeSet:
     """
     Collate a list of HyperEdgeSet into a single batched HyperEdgeSet.
 
-    Each HyperEdgeSet in the input list is assumed to have the same feature and address schema.
+    Each HyperEdgeSet in the input list is assumed to have the same feature and port schema.
     This function stacks the per-edge attributes along the 0-th axis.
 
     :param hyper_edge_set_list: Sequence of HyperEdgeSet objects to batch together. Must be non-empty.
     :return: A single batched HyperEdgeSet.
 
     :raises IndexError: Raised if `hyper_edge_set_list` is empty.
-    :raises ValueError: Raised if not all HyperEdgeSet share the same keys in address_names or feature_names.
+    :raises ValueError: Raised if not all HyperEdgeSet share the same keys in port_names or feature_names.
     """
     if not hyper_edge_set_list:
         raise IndexError("collate_edges requires at least one Edge to collate.")
@@ -380,13 +379,11 @@ def collate_hyper_edge_sets(hyper_edge_set_list: list[HyperEdgeSet]) -> HyperEdg
     else:
         feature_names = None
 
-    # Collate address dicts
-    if first_hyper_edge_set.address_dict is not None:
-        address_dict = {
-            k: np.stack([e.address_dict[k] for e in hyper_edge_set_list]) for k in first_hyper_edge_set.address_dict
-        }
+    # Collate port dicts
+    if first_hyper_edge_set.port_dict is not None:
+        port_dict = {k: np.stack([e.port_dict[k] for e in hyper_edge_set_list]) for k in first_hyper_edge_set.port_dict}
     else:
-        address_dict = None
+        port_dict = None
 
     # Collate non-fictitious masks
     if first_hyper_edge_set.non_fictitious is not None:
@@ -395,7 +392,7 @@ def collate_hyper_edge_sets(hyper_edge_set_list: list[HyperEdgeSet]) -> HyperEdg
         non_fictitious = None
 
     return HyperEdgeSet(
-        address_dict=address_dict, feature_array=feature_array, feature_names=feature_names, non_fictitious=non_fictitious
+        port_dict=port_dict, feature_array=feature_array, feature_names=feature_names, non_fictitious=non_fictitious
     )
 
 
@@ -425,11 +422,11 @@ def separate_hyper_edge_sets(hyper_edge_set_batch: HyperEdgeSet) -> list[HyperEd
     else:
         feature_names_list = [None] * hyper_edge_set_batch.n_batch
 
-    if hyper_edge_set_batch.address_dict is not None:
-        a = {k: np.unstack(hyper_edge_set_batch.address_dict[k]) for k in hyper_edge_set_batch.address_dict}
-        address_dict_list = [dict(zip(a, t)) for t in zip(*a.values())]
+    if hyper_edge_set_batch.port_dict is not None:
+        a = {k: np.unstack(hyper_edge_set_batch.port_dict[k]) for k in hyper_edge_set_batch.port_dict}
+        port_dict_list = [dict(zip(a, t)) for t in zip(*a.values())]
     else:
-        address_dict_list = [None] * hyper_edge_set_batch.n_batch
+        port_dict_list = [None] * hyper_edge_set_batch.n_batch
 
     if hyper_edge_set_batch.non_fictitious is not None:
         non_fictitious_list = np.unstack(hyper_edge_set_batch.non_fictitious, axis=0)
@@ -437,8 +434,8 @@ def separate_hyper_edge_sets(hyper_edge_set_batch: HyperEdgeSet) -> list[HyperEd
         non_fictitious_list = [None] * hyper_edge_set_batch.n_batch
 
     hyper_edge_set_list = []
-    for fa, fn, ad, nf in zip(feature_array_list, feature_names_list, address_dict_list, non_fictitious_list):
-        hyper_edge_set = HyperEdgeSet(address_dict=ad, feature_array=fa, feature_names=fn, non_fictitious=nf)
+    for fa, fn, ad, nf in zip(feature_array_list, feature_names_list, port_dict_list, non_fictitious_list):
+        hyper_edge_set = HyperEdgeSet(port_dict=ad, feature_array=fa, feature_names=fn, non_fictitious=nf)
         hyper_edge_set_list.append(hyper_edge_set)
     return hyper_edge_set_list
 
@@ -453,14 +450,14 @@ def concatenate_hyper_edge_sets(hyper_edge_set_list: list[HyperEdgeSet]) -> Hype
     :param hyper_edge_set_list: List of single (non-batched) HyperEdgeSet
     :returns: One HyperEdgeSet with n_obj = sum of all inputs’ n_obj
     """
-    address_dict = {
-        k: np.concatenate([hes.address_dict[k] for hes in hyper_edge_set_list]) for k in hyper_edge_set_list[0].address_dict
+    port_dict = {
+        k: np.concatenate([hes.port_dict[k] for hes in hyper_edge_set_list]) for k in hyper_edge_set_list[0].port_dict
     }
     feature_array = np.concatenate([hes.feature_array for hes in hyper_edge_set_list], axis=0)
     feature_names = hyper_edge_set_list[0].feature_names
     non_fictitious = np.concatenate([hes.non_fictitious for hes in hyper_edge_set_list])
     return HyperEdgeSet(
-        address_dict=address_dict, feature_array=feature_array, feature_names=feature_names, non_fictitious=non_fictitious
+        port_dict=port_dict, feature_array=feature_array, feature_names=feature_names, non_fictitious=non_fictitious
     )
 
 
@@ -471,7 +468,7 @@ def check_dict_shape(*, d: dict[str, np.ndarray] | None, n_objects: int | None) 
     If `n_objects` is not provided, it is inferred from the first array’s last dimension.
     Otherwise, every array’s last dimension must match the given `n_objects`.
 
-    :param d: Mapping from feature/address name to `numpy` array
+    :param d: Mapping from feature/port name to `numpy` array
                    where each array’s last axis is object-indexed.
     :param n_objects: Optional expected size of the last axis; if None, will be inferred.
     :return: The validated or inferred `n_objects`.
@@ -490,24 +487,24 @@ def check_dict_shape(*, d: dict[str, np.ndarray] | None, n_objects: int | None) 
 
 def build_hyper_edge_set_shape(
     *,
-    address_dict: dict[str, np.ndarray] | None,
+    port_dict: dict[str, np.ndarray] | None,
     feature_dict: dict[str, np.ndarray] | None,
 ) -> np.ndarray:
     """
-    Build a numpy array representing the number of hyper-edges.
+    Builds a numpy array representing the number of hyper-edges.
 
-    Validates that `address_dict` and `feature_dict` have consistent sizes
-    on their last dimensions and returns a scalar numpy array containing that count.
+    Validate that `port_dict` and `feature_dict` have consistent sizes
+    on their last dimensions and return a scalar numpy array containing that count.
 
-    :param address_dict: Mapping of address names to numpy arrays, or None.
+    :param port_dict: Mapping from port names to numpy arrays, or None.
     :param feature_dict: Mapping of feature names to numpy arrays, or None.
     :return: A scalar numpy array of dtype float32 with the number of objects.
     :raises ValueError: If both inputs are None, or if their shapes conflict.
     """
-    if address_dict is None and feature_dict is None:
-        raise ValueError("At least one of address_dict or feature_dict must be provided.")
+    if port_dict is None and feature_dict is None:
+        raise ValueError("At least one of port_dict or feature_dict must be provided.")
 
-    n_objects = check_dict_shape(d=address_dict, n_objects=None)
+    n_objects = check_dict_shape(d=port_dict, n_objects=None)
     n_objects = check_dict_shape(d=feature_dict, n_objects=n_objects)
     return np.array(n_objects, dtype=np.dtype("float32"))
 
@@ -543,42 +540,42 @@ def check_dict_or_none(_input: dict | np.ndarray | None) -> dict | None:
 
 def check_no_nan(
     *,
-    address_dict: dict[str, np.ndarray] | None,
+    port_dict: dict[str, np.ndarray] | None,
     feature_dict: dict[str, np.ndarray] | None,
 ) -> None:
     """
-    Ensure there are no NaN values in address or feature arrays.
+    Ensure there are no NaN values in port or feature arrays.
 
-    :param address_dict: Mapping of address names to arrays, or None.
+    :param port_dict: Mapping from port names to arrays, or None.
     :param feature_dict: Mapping of feature names to arrays, or None.
     :raises ValueError: If any array contains NaN.
     """
-    for name, arr in (address_dict or {}).items():
+    for name, arr in (port_dict or {}).items():
         if np.any(np.isnan(arr)):
-            raise ValueError(f"NaN detected in address array for key '{name}'.")
+            raise ValueError(f"NaN detected in port array for key '{name}'.")
     for name, arr in (feature_dict or {}).items():
         if np.any(np.isnan(arr)):
             raise ValueError(f"NaN detected in feature array for key '{name}'.")
 
 
-def check_valid_addresses(address_dict: dict[str, np.ndarray] | None) -> None:
+def check_valid_ports(port_dict: dict[str, np.ndarray] | None) -> None:
     """
-    Ensure that address arrays only contain integer-valued entries.
+    Ensure that ports map only to integer-valued addresses.
 
-    :param address_dict: Mapping of address names to arrays, or None.
-    :raises ValueError: If any address array has entries that are not integer.
+    :param port_dict: Mapping from port names to arrays, or None.
+    :raises ValueError: If any port array has entries that are not integer.
     """
-    for name, arr in (address_dict or {}).items():
+    for name, arr in (port_dict or {}).items():
         if not np.allclose(arr, np.int32(arr)):
-            raise ValueError(f"Non-integer values detected in address array for key '{name}'.")
+            raise ValueError(f"Non-integer values detected in port array for key '{name}'.")
 
 
 def _check_keys_consistency(hes_1, hes_2):
-    if (hes_1.address_names is None) != (hes_2.address_names is None):
-        raise ValueError("Mismatch in presence of address_names among hyper-edge sets.")
+    if (hes_1.port_names is None) != (hes_2.port_names is None):
+        raise ValueError("Mismatch in presence of port_names among hyper-edge sets.")
     if (hes_1.feature_names is None) != (hes_2.feature_names is None):
         raise ValueError("Mismatch in presence of feature_names among hyper-edge sets.")
-    if hes_1.address_names and hes_1.address_names.keys() != hes_2.address_names.keys():
-        raise ValueError("Inconsistent address_names keys among hyper-edge sets.")
+    if hes_1.port_names and hes_1.port_names.keys() != hes_2.port_names.keys():
+        raise ValueError("Inconsistent port_names keys among hyper-edge sets.")
     if hes_1.feature_names and hes_1.feature_names.keys() != hes_2.feature_names.keys():
         raise ValueError("Inconsistent feature_names keys among hyper-edge sets.")

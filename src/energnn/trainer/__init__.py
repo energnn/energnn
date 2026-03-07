@@ -4,6 +4,6 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 # SPDX-License-Identifier: MPL-2.0
 
-from .simple_trainer import SimpleTrainer
+from .trainer import Trainer
 
-__all__ = ["SimpleTrainer"]
+__all__ = ["Trainer"]

@@ -21,7 +21,7 @@ def test_from_numpy_edge_and_to_numpy_edge_roundtrip():
     jax_edge = JaxHyperEdgeSet.from_numpy_hyper_edge_set(np_edge, device=None, dtype="float32")
     # Check internals are JAX arrays / dicts
     assert isinstance(jax_edge.feature_array, jax.Array) or jax_edge.feature_array is None
-    for v in jax_edge.address_dict.values():
+    for v in jax_edge.port_dict.values():
         assert isinstance(v, jax.Array)
 
     # Convert back to numpy Edge and compare
@@ -77,7 +77,7 @@ def test_feature_flat_array_single_and_batch():
     # Batch: stack two identical edges into a batch dimension
     jax_feat_batch = jnp.stack([jax_edge.feature_array, jax_edge.feature_array], axis=0)  # (2, n_obj, n_feats)
     jax_edge_batch = JaxHyperEdgeSet(
-        address_dict=np_to_jnp(np_edge.address_dict),
+        port_dict=np_to_jnp(np_edge.port_dict),
         feature_array=jax_feat_batch,
         feature_names=np_to_jnp(np_edge.feature_names),
         non_fictitious=np_to_jnp(np_edge.non_fictitious),
@@ -92,7 +92,7 @@ def test_feature_flat_array_invalid_dims_raises():
     # Create a JaxEdge with invalid feature_array dims (1D)
     bad_feat = jnp.array([1.0, 2.0, 3.0])
     jax_edge = JaxHyperEdgeSet(
-        address_dict=None,
+        port_dict=None,
         feature_array=bad_feat,
         feature_names={"a": jnp.array(0)},
         non_fictitious=jnp.array([1.0]),

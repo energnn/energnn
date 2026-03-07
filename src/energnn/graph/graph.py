@@ -51,15 +51,14 @@ class Graph(dict):
         self[NON_FICTITIOUS_ADDRESSES] = non_fictitious_addresses
 
     @classmethod
-    def from_dict(cls, *, hyper_edge_set_dict: dict[str, HyperEdgeSet], registry: np.ndarray | None = None) -> Graph:
+    def from_dict(cls, *, hyper_edge_set_dict: dict[str, HyperEdgeSet], n_addresses: np.ndarray) -> Graph:
         """
         Builds a graph from a dictionary of :class:`energnn.graph.HyperEdgeSet` and a registry.
 
         :param hyper_edge_set_dict: Dictionary of hyper-edge sets contained in the graph.
-        :param registry: Contains all unique address identifiers that appear in all the hyper-edge sets.
+        :param n_addresses: Number of unique addresses that appear in all the hyper-edge sets.
         :return: Graph that contains both the hyper-edge sets and the registry.
         """
-        n_addresses = registry.shape[0]
         non_fictitious_addresses = np.ones(shape=[n_addresses])
         check_hyper_edge_set_dict_type(hyper_edge_set_dict)
         check_valid_addresses(hyper_edge_set_dict, n_addresses)
@@ -276,11 +275,11 @@ class Graph(dict):
             edge_h = {}
             for edge_key, edge in graph.hyper_edge_sets.items():
                 edge_h[edge_key] = []
-                for address_key, address_array in edge.address_dict.items():
+                for address_key, address_array in edge.port_dict.items():
                     edge_h[edge_key].append(h_new_[address_array.astype(int)])
                 edge_h[edge_key] = np.stack(edge_h[edge_key], axis=0)
                 edge_h[edge_key] = np.max(edge_h[edge_key], axis=0)
-                for address_key, address_array in edge.address_dict.items():
+                for address_key, address_array in edge.port_dict.items():
                     new_val = np.max(
                         np.stack([edge_h[edge_key], h_new_[address_array.astype(int)]], axis=0),
                         axis=0,
@@ -488,8 +487,8 @@ def check_valid_addresses(hyper_edge_set_dict: dict[str, HyperEdgeSet], n_addres
                             (i.e., not less than the corresponding entry in `n_addresses`).
     """
     for key, hyper_edge_set in hyper_edge_set_dict.items():
-        if hyper_edge_set.address_names is not None:
-            assert np.all(hyper_edge_set.address_array < n_addresses)
+        if hyper_edge_set.port_names is not None:
+            assert np.all(hyper_edge_set.port_array < n_addresses)
 
 
 def get_statistics(graph: Graph, axis: int | None = None, norm_graph: Graph | None = None) -> dict:
