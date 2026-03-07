@@ -5,14 +5,14 @@ Trainer
 .. currentmodule:: energnn.trainer
 
 
-.. autoclass:: SimpleTrainer
+.. autoclass:: Trainer
    :no-members:
 
 .. autosummary::
    :toctree: _autosummary
    :nosignatures:
 
-   SimpleTrainer.train
-   SimpleTrainer.run_evaluation
-   SimpleTrainer.save_checkpoint
-   SimpleTrainer.load_checkpoint
+   Trainer.train
+   Trainer.run_evaluation
+   Trainer.save_checkpoint
+   Trainer.load_checkpoint

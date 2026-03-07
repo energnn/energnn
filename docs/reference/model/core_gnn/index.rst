@@ -4,7 +4,7 @@ GNN Core
 
 .. currentmodule:: energnn.model
 
-.. autoclass:: SimpleGNN
+.. autoclass:: GNN
    :no-members:
    :show-inheritance:
 
@@ -12,5 +12,5 @@ GNN Core
    :toctree: _autosummary
    :nosignatures:
 
-   SimpleGNN.__call__
-   SimpleGNN.forward_batch
+   GNN.__call__
+   GNN.forward_batch

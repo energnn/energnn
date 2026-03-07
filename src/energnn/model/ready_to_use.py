@@ -7,7 +7,7 @@
 from flax import nnx
 
 from energnn.graph import GraphStructure
-from energnn.model.coupler import LocalSumMessageFunction, RecurrentCoupler
+from energnn.model.coupler import LocalSumMessagePassingFunction, RecurrentCoupler
 from energnn.model.decoder import MLPEquivariantDecoder
 from energnn.model.encoder import MLPEncoder
 from energnn.model.gnn import GNN
@@ -42,7 +42,7 @@ class ReadyRecurrentEquivariantGNN(GNN):
             rngs=rngs,
         )
 
-        message_function = LocalSumMessageFunction(
+        message_function = LocalSumMessagePassingFunction(
             in_graph_structure=in_structure,
             in_array_size=latent_dimension,
             hidden_sizes=hidden_sizes,
