@@ -4,20 +4,18 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
-import pytest
-import numpy as np
 import jax
 import jax.numpy as jnp
-
-from energnn.model.simple_gnn import SimpleGNN
-from energnn.problem.example import LinearSystemProblemLoader
+import numpy as np
+import pytest
 from flax import nnx
 
-from energnn.model.normalizer.normalizer import Normalizer
-from energnn.model.encoder.encoder import Encoder
 from energnn.model.coupler.coupler import Coupler
 from energnn.model.decoder.decoder import Decoder
-
+from energnn.model.encoder.encoder import Encoder
+from energnn.model.gnn import GNN
+from energnn.model.normalizer.normalizer import Normalizer
+from energnn.problem.example import LinearSystemProblemLoader
 
 np.random.seed(0)
 n = 10
@@ -96,7 +94,7 @@ def test_pipeline_happy_path_graph_output():
     coup = DummyCoupler(out=latents, info={"coup": True})
     dec = DummyDecoder(out=decoded_graph, info={"dec": True})
 
-    model = SimpleGNN(normalizer=norm, encoder=enc, coupler=coup, decoder=dec)
+    model = GNN(normalizer=norm, encoder=enc, coupler=coup, decoder=dec)
 
     out, info = model(graph=jax_context, get_info=False)
 
@@ -126,7 +124,7 @@ def test_get_info_flag_propagation():
     coup = DummyCoupler(out=jnp.array([[0.0]]), info={"called_with_get_info": True})
     dec = DummyDecoder(out=jnp.array([1.0]), info={"called_with_get_info": True})
 
-    model = SimpleGNN(
+    model = GNN(
         normalizer=norm,
         encoder=enc,
         coupler=coup,
@@ -150,7 +148,7 @@ def test_decoder_returns_array_invariant_case():
     arr = jnp.array([42.0, -1.0])
     dec = DummyDecoder(out=arr, info={"decoded": "ok"})
 
-    model = SimpleGNN(normalizer=norm, encoder=enc, coupler=coup, decoder=dec)
+    model = GNN(normalizer=norm, encoder=enc, coupler=coup, decoder=dec)
     out, info = model(graph=jax_context, get_info=True)
 
     assert isinstance(out, (jax.Array, jnp.ndarray))
@@ -165,7 +163,7 @@ def test_exception_propagation_from_submodule():
     coup = DummyCoupler(out=jnp.zeros((1, 2)), info={})
     dec = DummyDecoder(out=jax_context, info={})
 
-    model = SimpleGNN(normalizer=norm, encoder=enc_fail, coupler=coup, decoder=dec)
+    model = GNN(normalizer=norm, encoder=enc_fail, coupler=coup, decoder=dec)
     with pytest.raises(ValueError):
         _ = model(graph=jax_context, get_info=False)
 
@@ -194,7 +192,7 @@ def test_forward_batch_execution():
     dec_out_sample = jnp.ones((5,))  # arbitrary output array
     dec = DummyDecoder(out=dec_out_sample, info={})
 
-    model = SimpleGNN(normalizer=norm, encoder=enc, coupler=coup, decoder=dec)
+    model = GNN(normalizer=norm, encoder=enc, coupler=coup, decoder=dec)
 
     out, info = model.forward_batch(graph=jax_context_batch, get_info=True)
 

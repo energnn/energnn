@@ -19,7 +19,7 @@ from orbax.checkpoint import CheckpointManager
 from tqdm import tqdm
 
 from energnn.graph import Graph
-from energnn.model import SimpleGNN
+from energnn.model import GNN
 from energnn.problem import ProblemBatch, ProblemLoader
 from energnn.tracker import Tracker
 from .utils import TaskLogger
@@ -47,7 +47,7 @@ def _cast_cotangent_to_primal_dtype(cotangent_pytree, primal_pytree):
     return jax.tree.map(_cast_leaf, cotangent_pytree, primal_pytree)
 
 
-def _update_params(optimizer: nnx.Optimizer, model: SimpleGNN, gradient: nnx.State, get_info: bool) -> dict:
+def _update_params(optimizer: nnx.Optimizer, model: GNN, gradient: nnx.State, get_info: bool) -> dict:
     r"""
     Updates the model weights using the gradient.
 
@@ -80,7 +80,7 @@ class Trainer:
     This basic trainer relies on the training of a permutation-equivariant
     Graph Neural Network :math:`\hat{y}_\theta` over a dataset of problem instances.
     For a fixed problem instance with objective function :math:`f`
-    and context :math:`x`, the parameter :math:`\theta` is updated in the following gradient descent step,
+    and context :math:`x`, the parameter :math:`\theta` is updated according to the following gradient descent step,
 
     .. math::
         \theta \gets \theta - \alpha . J_\theta[\hat{y}_\theta](x)^\top .
@@ -96,7 +96,7 @@ class Trainer:
     After every training epoch, the current trainer is checkpointed.
 
     :param model: Core Graph Neural Network model.
-    :type model: SimpleGNN
+    :type model: GNN
     :param gradient_transformation: Optax gradient transformation.
     :type gradient_transformation: optax.GradientTransformation
     """
@@ -104,10 +104,10 @@ class Trainer:
     def __init__(
         self,
         *,
-        model: SimpleGNN,
+        model: GNN,
         gradient_transformation: GradientTransformation,
     ):
-        self.model: SimpleGNN = model
+        self.model: GNN = model
         self.optimizer = nnx.Optimizer(self.model, gradient_transformation, wrt=nnx.Param)
         self.train_step: int = 0
         self.best_score: float | None = None

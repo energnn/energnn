@@ -10,12 +10,12 @@ from energnn.graph import GraphStructure
 from energnn.model.coupler import LocalSumMessageFunction, RecurrentCoupler
 from energnn.model.decoder import MLPEquivariantDecoder
 from energnn.model.encoder import MLPEncoder
+from energnn.model.gnn import GNN
 from energnn.model.normalizer import TDigestNormalizer
-from energnn.model.simple_gnn import SimpleGNN
 from energnn.model.utils import MLP
 
 
-class ReadyRecurrentEquivariantGNN(SimpleGNN):
+class ReadyRecurrentEquivariantGNN(GNN):
 
     def __init__(
         self,

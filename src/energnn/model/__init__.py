@@ -7,12 +7,12 @@
 from .coupler import Coupler, LocalSumMessageFunction, NeuralODECoupler, RecurrentCoupler
 from .decoder import Decoder, EquivariantDecoder, InvariantDecoder, MLPEquivariantDecoder
 from .encoder import Encoder, IdentityEncoder, MLPEncoder
+from .gnn import GNN
 from .normalizer import CenterReduceNormalizer, Normalizer, TDigestNormalizer
-from .simple_gnn import SimpleGNN
 from .utils import MLP
 
 __all__ = [
-    "SimpleGNN",
+    "GNN",
     "Normalizer",
     "Encoder",
     "IdentityEncoder",

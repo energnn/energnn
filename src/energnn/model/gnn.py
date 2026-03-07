@@ -14,7 +14,7 @@ from .encoder import Encoder
 from .normalizer import Normalizer
 
 
-class SimpleGNN(nnx.Module):
+class GNN(nnx.Module):
     """
     Simple Graph Neural Network (GNN) model designed to handle Hyper Heterogeneous Multi Graphs (H2MGs).
 

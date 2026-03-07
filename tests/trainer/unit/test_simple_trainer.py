@@ -12,7 +12,7 @@ import optax
 from flax import nnx
 
 from energnn.graph import JaxGraph, JaxHyperEdgeSet
-from energnn.model import IdentityEncoder, SimpleGNN
+from energnn.model import GNN, IdentityEncoder
 from energnn.problem.example import LinearSystemProblemLoader
 from energnn.trainer import Trainer
 from energnn.trainer.trainer import _cast_cotangent_to_primal_dtype
@@ -51,7 +51,7 @@ def create_tiny_model(context_structure):
             x = graph.hyper_edge_sets["source"].feature_array
             return self.linear(x), {}
 
-    return SimpleGNN(
+    return GNN(
         normalizer=IdentityNormalizer(),
         encoder=IdentityEncoder(),
         coupler=SimpleCoupler(),
