@@ -142,7 +142,6 @@ class Trainer:
         :param train_loader: Problem loader used for training.
         :param val_loader: Problem loader used for validation.
         :param checkpoint_manager: Checkpoint manager for saving checkpoints.
-        :param optim_mode: Optimization mode, either "minimize" or "maximize". Overrides the checkpoint manager's `best_mode`.
         :param n_epochs: Number of training epochs to perform.
         :param tracker: Experiment tracker.
         :param log_period: Number of training iterations between two logs, None for no logs.
@@ -150,6 +149,7 @@ class Trainer:
         :param eval_before_training: If true, evaluate metrics over the full validation loader before training.
         :param eval_after_epoch: If true, evaluate metrics over the full validation loader after each epoch.
         :param progress_bar: If true, display a progress bar during training.
+        :param optim_mode: Optimization mode, either "minimize" or "maximize". Overrides the checkpoint manager's `best_mode`.
         :return: Best average score obtained on the validation loader.
         """
         if checkpoint_manager is not None:

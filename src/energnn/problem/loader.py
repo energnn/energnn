@@ -15,7 +15,7 @@ class ProblemLoader(ABC, Sized, Iterator[ProblemBatch]):
     """
     Abstract base class for problem loaders that yield batches of problem instances.
 
-    Iterates over a provided `ProblemDataset` in consecutive batches.
+    Iterates over problem instances in batches, optionally shuffling the dataset.
 
     :param batch_size: Number of instances per batch returned by the iterator.
     :param shuffle: If true, randomly shuffle the dataset.

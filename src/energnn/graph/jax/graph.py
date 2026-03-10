@@ -27,7 +27,7 @@ class JaxGraph(dict):
     """
     Jax implementation of Hyper Heterogeneous Multi Graph (H2MG).
 
-    Store hyper_edge_sets, shapes, and address masks for single or batched graphs.
+    Stores hyper-edge sets, shapes, and address masks for single or batched graphs.
 
     :param hyper_edge_sets: Dictionary of hyper-edge sets contained in the graph.
     :param true_shape: True shape of the graph, not altered by padding.
@@ -108,7 +108,7 @@ class JaxGraph(dict):
     @hyper_edge_sets.setter
     def hyper_edge_sets(self, hyper_edge_set_dict: dict[str, JaxHyperEdgeSet]) -> None:
         """
-        Sets the dictionary of edge instances.
+        Sets the dictionary of hyper-edge sets.
 
         :param hyper_edge_set_dict: New dictionary of hyper-edge set instances.
         """

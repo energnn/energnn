@@ -15,7 +15,7 @@ from .normalizer import Normalizer
 
 class HyperEdgeSetCenterReduceNormalizer(nnx.Module):
     """
-    EdgeCenterReduceNormalizer normalizes HyperEdgeSet data using a feature-wise mean and variance
+    HyperEdgeSetCenterReduceNormalizer normalizes HyperEdgeSet data using a feature-wise mean and variance
     calculation while supporting running averages and bias correction.
     """
 
