@@ -338,7 +338,7 @@ class Trainer:
             self.model.train()  # Set model to train mode
 
             infos = {}
-            jax_context, infos["1_context"] = problem_batch.get_context(get_info=get_info)
+            jax_context, infos["1_context"] = problem_batch.get_context(get_info=get_info, step=self.train_step)
 
             def apply(params, rest, jax_context):
                 def f_forward(p, r):
@@ -360,7 +360,9 @@ class Trainer:
                 return (grads_params,)
 
             nnx.update(self.model, rest_updated)
-            jax_gradient, infos["3_gradient"] = problem_batch.get_gradient(decision=jax_decision, get_info=get_info)
+            jax_gradient, infos["3_gradient"] = problem_batch.get_gradient(
+                decision=jax_decision, get_info=get_info, step=self.train_step
+            )
             jax_cotangent = _cast_cotangent_to_primal_dtype(jax_gradient, jax_decision)
             (grads_params,) = model_vjp(jax_cotangent)
             infos["4_update"] = _update_params(
@@ -386,7 +388,7 @@ class Trainer:
         with TaskLogger(logger, f"Eval step {eval_step}"):
             infos = {}
 
-            jax_context, infos["1_context"] = problem_batch.get_context(get_info=True)
+            jax_context, infos["1_context"] = problem_batch.get_context(get_info=True, step=self.train_step)
 
             def f(model, context):
                 decision, info = model.forward_batch(graph=context, get_info=True)
@@ -395,7 +397,7 @@ class Trainer:
 
             jax_decision, infos["2_forward"], rest_updated = nnx.jit(f)(model=self.model, context=jax_context)
 
-            score, infos["3_score"] = problem_batch.get_score(decision=jax_decision, get_info=True)
+            score, infos["3_score"] = problem_batch.get_score(decision=jax_decision, get_info=True, step=self.train_step)
 
         # Flatten and numpify infos
         infos = flatdict.FlatDict(infos, delimiter="/")

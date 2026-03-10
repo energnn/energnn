@@ -30,11 +30,12 @@ class ProblemBatch(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def get_context(self, get_info: bool = False) -> tuple[JaxGraph, dict]:
+    def get_context(self, get_info: bool = False, step: int | None = None) -> tuple[JaxGraph, dict]:
         """
         Retrieve the batch of context graphs :math:`x`.
 
         :param get_info: Flag indicating if additional information should be returned for tracking purpose.
+        :param step: Training step number passed by the trainer. Useful for scheduling.
         :returns: A tuple of:
             - **Graph**: A batched context object.
             - **dict**: A dictionary of additional information (empty if `get_info=False`).
@@ -44,12 +45,13 @@ class ProblemBatch(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def get_gradient(self, *, decision: JaxGraph, get_info: bool = False) -> tuple[JaxGraph, dict]:
+    def get_gradient(self, *, decision: JaxGraph, get_info: bool = False, step: int | None = None) -> tuple[JaxGraph, dict]:
         r"""
         Compute gradients :math:`\nabla_y f` for a batched of decision graphs :math:`y`.
 
         :param decision: Batched decision graph at which to evaluate gradient.
         :param get_info: Flag indicating if additional information should be returned for tracking purpose.
+        :param step: Training step number passed by the trainer. Useful for scheduling.
         :returns: A tuple of:
             - **Graph**: A batched context object.
             - **dict**: A dictionary of additional information (empty if `get_info=False`).
@@ -59,12 +61,13 @@ class ProblemBatch(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def get_score(self, *, decision: JaxGraph, get_info: bool = False) -> tuple[list[float], dict]:
+    def get_score(self, *, decision: JaxGraph, get_info: bool = False, step: int | None = None) -> tuple[list[float], dict]:
         """
         Evaluate a scalar `score` for each decision graph in the batch.
 
         :param decision: Batched decision graph to evaluate.
         :param get_info: Flag indicating if additional information should be returned for tracking purpose.
+        :param step: Training step number passed by the trainer. Useful for scheduling.
         :returns: A tuple of:
             - **list[float]**: list of score values.
             - **dict**: A dictionary of additional information (empty if `get_info=False`).
