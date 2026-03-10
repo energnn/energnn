@@ -77,9 +77,9 @@ def _update_params(optimizer: nnx.Optimizer, model: GNN, gradient: nnx.State, ge
 def _setup_ckpt_mngr(checkpoint_manager: CheckpointManager, optim_mode: Literal["minimize", "maximize"]):
     checkpoint_manager._options.best_fn = lambda x: x["score"]
     if optim_mode == "minimize":
-        checkpoint_manager._options.best_mode = "max"
-    elif optim_mode == "maximize":
         checkpoint_manager._options.best_mode = "min"
+    elif optim_mode == "maximize":
+        checkpoint_manager._options.best_mode = "max"
 
 
 class Trainer:

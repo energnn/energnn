@@ -231,6 +231,7 @@ def test_train_with_tracker_and_storage():
     m_tracker = MagicMock(spec=Tracker)
     m_cp = MagicMock(spec=CheckpointManager)
     m_cp._options = MagicMock(spec=CheckpointManagerOptions)
+    m_cp._options.best_mode = "max"
     m_cp.save.return_value = True
     m_cp.directory = MagicMock()
     m_cp.directory.__truediv__.return_value = "path/to/ckpt"
@@ -250,3 +251,4 @@ def test_train_with_tracker_and_storage():
     assert m_cp.save.called
     # m_cp.wait_until_finished should be called at the end of train
     assert m_cp.wait_until_finished.called
+    assert m_cp._options.best_mode == "min"
