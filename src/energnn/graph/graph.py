@@ -513,6 +513,13 @@ def get_statistics(graph: Graph, axis: int | None = None, norm_graph: Graph | No
              ``"{hyper_edge_set_name}/{feature_name}/{stat}"`` to their computed values.
              Values are floats or numpy arrays depending on `axis`.
     """
+
+    # Convert fictitious addresses to NaN
+    for key, hyper_edge_set in graph.hyper_edge_sets.items():
+        mask = hyper_edge_set.non_fictitious
+        if hyper_edge_set.feature_array is not None:
+            graph.hyper_edge_sets[key].feature_array[mask == 0] = np.nan
+
     info = {}
     for object_name, hyper_edge_set in graph.hyper_edge_sets.items():
         if hyper_edge_set.feature_dict is not None:
