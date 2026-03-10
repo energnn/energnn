@@ -3,7 +3,7 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 # SPDX-License-Identifier: MPL-2.0
-#
+
 import logging
 
 import diffrax
@@ -13,13 +13,13 @@ from flax import nnx
 
 from energnn.graph import JaxGraph
 from energnn.model.utils import MLP
-from .message_function import MessageFunction
+from .message_passing_function import MessagePassingFunction
 from ..coupler import Coupler
 
 logger = logging.getLogger(__name__)
 
 
-class NeuralODECoupler(Coupler):
+class NODECoupler(Coupler):
     r"""
     Output coordinates are computed by solving a Neural Ordinary Differential Equation.
 
@@ -48,7 +48,7 @@ class NeuralODECoupler(Coupler):
     def __init__(
         self,
         phi: MLP,
-        message_functions: list[MessageFunction],
+        message_functions: list[MessagePassingFunction],
         dt: float,
         stepsize_controller: diffrax.AbstractStepSizeController,
         adjoint: diffrax.AbstractAdjoint,

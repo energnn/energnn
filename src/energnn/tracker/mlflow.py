@@ -3,7 +3,7 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 # SPDX-License-Identifier: MPL-2.0
-#
+
 import json
 from datetime import datetime
 from tempfile import TemporaryDirectory
@@ -23,8 +23,7 @@ class MlflowTracker(Tracker):
         mlflow.set_experiment(project_name)
 
     def init_run(self, *, name: str, tags: dict[str, str], cfg: DictConfig):
-        mlflow.start_run(run_name=name,
-                         tags=tags)
+        mlflow.start_run(run_name=name, tags=tags)
         cfg_dict = stringify_unsupported(OmegaConf.to_container(cfg, resolve=True))
         mlflow.log_params(cfg_dict)
 

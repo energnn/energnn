@@ -3,7 +3,8 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 # SPDX-License-Identifier: MPL-2.0
-#
+
+
 class ProblemMetadata(dict):
     """Metadata of a Problem instance.
 
@@ -14,7 +15,7 @@ class ProblemMetadata(dict):
         (no jax.Array).
     :param decision_shape: Shape of the decision of the instance, formatted as a dict containing only int values
         (no jax.Array).
-    :param filter_tags: Dictionary of criteria used to select the instance to form datasets.
+    :param filter_tags: Dictionary of the criteria used to select the instance to form datasets.
     """
 
     def __init__(

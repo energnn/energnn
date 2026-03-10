@@ -3,7 +3,7 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 # SPDX-License-Identifier: MPL-2.0
-#
+
 import jax
 import jax.numpy as jnp
 import jax.random
@@ -12,7 +12,7 @@ from flax.nnx import initializers
 from flax.typing import Initializer
 
 from energnn.graph import GraphStructure
-from energnn.graph.jax import JaxEdge, JaxGraph
+from energnn.graph.jax import JaxGraph, JaxHyperEdgeSet
 from energnn.model.utils import Activation, MLP
 from .encoder import Encoder
 
@@ -73,16 +73,16 @@ class MLPEncoder(Encoder):
         self.feature_names = nnx.data({f"lat_{i}": jnp.array(i) for i in range(self.out_size)})
 
     def _build_mlp_dict(self, seed: int = 0, rngs: nnx.Rngs | None = None) -> dict[str, MLP]:
-        """Creates an MLP for each edge class appearing in the input structure, initialized with the given seed."""
+        """Creates an MLP for each hyper-edge set class appearing in the input structure, initialized with the given seed."""
         if rngs is None:
             rngs = nnx.Rngs(seed)
         elif seed is not None:
             raise ValueError("Seed must be None when rngs are provided.")
         mlp_dict = {}
-        for edge_key, edge_structure in self.in_structure.edges.items():
-            if edge_structure.feature_list is not None and len(edge_structure.feature_list) > 0:
-                in_size = len(edge_structure.feature_list)
-                mlp_dict[edge_key] = MLP(
+        for key, hyper_edge_set_structure in self.in_structure.hyper_edge_sets.items():
+            if hyper_edge_set_structure.feature_list is not None and len(hyper_edge_set_structure.feature_list) > 0:
+                in_size = len(hyper_edge_set_structure.feature_list)
+                mlp_dict[key] = MLP(
                     in_size=in_size,
                     hidden_sizes=self.hidden_sizes,
                     activation=self.activation,
@@ -99,41 +99,45 @@ class MLPEncoder(Encoder):
         """
         Apply the class-specific MLPs to the input graph and return the encoded graph.
 
-        :param graph: Input graph with edges to encode.
+        :param graph: Input graph with hyper-edge sets to encode.
         :param get_info: Flag to return additional information for tracking purpose.
         :return: Encoded graph and additional info dictionary.
-        :raises KeyError: If an edge class in the graph is not present in the encoder's MLP dictionary.
+        :raises KeyError: If an hyper-edge sets class in the graph is not present in the encoder's MLP dictionary.
         """
 
-        # Verify all edge keys have corresponding MLPs
-        missing_keys = set(graph.edges.keys()) - set(self.mlp_dict.keys())
+        # Verify all hyper-edge set keys have corresponding MLPs
+        missing_keys = set(graph.hyper_edge_sets.keys()) - set(self.mlp_dict.keys())
         if missing_keys:
             raise KeyError(
-                f"Graph contains edge classes {missing_keys} that were not present in the input structure. "
-                f"Available edge classes: {set(self.mlp_dict.keys())}"
+                f"Graph contains hyper-edge set classes {missing_keys} that were not present in the input structure. "
+                f"Available hyper-edge set classes: {set(self.mlp_dict.keys())}"
             )
 
-        edge_mlp_dict = {k: (edge, self.mlp_dict[k]) for k, edge in graph.edges.items() if k in self.mlp_dict.keys()}
+        edge_mlp_dict = {
+            k: (hyper_edge_set, self.mlp_dict[k])
+            for k, hyper_edge_set in graph.hyper_edge_sets.items()
+            if k in self.mlp_dict.keys()
+        }
 
-        def apply_mlp(edge_mlp: tuple[JaxEdge, MLP]) -> JaxEdge:
+        def apply_mlp(edge_mlp: tuple[JaxHyperEdgeSet, MLP]) -> JaxHyperEdgeSet:
             """Apply the MLP to the edge."""
-            edge, mlp = edge_mlp
-            if edge.feature_array is not None:
-                mask = jnp.expand_dims(edge.non_fictitious, -1)
-                feature_array, feature_names = mlp(edge.feature_array) * mask, self.feature_names
+            hyper_edge_set, mlp = edge_mlp
+            if hyper_edge_set.feature_array is not None:
+                mask = jnp.expand_dims(hyper_edge_set.non_fictitious, -1)
+                feature_array, feature_names = mlp(hyper_edge_set.feature_array) * mask, self.feature_names
             else:
                 feature_array, feature_names = None, None
-            return JaxEdge(
+            return JaxHyperEdgeSet(
                 feature_array=feature_array,
                 feature_names=feature_names,
-                non_fictitious=edge.non_fictitious,
-                address_dict=edge.address_dict,
+                non_fictitious=hyper_edge_set.non_fictitious,
+                port_dict=hyper_edge_set.port_dict,
             )
 
-        encoded_edge_dict = jax.tree.map(apply_mlp, edge_mlp_dict, is_leaf=(lambda x: isinstance(x, tuple)))
+        encoded_hyper_edge_sets = jax.tree.map(apply_mlp, edge_mlp_dict, is_leaf=(lambda x: isinstance(x, tuple)))
 
         encoded_context = JaxGraph(
-            edges=encoded_edge_dict,
+            hyper_edge_sets=encoded_hyper_edge_sets,
             non_fictitious_addresses=graph.non_fictitious_addresses,
             true_shape=graph.true_shape,
             current_shape=graph.current_shape,

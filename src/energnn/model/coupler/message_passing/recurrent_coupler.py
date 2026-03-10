@@ -3,7 +3,7 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 # SPDX-License-Identifier: MPL-2.0
-#
+
 import logging
 
 import jax
@@ -12,7 +12,7 @@ from flax import nnx
 
 from energnn.graph import JaxGraph
 from energnn.model.utils import MLP
-from .message_function import MessageFunction
+from .message_passing_function import MessagePassingFunction
 from ..coupler import Coupler
 
 logger = logging.getLogger(__name__)
@@ -41,7 +41,7 @@ class RecurrentCoupler(Coupler):
     def __init__(
         self,
         phi: MLP,
-        message_functions: list[MessageFunction],
+        message_functions: list[MessagePassingFunction],
         n_steps: int,
     ):
         super().__init__()

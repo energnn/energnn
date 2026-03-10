@@ -4,14 +4,14 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
-import numpy as np
+import diffrax
 import jax
 import jax.numpy as jnp
-import diffrax
+import numpy as np
 import pytest
 from flax import nnx
 
-from energnn.model.coupler.neural_ode.neural_ode import NeuralODECoupler
+from energnn.model.coupler.message_passing.node_coupler import NODECoupler
 from energnn.model.utils import MLP
 from energnn.problem.example import LinearSystemProblemLoader
 
@@ -66,7 +66,7 @@ def make_coupler(
         # Default tiny MLP if none provided
         phi = MLP(in_size=1, hidden_sizes=[], out_size=1, activation=None, seed=0)
 
-    coupler = NeuralODECoupler(
+    coupler = NODECoupler(
         phi=phi,
         message_functions=message_functions,
         dt=dt,

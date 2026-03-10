@@ -4,22 +4,21 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
-import numpy as np
 import jax
 import jax.numpy as jnp
+import numpy as np
 import pytest
 
-from energnn.graph.shape import GraphShape
-from energnn.graph.edge import Edge
 from energnn.graph.jax.shape import JaxGraphShape
-from tests.graph.utils import get_fixed_graphshape, assert_graphshape_equal
+from energnn.graph.shape import GraphShape
+from tests.graph.utils import assert_graphshape_equal, get_fixed_graphshape
 
 
 def test_from_numpy_and_to_numpy_roundtrip():
     gs = get_fixed_graphshape()
     jgs = JaxGraphShape.from_numpy_shape(gs, dtype="float32")
     # internals are jax arrays
-    for v in jgs.edges.values():
+    for v in jgs.hyper_edge_sets.values():
         assert isinstance(v, jax.Array)
     assert isinstance(jgs.addresses, jax.Array)
 
@@ -34,12 +33,12 @@ def test_dtype_preservation_float64():
         gs = get_fixed_graphshape()
         jgs = JaxGraphShape.from_numpy_shape(gs, dtype="float64")
         # jax arrays should be float64
-        for v in jgs.edges.values():
+        for v in jgs.hyper_edge_sets.values():
             assert v.dtype == jnp.float64
         assert jgs.addresses.dtype == jnp.float64
 
         back = jgs.to_numpy_shape()
-        for v in back.edges.values():
+        for v in back.hyper_edge_sets.values():
             assert v.dtype == np.float64
         assert back.addresses.dtype == np.float64
     finally:
@@ -50,12 +49,12 @@ def test_dtype_preservation_float32():
     gs = get_fixed_graphshape()
     jgs = JaxGraphShape.from_numpy_shape(gs, dtype="float32")
     # jax arrays should be float32
-    for v in jgs.edges.values():
+    for v in jgs.hyper_edge_sets.values():
         assert v.dtype == jnp.float32
     assert jgs.addresses.dtype == jnp.float32
 
     back = jgs.to_numpy_shape()
-    for v in back.edges.values():
+    for v in back.hyper_edge_sets.values():
         assert v.dtype == np.float32
     assert back.addresses.dtype == np.float32
 
@@ -64,12 +63,12 @@ def test_dtype_preservation_float16():
     gs = get_fixed_graphshape()
     jgs = JaxGraphShape.from_numpy_shape(gs, dtype="float16")
     # jax arrays should be float16
-    for v in jgs.edges.values():
+    for v in jgs.hyper_edge_sets.values():
         assert v.dtype == jnp.float16
     assert jgs.addresses.dtype == jnp.float16
 
     back = jgs.to_numpy_shape()
-    for v in back.edges.values():
+    for v in back.hyper_edge_sets.values():
         assert v.dtype == np.float16
     assert back.addresses.dtype == np.float16
 

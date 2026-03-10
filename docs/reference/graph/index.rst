@@ -7,23 +7,23 @@ Graph
 In this package, the classes :class:`Graph` and :class:`JaxGraph` are the core data representation.
 There are used to represent contexts :math:`x` (*i.e* input data),
 decisions :math:`y` (*i.e.* output data), and gradients :math:`\nabla_y f`.
-A :class:`Graph` (resp :class:`JaxGraph`)is composed of multiple classes of hyper-edges
-:class:`Edge` (resp :class:`JaxEdge`), each defined by a series of addresses and features.
+A :class:`Graph` (resp :class:`JaxGraph`) is composed of multiple :class:`HyperEdgeSet` (resp :class:`JaxHyperEdgeSet`),
+each defined by a series of ports and features.
 
 The class :class:`Graph` or :class:`JaxGraph` can represent both a single graph instance or a batch of
 graphs. 
 
 
 .. note::
-    :class:`JaxGraph` (resp :class:`JaxEdge`, resp :class:`JaxGraphShape`) is the Jax implementation
-    of :class:`Graph` (resp :class:`Edge`, resp :class:`GraphShape`) which is based on numpy.
+    :class:`JaxGraph` (resp :class:`JaxHyperEdgeSet`, resp :class:`JaxGraphShape`) is the Jax implementation
+    of :class:`Graph` (resp :class:`HyperEdgeSet`, resp :class:`GraphShape`) which is based on numpy.
     Here is a typical instance of :class:`Graph` or :class:`JaxGraph`.
 
     .. code:: python
 
         >>> print(graph)
         Mass
-                  addresses  features
+                  ports      features
                     node_id    weight         x         y         z
         object_id
         0               0.0  5.322265  0.202435  0.202435  0.242032
@@ -31,7 +31,7 @@ graphs.
         2               2.0  3.535864  0.060886  0.060886  0.094170
         3               3.0  7.213709  0.984766  0.984766  0.068853
         Spring
-                  addresses           features
+                  ports              features
                    node1_id node2_id         k
         object_id
         0               0.0      1.0  0.020424
@@ -80,10 +80,10 @@ Graph
     JaxGraph.to_numpy_graph
     JaxGraph.quantiles
 
-Edge
-====
+HyperEdgeSet
+============
 
-.. autoclass:: Edge
+.. autoclass:: HyperEdgeSet
    :no-members:
    :show-inheritance:
 
@@ -91,22 +91,22 @@ Edge
    :toctree: _autosummary
    :nosignatures:
 
-    Edge.from_dict
-    Edge.array
-    Edge.is_batch
-    Edge.is_single
-    Edge.n_obj
-    Edge.n_batch
-    Edge.address_array
-    Edge.address_names
-    Edge.feature_dict
-    Edge.feature_flat_array
-    Edge.pad
-    Edge.unpad
-    Edge.offset_addresses
+    HyperEdgeSet.from_dict
+    HyperEdgeSet.array
+    HyperEdgeSet.is_batch
+    HyperEdgeSet.is_single
+    HyperEdgeSet.n_obj
+    HyperEdgeSet.n_batch
+    HyperEdgeSet.port_array
+    HyperEdgeSet.port_names
+    HyperEdgeSet.feature_dict
+    HyperEdgeSet.feature_flat_array
+    HyperEdgeSet.pad
+    HyperEdgeSet.unpad
+    HyperEdgeSet.offset_addresses
 
 
-.. autoclass:: JaxEdge
+.. autoclass:: JaxHyperEdgeSet
    :no-members:
    :show-inheritance:
 
@@ -114,11 +114,11 @@ Edge
    :toctree: _autosummary
    :nosignatures:
 
-    JaxEdge.tree_flatten
-    JaxEdge.tree_unflatten
-    JaxEdge.feature_flat_array
-    JaxEdge.from_numpy_edge
-    JaxEdge.to_numpy_edge
+    JaxHyperEdgeSet.tree_flatten
+    JaxHyperEdgeSet.tree_unflatten
+    JaxHyperEdgeSet.feature_flat_array
+    JaxHyperEdgeSet.from_numpy_hyper_edge_set
+    JaxHyperEdgeSet.to_numpy_hyper_edge_set
 
 
 GraphShape
@@ -157,9 +157,9 @@ GraphShape
     JaxGraphShape.to_numpy_shape
 
 
-Graph, edge, and shape manipulation functions
-=============================================
-The following functions help to manipulate graphs, edges, shapes objects and to proceed oprations on them.
+Graph, hyper-edge set, and shape manipulation functions
+=======================================================
+The following functions help to manipulate graphs, hyper-edge sets, shapes objects and to proceed operations on them.
 
 .. autosummary::
    :toctree: _autosummary
@@ -169,12 +169,12 @@ The following functions help to manipulate graphs, edges, shapes objects and to 
     concatenate_graphs
     get_statistics
     separate_graphs
-    check_edge_dict_type
-    collate_edges
-    concatenate_edges
-    separate_edges
+    check_hyper_edge_set_dict_type
+    collate_hyper_edge_sets
+    concatenate_hyper_edge_sets
+    separate_hyper_edge_sets
     check_dict_shape
-    build_edge_shape
+    build_hyper_edge_set_shape
     dict2array
     check_dict_or_none
     check_no_nan

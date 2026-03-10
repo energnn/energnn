@@ -21,7 +21,7 @@ Overview
 
 Implementing your custom use case requires the following class implementations.
 
-1. :class:`~energnn.problem.Problem` -- Implements the logic for a single problem instance (context, gradient, metrics).
+1. :class:`~energnn.problem.Problem` -- Implements the logic for a single problem instance (context, gradient, score).
 2. :class:`~energnn.problem.ProblemBatch` -- Handles batching of multiple problem instances together. The implementation
    can be optimized for parallel computation, and even leverage GPU parallelization.
 3. :class:`~energnn.problem.ProblemLoader` -- Iterates over a whole dataset of problems,
@@ -29,7 +29,7 @@ Implementing your custom use case requires the following class implementations.
 
 All three classes should however share two common properties, :attr:`~energnn.problem.Problem.context_structure`
 and :attr:`~energnn.problem.Problem.decision_structure`, which define the name of the object classes and of their
-respective addresses and features appearing in **contexts** and **decisions**.
+respective ports and features appearing in **contexts** and **decisions**.
 
 ----------
 
@@ -44,28 +44,28 @@ and :class:`~energnn.problem.ProblemLoader` implementations.
 
 .. code-block:: python
 
-    from energnn.graph import EdgeStructure, GraphStructure
+    from energnn.graph import HyperEdgeSetStructure, GraphStructure
 
     # Example: a context graph with lines, switches, generators and loads
-    CONTEXT_STRUCTURE: GraphStructure = GraphStructure.from_dict(edge_structure_dict={
-        "lines": EdgeStructure.from_list(address_list=["bus1", "bus2"], feature_list=["r", "x"]),
-        "switches": EdgeStructure.from_list(address_list=["bus1", "bus2"], feature_list=None),
-        "generators": EdgeStructure.from_list(address_list=["bus"], feature_list=["p0", "q0"]),
-        "loads": EdgeStructure.from_list(address_list=["bus"], feature_list=["p", "q"]),
+    CONTEXT_STRUCTURE: GraphStructure = GraphStructure.from_dict(hyper_edge_set_structure_dict={
+        "lines": HyperEdgeSetStructure.from_list(port_list=["bus1", "bus2"], feature_list=["r", "x"]),
+        "switches": HyperEdgeSetStructure.from_list(port_list=["bus1", "bus2"], feature_list=None),
+        "generators": HyperEdgeSetStructure.from_list(port_list=["bus"], feature_list=["p0", "q0"]),
+        "loads": HyperEdgeSetStructure.from_list(port_list=["bus"], feature_list=["p", "q"]),
     })
 
     # Let us say that we wish to predict a log-probability for each switch to be open,
     # along with a generation variation.
-    DECISION_STRUCTURE: GraphStructure = GraphStructure.from_dict(edge_structure_dict={
-        "switches": EdgeStructure.from_list(address_list=None, feature_list=["log_prob"]),
-        "generators": EdgeStructure.from_list(address_list=None, feature_list=["delta_p"]),
+    DECISION_STRUCTURE: GraphStructure = GraphStructure.from_dict(hyper_edge_set_structure_dict={
+        "switches": HyperEdgeSetStructure.from_list(port_list=None, feature_list=["log_prob"]),
+        "generators": HyperEdgeSetStructure.from_list(port_list=None, feature_list=["delta_p"]),
     })
 
 **Important constraints:**
 
-1. All classes in the **context** shall be at least of order 1 (i.e., have 1 or more address);
+1. All classes in the **context** shall be at least of order 1 (i.e., have 1 or more ports);
 2. All classes appearing in the **decision** shall also be appearing in the **context**;
-3. No address can be predicted by the GNN, so all attributes :code:`address_list` in the decision structure shall be None;
+3. No port can be predicted by the GNN, so all attributes :code:`port_list` in the decision structure shall be None;
 
 For now, there is no support for global features (i.e., that would not be borne by a specific object),
 but feel free to reach out if that's something you would like to see included.
@@ -87,7 +87,7 @@ And the following methods:
   instantiated as a :class:`~energnn.graph.JaxGraph`,
 - :meth:`~energnn.problem.Problem.get_gradient`: Computes :math:`\nabla_y f(y;x)` for a given **decision** :math:`y`,
   instantiated as a :class:`~energnn.graph.JaxGraph`,
-- :meth:`~energnn.problem.Problem.get_metrics`: Computes :math:`f(y;x)` for a given **decision** :math:`y` as a :code:`float`.
+- :meth:`~energnn.problem.Problem.get_score`: Computes :math:`f(y;x)` for a given **decision** :math:`y` as a :code:`float`.
 
 **Tracking relevant quantities**:
 All three methods have a key word argument :attr:`get_info` to trigger an optional behavior.
@@ -98,12 +98,12 @@ It's useful for debugging and tracking, but not necessary in your first implemen
 Contexts, decisions and gradients are all instantiated as :class:`~energnn.graph.JaxGraph`, which is a version of
 :class:`~energnn.graph.Graph` designed to work seamlessly with JAX.
 
-**Decoupling gradients and metrics**:
-You can use different objective functions in :meth:`~energnn.problem.Problem.get_metrics`
+**Decoupling gradients and score**:
+You can use different objective functions in :meth:`~energnn.problem.Problem.get_score`
 and in :meth:`~energnn.problem.Problem.get_gradient`.
-For instance, you can use a non-differentiable function :math:`f` as a metrics, and a differentiable function :math:`f'`
+For instance, you can use a non-differentiable function :math:`f` as a score, and a differentiable function :math:`f'`
 in :meth:`~energnn.problem.Problem.get_gradient`.
-Loosely speaking, :meth:`~energnn.problem.Problem.get_metrics` just has to return a scalar value that quantifies how good
+Loosely speaking, :meth:`~energnn.problem.Problem.get_score` just has to return a scalar value that quantifies how good
 a decision is, and :meth:`~energnn.problem.Problem.get_gradient` just has to return the opposite of a direction of
 improvement for a decision.
 
@@ -136,9 +136,9 @@ improvement for a decision.
             grad: JaxGraph = self._estimate_gradient(decision, self.state)
             return grad, {}
 
-        def get_metrics(self, *, decision: JaxGraph, get_info: bool = False) -> tuple[float, dict[str, Any]]:
-            # Implement your own metrics estimation method
-            grad: float = self._estimate_metrics(decision, self.state)
+        def get_score(self, *, decision: JaxGraph, get_info: bool = False) -> tuple[float, dict[str, Any]]:
+            # Implement your own score estimation method
+            grad: float = self._estimate_score(decision, self.state)
             return grad, {}
 
         def save(self, path):
@@ -248,9 +248,9 @@ The following :class:`~energnn.problem.ProblemBatch` implementation assumes that
             batch_grad = self._compute_batch_grad(decision, self.problem_list)
             return batch_grad, {}
 
-        def get_metrics(self, *, decision: JaxGraph, get_info: bool = False) -> tuple[list[float], dict[str, Any]]:
-            metrics_list = self._compute_metrics_list(decision, self.problem_list)
-            return batch_grad, {}
+        def get_score(self, *, decision: JaxGraph, get_info: bool = False) -> tuple[list[float], dict[str, Any]]:
+            score_list = self._compute_score_list(decision, self.problem_list)
+            return score_list, {}
 
 Step 3 — Data Loading (ProblemLoader)
 -------------------------------------
@@ -294,7 +294,7 @@ When implementing your custom use case, ensure these requirements are met:
 - ``context_structure`` and ``decision_structure`` properties are defined.
 - ``get_context()`` returns a :class:`energnn.graph.JaxGraph`.
 - ``get_gradient()`` returns a :class:`energnn.graph.JaxGraph` with the same topology as the decision.
-- ``get_metrics()`` returns a scalar (for :class:`~energnn.problem.Problem`)
+- ``get_score()`` returns a scalar (for :class:`~energnn.problem.Problem`)
   or a list of scalars (for :class:`~energnn.problem.ProblemBatch`).
 - Graphs are correctly converted between :class:`~energnn.graph.Graph` (NumPy-based, useful for building/collating)
   and :class:`~energnn.graph.JaxGraph` (JAX-based, used by the models).

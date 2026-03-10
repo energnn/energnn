@@ -37,7 +37,7 @@ Problem
    Problem.__init__
    Problem.get_context
    Problem.get_gradient
-   Problem.get_metrics
+   Problem.get_score
    Problem.decision_structure
    Problem.context_structure
 
@@ -56,7 +56,7 @@ Batch
    ProblemBatch.__init__
    ProblemBatch.get_context
    ProblemBatch.get_gradient
-   ProblemBatch.get_metrics
+   ProblemBatch.get_score
    ProblemBatch.decision_structure
    ProblemBatch.context_structure
 

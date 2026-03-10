@@ -3,7 +3,7 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 # SPDX-License-Identifier: MPL-2.0
-#
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -17,7 +17,7 @@ class Encoder(nnx.Module, ABC):
 
     @abstractmethod
     def __call__(self, graph: JaxGraph, get_info: bool = False) -> tuple[JaxGraph, dict]:
-        """Encode the input graph into a graph with the same edge classes and features.
+        """Encode the input graph into a graph with the same hyper-edge set classes and features.
 
         :param graph: Input graph to encode.
         :param get_info: If True, returns additional info for tracking purpose.

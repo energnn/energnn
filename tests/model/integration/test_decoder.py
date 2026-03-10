@@ -6,7 +6,7 @@
 import diffrax
 from flax import nnx
 
-from energnn.model import LocalSumMessageFunction, MLP, MLPEquivariantDecoder, NeuralODECoupler
+from energnn.model import LocalSumMessagePassingFunction, MLP, MLPEquivariantDecoder, NODECoupler
 from energnn.problem.example import LinearSystemProblemLoader
 
 
@@ -15,10 +15,10 @@ def test_mlp_equivariant_decoder():
     problem_batch = next(loader)
     context_batch, _ = problem_batch.get_context()
 
-    coupler = NeuralODECoupler(
+    coupler = NODECoupler(
         phi=MLP(in_size=4, hidden_sizes=[], out_size=4, seed=64, final_activation=nnx.tanh),
         message_functions=[
-            LocalSumMessageFunction(
+            LocalSumMessagePassingFunction(
                 in_graph_structure=loader.context_structure,
                 in_array_size=4,
                 out_size=4,

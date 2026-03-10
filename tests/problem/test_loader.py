@@ -4,16 +4,16 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
-from math import ceil
 import random
+from datetime import datetime
+from math import ceil
 
 import pytest
 
-from datetime import datetime
+from energnn.graph import GraphStructure
+from energnn.problem.batch import ProblemBatch
 from energnn.problem.dataset import ProblemDataset
 from energnn.problem.metadata import ProblemMetadata
-from energnn.problem.batch import ProblemBatch
-from energnn.graph import GraphStructure
 
 
 class FakeProblemBatch(ProblemBatch):
@@ -29,12 +29,12 @@ class FakeProblemBatch(ProblemBatch):
     @property
     def context_structure(self) -> GraphStructure:
         # Dummy empty structure for compatibility with abstract base class
-        return GraphStructure(edges={})
+        return GraphStructure(hyper_edge_sets={})
 
     @property
     def decision_structure(self) -> GraphStructure:
         # Dummy empty structure for compatibility with abstract base class
-        return GraphStructure(edges={})
+        return GraphStructure(hyper_edge_sets={})
 
     def get_context(self, get_info: bool = False):
         # For testing we simply return the list as "context" and an empty info dict
@@ -43,7 +43,7 @@ class FakeProblemBatch(ProblemBatch):
     def get_gradient(self, *, decision, get_info: bool = False, cfg=None):
         raise NotImplementedError
 
-    def get_metrics(self, *, decision, get_info: bool = False, cfg=None):
+    def get_score(self, *, decision, get_info: bool = False, cfg=None):
         raise NotImplementedError
 
     def get_zero_decision(self, get_info: bool = False):

@@ -4,20 +4,14 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 # SPDX-License-Identifier: MPL-2.0
 
-from .coupler import Coupler
-from .message_passing import (
-    IdentityMessagePassingFunction,
-    LocalSumMessagePassingFunction,
-    MessagePassingFunction,
-    NODECoupler,
-    RecurrentCoupler,
-)
+from .message_passing_function import IdentityMessagePassingFunction, LocalSumMessagePassingFunction, MessagePassingFunction
+from .node_coupler import NODECoupler
+from .recurrent_coupler import RecurrentCoupler
 
 __all__ = [
-    "Coupler",
     "NODECoupler",
-    "IdentityMessagePassingFunction",
     "LocalSumMessagePassingFunction",
+    "IdentityMessagePassingFunction",
     "MessagePassingFunction",
     "RecurrentCoupler",
 ]

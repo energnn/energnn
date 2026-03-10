@@ -3,32 +3,30 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 # SPDX-License-Identifier: MPL-2.0
-#
+
 from abc import ABC, abstractmethod
 from typing import Iterator, Sized
 
 from energnn.graph import GraphStructure
 from .batch import ProblemBatch
-from .dataset import ProblemDataset
 
 
 class ProblemLoader(ABC, Sized, Iterator[ProblemBatch]):
     """
     Abstract base class for problem loaders that yield batches of problem instances.
 
-    Iterates over a provided `ProblemDataset` in consecutive batches.
+    Iterates over problem instances in batches, optionally shuffling the dataset.
 
-    :param dataset: Dataset containing problem instance metadata.
     :param batch_size: Number of instances per batch returned by the iterator.
     :param shuffle: If true, randomly shuffle the dataset.
     """
 
     @abstractmethod
-    def __init__(self, dataset: ProblemDataset, batch_size: int, shuffle: bool = False):
+    def __init__(self, batch_size: int, shuffle: bool = False):
         """
         Initialize the problem loader.
 
-        :raises NotImplementedError: if subclass does not override this constructor.
+        :raises NotImplementedError: If the subclass does not override this constructor.
         """
         raise NotImplementedError
 
@@ -51,8 +49,8 @@ class ProblemLoader(ABC, Sized, Iterator[ProblemBatch]):
         :returns: A `ProblemBatch` containing up to `batch_size` problem instances.
 
 
-        :raises StopIteration: if there are no further items.
-        :raises NotImplementedError: if subclass does not override this constructor.
+        :raises StopIteration: If there are no further items.
+        :raises NotImplementedError: If the subclass does not override this constructor.
         """
 
         raise NotImplementedError
@@ -62,8 +60,7 @@ class ProblemLoader(ABC, Sized, Iterator[ProblemBatch]):
         """
         Number of batches per epoch.
 
-
-        :raises NotImplementedError: if subclass does not override this constructor.
+        :raises NotImplementedError: If the subclass does not override this constructor.
         """
         raise NotImplementedError
 

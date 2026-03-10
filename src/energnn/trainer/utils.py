@@ -3,10 +3,9 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 # SPDX-License-Identifier: MPL-2.0
-#
+
 import time
 import warnings
-
 
 import jax
 import numpy as np
@@ -19,7 +18,7 @@ def numpify_info_dict(infos: dict) -> dict:
     This function iterates over the provided `infos` dictionary and ensures that each
     value is converted to a numpy scalar. 1-dimensional arrays (jax.Array, numpy.ndarray,
     or list) are averaged along their only axis. Scalar values are wrapped with `np.array`.
-    Nested dictionaries are not supported and a warning will be emitted if encountered.
+    Nested dictionaries are not supported, and a warning will be emitted if encountered.
 
     :param infos: A mapping from string keys to values that are either:
         - jax.Array or numpy.ndarray of dimension < 2

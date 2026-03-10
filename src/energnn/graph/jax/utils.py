@@ -3,7 +3,7 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 # SPDX-License-Identifier: MPL-2.0
-#
+
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -25,19 +25,12 @@ def np_to_jnp(
     :return: JAX array or dict of JAX arrays matching the structure of the input,
              or None if the input is None.
     """
-    # TODO : update jax to specify device.
     if x is None:
         return None
     elif isinstance(x, dict):
         return {k: jnp.array(v, dtype=dtype) for k, v in x.items()}
-        # return {k: jnp.array(v, device=device, dtype=dtype) for k, v in x.items()}
     else:
         return jnp.array(x, dtype=dtype)
-        # return jnp.array(x, device=device, dtype=dtype)
-    # elif isinstance(x, np.ndarray):
-    #     return jnp.array(x, device=device, dtype=dtype)
-    # else:
-    #     raise TypeError(f"Unsupported type {type(x)}.")
 
 
 def jnp_to_np(x: jax.Array | dict[str, jax.Array] | None) -> np.ndarray | dict[str, np.ndarray] | None:
@@ -57,5 +50,3 @@ def jnp_to_np(x: jax.Array | dict[str, jax.Array] | None) -> np.ndarray | dict[s
         return {k: np.array(v) for k, v in x.items()}
     else:
         return np.array(x)
-    # else:
-    #     raise TypeError(f"Unsupported type {type(x)}.")

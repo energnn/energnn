@@ -15,21 +15,21 @@ Implementations
    :no-members:
    :show-inheritance:
 
-.. autoclass:: NeuralODECoupler
+.. autoclass:: NODECoupler
    :no-members:
    :show-inheritance:
 
-Message Functions
------------------
+Message Passing Functions
+-------------------------
 
-.. autoclass:: MessageFunction
+.. autoclass:: MessagePassingFunction
    :no-members:
    :show-inheritance:
 
-.. autoclass:: IdentityMessageFunction
+.. autoclass:: IdentityMessagePassingFunction
    :no-members:
    :show-inheritance:
 
-.. autoclass:: LocalSumMessageFunction
+.. autoclass:: LocalSumMessagePassingFunction
    :no-members:
    :show-inheritance:
