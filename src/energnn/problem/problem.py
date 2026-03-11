@@ -37,7 +37,7 @@ class Problem(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def get_context(self, get_info: bool = False) -> tuple[JaxGraph, dict]:
+    def get_context(self, get_info: bool = False, step: int | None = None) -> tuple[JaxGraph, dict]:
         """
         Retrieve the context graph math:`x` of the problem instance.
 
@@ -45,6 +45,7 @@ class Problem(ABC):
         the instance, such as node features, hyper-edge indices, and any static attributes.
 
         :param get_info: Flag indicating if additional information should be returned for tracking purpose.
+        :param step: Training step number passed by the trainer. Useful for scheduling.
         :return: A tuple containing:
             - **Graph**: The context graph object.
             - **dict**: A dictionary of additional information (empty if `get_info=False`).
@@ -54,7 +55,7 @@ class Problem(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def get_gradient(self, *, decision: JaxGraph, get_info: bool = False) -> tuple[JaxGraph, dict]:
+    def get_gradient(self, *, decision: JaxGraph, get_info: bool = False, step: int | None = None) -> tuple[JaxGraph, dict]:
         r"""
         Compute the gradient graph :math:`\nabla_y f` for a given decision :math:`y`.
 
@@ -62,6 +63,7 @@ class Problem(ABC):
 
         :param decision: A decision graph at which to evaluate the gradient.
         :param get_info: Flag indicating if additional information should be returned for tracking purpose.
+        :param step: Training step number passed by the trainer. Useful for scheduling.
         :return: A tuple containing:
             - **Graph**: The gradient graph with the same structure as decision.
             - **dict**: A dictionary of additional information (empty if `get_info=False`).
@@ -71,11 +73,12 @@ class Problem(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def get_score(self, *, decision: JaxGraph, get_info: bool = False) -> tuple[float, dict]:
+    def get_score(self, *, decision: JaxGraph, get_info: bool = False, step: int | None = None) -> tuple[float, dict]:
         """Should return a scalar `score` that evaluates the decision graph :math:`y`.
 
         :param decision: The decision graph to evaluate.
         :param get_info: Flag indicating if additional information should be returned for tracking purpose.
+        :param step: Training step number passed by the trainer. Useful for scheduling.
         :return: A tuple containing:
             - **float**: A float as score value.
             - **dict**: A dictionary of additional information (empty if `get_info=False`).

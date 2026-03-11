@@ -50,7 +50,7 @@ class LinearSystemProblemBatch(ProblemBatch):
     def context_structure(self) -> GraphStructure:
         return LINEAR_SYSTEM_CONTEXT_STRUCTURE
 
-    def get_context(self, get_info: bool = False) -> tuple[JaxGraph, dict]:
+    def get_context(self, get_info: bool = False, step: int | None = None) -> tuple[JaxGraph, dict]:
         """Returns the context :class:`Graph` :math:`x`."""
         return deepcopy(self.jax_context), {}
 
@@ -62,14 +62,18 @@ class LinearSystemProblemBatch(ProblemBatch):
         """Returns a decision filled with zeros."""
         return deepcopy(self.jax_zero_decision), {}
 
-    def get_gradient(self, decision: JaxGraph, cfg: DictConfig | None = None, get_info: bool = False) -> tuple[Graph, dict]:
+    def get_gradient(
+        self, decision: JaxGraph, cfg: DictConfig | None = None, get_info: bool = False, step: int | None = None
+    ) -> tuple[Graph, dict]:
         r"""Returns the gradient :class:`Graph` :math:`\nabla_y f(y;x) = y - y^{\star}(x)`."""
         gradient = decision.to_numpy_graph()
         gradient.feature_flat_array = gradient.feature_flat_array - self.oracle.feature_flat_array
         jax_gradient = JaxGraph.from_numpy_graph(gradient)
         return jax_gradient, {}
 
-    def get_score(self, decision: JaxGraph, cfg: DictConfig | None = None, get_info: bool = False) -> tuple[list[float], dict]:
+    def get_score(
+        self, decision: JaxGraph, cfg: DictConfig | None = None, get_info: bool = False, step: int | None = None
+    ) -> tuple[list[float], dict]:
         """Returns the mean-squared error of the decision :class:`Graph` with regard to the oracle :class:`Graph`."""
         gradient = decision.to_numpy_graph()
         gradient.feature_flat_array = gradient.feature_flat_array - self.oracle.feature_flat_array
@@ -105,7 +109,7 @@ class LinearSystemProblem(Problem):
     def context_structure(self) -> GraphStructure:
         return LINEAR_SYSTEM_CONTEXT_STRUCTURE
 
-    def get_context(self, get_info: bool = False) -> tuple[JaxGraph, dict]:
+    def get_context(self, get_info: bool = False, step: int | None = None) -> tuple[JaxGraph, dict]:
         """Returns the context :class:`Graph` :math:`x`."""
         return deepcopy(self.jax_context), {}
 
@@ -117,14 +121,18 @@ class LinearSystemProblem(Problem):
         """Returns a decision filled with zeros."""
         return deepcopy(self.jax_zero_decision), {}
 
-    def get_gradient(self, decision: JaxGraph, cfg: DictConfig | None = None, get_info: bool = False) -> tuple[JaxGraph, dict]:
+    def get_gradient(
+        self, decision: JaxGraph, cfg: DictConfig | None = None, get_info: bool = False, step: int | None = None
+    ) -> tuple[JaxGraph, dict]:
         r"""Returns the gradient :class:`Graph` :math:`\nabla_y f(y;x) = y - y^{\star}(x)`."""
         gradient = decision.to_numpy_graph()
         gradient.feature_flat_array = gradient.feature_flat_array - self.oracle.feature_flat_array
         jax_gradient = JaxGraph.from_numpy_graph(gradient)
         return jax_gradient, {}
 
-    def get_score(self, decision: JaxGraph, cfg: DictConfig | None = None, get_info: bool = False) -> tuple[float, dict]:
+    def get_score(
+        self, decision: JaxGraph, cfg: DictConfig | None = None, get_info: bool = False, step: int | None = None
+    ) -> tuple[float, dict]:
         """Returns the mean-squared error of the decision :class:`Graph` with regard to the oracle :class:`Graph`."""
         gradient = decision.to_numpy_graph()
         gradient.feature_flat_array = gradient.feature_flat_array - self.oracle.feature_flat_array
