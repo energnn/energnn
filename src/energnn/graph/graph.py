@@ -514,7 +514,7 @@ def get_statistics(graph: Graph, axis: int | None = None, norm_graph: Graph | No
              Values are floats or numpy arrays depending on `axis`.
     """
 
-    # Convert fictitious addresses to NaN
+    # Convert fictitious features to NaN.
     for key, hyper_edge_set in graph.hyper_edge_sets.items():
         mask = hyper_edge_set.non_fictitious
         if hyper_edge_set.feature_array is not None:
