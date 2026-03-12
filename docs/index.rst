@@ -23,6 +23,8 @@ If you wish to either contribute or use it for your use cases, feel free to emai
 Installation
 ============
 
+EnerGNN is available for all python versions >= 3.11.
+
 To install the CPU version.
 
 .. code-block:: bash
@@ -33,7 +35,7 @@ Or to install the GPU version.
 
 .. code-block:: bash
 
-    pip install energnn --extra gpu
+    pip install energnn[gpu]
 
 ------------
 
