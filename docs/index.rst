@@ -33,7 +33,7 @@ Or to install the GPU version.
 
 .. code-block:: bash
 
-    pip install energnn --extra gpu
+    pip install energnn[gpu]
 
 ------------
 
