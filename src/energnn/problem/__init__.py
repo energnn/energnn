@@ -6,9 +6,7 @@
 
 from . import example
 from .batch import ProblemBatch
-from .dataset import ProblemDataset
 from .loader import ProblemLoader
-from .metadata import ProblemMetadata
 from .problem import Problem
 
-__all__ = ["Problem", "ProblemBatch", "ProblemLoader", "ProblemDataset", "ProblemMetadata", "example"]
+__all__ = ["Problem", "ProblemBatch", "ProblemLoader", "example"]
