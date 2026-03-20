@@ -12,18 +12,16 @@ import pytest
 
 from energnn.graph import GraphStructure
 from energnn.problem.batch import ProblemBatch
-from energnn.problem.dataset import ProblemDataset
-from energnn.problem.metadata import ProblemMetadata
 
 
 class FakeProblemBatch(ProblemBatch):
     """
     Minimal ProblemBatch implementation for tests.
-    Stores a small list of ProblemMetadata instances.
+    Stores a small list of dict instances.
     """
 
     def __init__(self, instances):
-        # instances is a list of ProblemMetadata
+        # instances is a list of dictionaries
         self._instances = instances
 
     @property
@@ -57,7 +55,7 @@ class SimpleProblemLoader:
     with a reproducible seed.
     """
 
-    def __init__(self, dataset: ProblemDataset, batch_size: int, shuffle: bool = False, seed: int | None = None):
+    def __init__(self, dataset: list[dict], batch_size: int, shuffle: bool = False, seed: int | None = None):
         if batch_size <= 0:
             raise ValueError("batch_size must be > 0")
         self.dataset = dataset
@@ -65,14 +63,14 @@ class SimpleProblemLoader:
         self.shuffle = bool(shuffle)
         # store seed for deterministic re-shuffling across __iter__ calls
         self._seed = seed
-        self._indices = list(range(len(self.dataset.instances)))
+        self._indices = list(range(len(self.dataset)))
         self._pos = 0
         # prepare initial order (but do not call reset here to keep semantics explicit)
         self.reset(self._seed)
 
     def reset(self, seed: int | None = None):
         # Build index list and optionally shuffle deterministically with provided seed
-        self._indices = list(range(len(self.dataset.instances)))
+        self._indices = list(range(len(self.dataset)))
         if self.shuffle:
             rnd = random.Random(seed)
             rnd.shuffle(self._indices)
@@ -89,16 +87,16 @@ class SimpleProblemLoader:
         i0 = self._pos
         i1 = min(self._pos + self.batch_size, len(self._indices))
         batch_idx = self._indices[i0:i1]
-        instances = [self.dataset.instances[i] for i in batch_idx]
+        instances = [self.dataset[i] for i in batch_idx]
         self._pos = i1
         return FakeProblemBatch(instances)
 
     def __len__(self):
-        return (len(self.dataset.instances) + self.batch_size - 1) // self.batch_size
+        return (len(self.dataset) + self.batch_size - 1) // self.batch_size
 
 
-def make_problem_metadata(i: int, storage_base: str = "inst") -> ProblemMetadata:
-    """Create a small ProblemMetadata with deterministic fields for testing."""
+def make_problem_metadata(i: int, storage_base: str = "inst") -> dict:
+    """Create a small dictionary with deterministic fields for testing."""
     name = f"name_{i}"
     config_id = f"cfg_{i}"
     code_version = i
@@ -106,33 +104,19 @@ def make_problem_metadata(i: int, storage_base: str = "inst") -> ProblemMetadata
     decision_shape = {"node": 2}
     storage_path = f"{storage_base}_{i}.pkl"
     filter_tags = {"tag": i % 2}
-    return ProblemMetadata(
-        name=name,
-        config_id=config_id,
-        code_version=code_version,
-        context_shape=context_shape,
-        decision_shape=decision_shape,
-        storage_path=storage_path,
-        filter_tags=filter_tags,
-    )
+    return {
+        "name": name,
+        "config_id": config_id,
+        "code_version": code_version,
+        "context_shape": context_shape,
+        "decision_shape": decision_shape,
+        "storage_path": storage_path,
+        "filter_tags": filter_tags,
+    }
 
 
-def make_dataset(n_instances: int) -> ProblemDataset:
-    instances = [make_problem_metadata(i) for i in range(n_instances)]
-    now = datetime.utcnow()
-    ds = ProblemDataset(
-        name="ds_test",
-        split="train",
-        version=1,
-        instances=instances,
-        size=len(instances),
-        context_max_shape={"node": 10},
-        decision_max_shape={"node": 2},
-        generation_date=now,
-        selection_criteria={},
-        tags={"unit_test": True},
-    )
-    return ds
+def make_dataset(n_instances: int) -> list[dict]:
+    return [make_problem_metadata(i) for i in range(n_instances)]
 
 
 def test_len_matches_ceil_of_dataset_over_batchsize():
@@ -154,10 +138,10 @@ def test_iteration_returns_all_instances_once_in_order_when_no_shuffle():
         count_batches += 1
         batch_instances, _ = batch.get_context()
         for meta in batch_instances:
-            collected.append(meta.storage_path)
+            collected.append(meta["storage_path"])
     # number of batches matches length
     assert count_batches == len(loader)
-    expected = [m.storage_path for m in ds.instances]
+    expected = [m["storage_path"] for m in ds]
     assert collected == expected
 
 
@@ -183,12 +167,12 @@ def test_iter_resets_and_can_be_reused():
     first_pass = []
     for batch in loader:
         inst, _ = batch.get_context()
-        first_pass.extend([m.storage_path for m in inst])
+        first_pass.extend([m["storage_path"] for m in inst])
     # second pass - iter resets
     second_pass = []
     for batch in loader:
         inst, _ = batch.get_context()
-        second_pass.extend([m.storage_path for m in inst])
+        second_pass.extend([m["storage_path"] for m in inst])
     assert first_pass == second_pass
 
 
@@ -215,15 +199,15 @@ def test_shuffle_changes_order_when_true_and_different_seeds():
     order1 = []
     for batch in loader1:
         inst, _ = batch.get_context()
-        order1.extend([m.storage_path for m in inst])
+        order1.extend([m["storage_path"] for m in inst])
 
     order2 = []
     for batch in loader2:
         inst, _ = batch.get_context()
-        order2.extend([m.storage_path for m in inst])
+        order2.extend([m["storage_path"] for m in inst])
 
     # They should be permutations of the original set
-    assert set(order1) == set(order2) == set(m.storage_path for m in ds.instances)
+    assert set(order1) == set(order2) == set(m["storage_path"] for m in ds)
     # Very likely the orders are not identical (non-deterministic but probability of equality is minuscule)
     assert order1 != order2
 
@@ -236,8 +220,8 @@ def test_shuffle_false_preserves_order():
     order = []
     for batch in loader:
         inst, _ = batch.get_context()
-        order.extend([m.storage_path for m in inst])
-    expected = [m.storage_path for m in ds.instances]
+        order.extend([m["storage_path"] for m in inst])
+    expected = [m["storage_path"] for m in ds]
     assert order == expected
 
 
@@ -258,5 +242,5 @@ def test_batch_size_one_behavior():
     for batch in loader:
         inst, _ = batch.get_context()
         assert len(inst) == 1
-        collected.append(inst[0].storage_path)
-    assert collected == [m.storage_path for m in ds.instances]
+        collected.append(inst[0]["storage_path"])
+    assert collected == [m["storage_path"] for m in ds]

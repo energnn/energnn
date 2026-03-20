@@ -113,7 +113,6 @@ improvement for a decision.
     import jax.numpy as jnp
     from energnn.graph import Graph, JaxGraph, GraphStructure
     from energnn.problem import Problem
-    from energnn.problem.metadata import ProblemMetadata
 
     class MyProblem(Problem):
         def __init__(self, path: Any):

@@ -61,31 +61,6 @@ Batch
    ProblemBatch.context_structure
 
 
-Dataset
-=======
-
-.. autoclass:: ProblemDataset
-   :no-members:
-   :show-inheritance:
-
-.. autosummary::
-   :toctree: _autosummary
-   :nosignatures:
-
-   ProblemDataset.get_infos_for_feature_store
-   ProblemDataset.get_locally_missing_instances
-   ProblemDataset.get_instance_paths
-   ProblemDataset.to_json
-   ProblemDataset.to_pickle
-   ProblemDataset.from_pickle
-
-Metadata
-========
-
-.. autoclass:: ProblemMetadata
-   :no-members:
-   :show-inheritance:
-
 Loader
 ======
 

@@ -14,7 +14,6 @@ from energnn.graph import Graph, GraphShape, GraphStructure, HyperEdgeSet, Hyper
 from energnn.graph.jax import JaxGraph
 from ..batch import ProblemBatch
 from ..loader import ProblemLoader
-from ..metadata import ProblemMetadata
 from ..problem import Problem
 
 LINEAR_SYSTEM_CONTEXT_STRUCTURE = GraphStructure(
@@ -80,9 +79,6 @@ class LinearSystemProblemBatch(ProblemBatch):
         objective = np.nanmean(np.square(gradient.feature_flat_array), axis=1)
         return objective.tolist(), {}
 
-    def get_metadata(self) -> ProblemMetadata:
-        pass
-
     def save(self, *, path: str) -> None:
         pass
 
@@ -138,9 +134,6 @@ class LinearSystemProblem(Problem):
         gradient.feature_flat_array = gradient.feature_flat_array - self.oracle.feature_flat_array
         objective = np.nanmean(np.square(gradient.feature_flat_array))
         return float(objective), {}
-
-    def get_metadata(self) -> ProblemMetadata:
-        pass
 
     def save(self, *, path: str) -> None:
         pass

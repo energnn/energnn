@@ -7,7 +7,6 @@
 from abc import ABC, abstractmethod
 
 from energnn.graph import GraphStructure, JaxGraph
-from energnn.problem.metadata import ProblemMetadata
 
 
 class Problem(ABC):
@@ -84,19 +83,6 @@ class Problem(ABC):
             - **dict**: A dictionary of additional information (empty if `get_info=False`).
 
         :raises NotImplementedError: If the subclass does not override this constructor.
-        """
-        raise NotImplementedError
-
-    @abstractmethod
-    def get_metadata(self) -> ProblemMetadata:
-        """
-        Retrieve metadata describing problem characteristics.
-
-        Metadata include problem name, configuration ID, version, context shape, decision shape.
-
-        :return: A ProblemMetadata instance encapsulating metadata.
-
-        :raises NotImplementedError: if subclass does not override this constructor.
         """
         raise NotImplementedError
 
