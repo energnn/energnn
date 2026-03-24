@@ -49,6 +49,28 @@ class JaxGraph(dict):
         self[CURRENT_SHAPE] = current_shape
         self[NON_FICTITIOUS_ADDRESSES] = non_fictitious_addresses
 
+    @classmethod
+    def from_dict(cls, *, hyper_edge_set_dict: dict[str, JaxHyperEdgeSet], n_addresses: jnp.ndarray) -> Graph:
+        """
+        Builds a graph from a dictionary of :class:`energnn.graph.JaxHyperEdgeSet` and a registry.
+
+        :param hyper_edge_set_dict: Dictionary of hyper-edge sets contained in the graph.
+        :param n_addresses: Number of unique addresses that appear in all the hyper-edge sets.
+        :return: Graph that contains both the hyper-edge sets and the registry.
+        """
+        non_fictitious_addresses = jnp.ones(shape=[n_addresses])
+        check_hyper_edge_set_dict_type(hyper_edge_set_dict)
+        check_valid_addresses(hyper_edge_set_dict, n_addresses)
+        true_shape = JaxGraphShape.from_dict(hyper_edge_set_dict=hyper_edge_set_dict,
+                                          non_fictitious=non_fictitious_addresses)
+        current_shape = true_shape
+        return cls(
+            hyper_edge_sets=hyper_edge_set_dict,
+            true_shape=true_shape,
+            current_shape=current_shape,
+            non_fictitious_addresses=non_fictitious_addresses,
+        )
+
     @property
     def true_shape(self) -> JaxGraphShape:
         """
