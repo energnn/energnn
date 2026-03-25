@@ -14,7 +14,7 @@ import jax.numpy as jnp
 from jax import Device
 from jax.tree_util import register_pytree_node_class
 
-from energnn.graph.hyper_edge_set import HyperEdgeSet
+from energnn.graph.hyper_edge_set import HyperEdgeSet, check_dict_or_none
 from energnn.graph.jax.utils import jnp_to_np, np_to_jnp
 from energnn.graph.utils import to_numpy
 
@@ -75,18 +75,18 @@ class JaxHyperEdgeSet(dict):
         port_dict = check_dict_or_none(to_numpy(port_dict))
         feature_dict = check_dict_or_none(to_numpy(feature_dict))
 
-        check_valid_ports(port_dict)
-        check_no_nan(port_dict=port_dict, feature_dict=feature_dict)
+        check_valid_ports_jax(port_dict)
+        check_no_nan_jax(port_dict=port_dict, feature_dict=feature_dict)
 
         # Build feature_names and feature_array
         if feature_dict is not None:
             feature_names = {name: idx for idx, name in enumerate(sorted(feature_dict))}
-            feature_array = dict2array(feature_dict)
+            feature_array = dict2array_jax(feature_dict)
         else:
             feature_names, feature_array = None, None
 
         # Build a non-fictitious mask.
-        shape = build_hyper_edge_set_shape(port_dict=port_dict, feature_dict=feature_dict)
+        shape = build_hyper_edge_set_shape_jax(port_dict=port_dict, feature_dict=feature_dict)
         non_fictitious = jnp.ones(int(shape))
 
         return cls(
@@ -224,7 +224,7 @@ class JaxHyperEdgeSet(dict):
         """
         if self.port_dict is None:
             return None
-        return dict2array(self.port_dict)
+        return dict2array_jax(self.port_dict)
 
     @property
     def port_names(self) -> dict[str, jax.Array] | None:
@@ -418,7 +418,7 @@ class JaxHyperEdgeSet(dict):
         """
         self.port_dict = {k: a + jnp.array(offset) for k, a in self.port_dict.items()}
 
-def collate_hyper_edge_sets(hyper_edge_set_list: list[JaxHyperEdgeSet]) -> JaxHyperEdgeSet:
+def collate_hyper_edge_sets_jax(hyper_edge_set_list: list[JaxHyperEdgeSet]) -> JaxHyperEdgeSet:
     """
     Collate a list of JaxHyperEdgeSet into a single batched JaxHyperEdgeSet.
 
@@ -438,7 +438,7 @@ def collate_hyper_edge_sets(hyper_edge_set_list: list[JaxHyperEdgeSet]) -> JaxHy
 
     # Check the consistency of keys
     for e in hyper_edge_set_list[1:]:
-        _check_keys_consistency(first_hyper_edge_set, e)
+        _check_keys_consistency_jax(first_hyper_edge_set, e)
 
     # Collate feature arrays
     if first_hyper_edge_set.feature_array is not None:
@@ -471,7 +471,7 @@ def collate_hyper_edge_sets(hyper_edge_set_list: list[JaxHyperEdgeSet]) -> JaxHy
     )
 
 
-def separate_hyper_edge_sets(hyper_edge_set_batch: JaxHyperEdgeSet) -> list[JaxHyperEdgeSet]:
+def separate_hyper_edge_sets_jax(hyper_edge_set_batch: JaxHyperEdgeSet) -> list[JaxHyperEdgeSet]:
     """
     Separate a batched JaxHyperEdgeSet into its constituent JaxHyperEdgeSet instances.
 
@@ -515,7 +515,7 @@ def separate_hyper_edge_sets(hyper_edge_set_batch: JaxHyperEdgeSet) -> list[JaxH
     return hyper_edge_set_list
 
 
-def concatenate_hyper_edge_sets(hyper_edge_set_list: list[JaxHyperEdgeSet]) -> JaxHyperEdgeSet:
+def concatenate_hyper_edge_sets_jax(hyper_edge_set_list: list[JaxHyperEdgeSet]) -> JaxHyperEdgeSet:
     """
     Concatenate several single JaxHyperEdgeSet into one single JaxHyperEdgeSet.
 
@@ -536,7 +536,7 @@ def concatenate_hyper_edge_sets(hyper_edge_set_list: list[JaxHyperEdgeSet]) -> J
     )
 
 
-def check_dict_shape(*, d: dict[str, jax.Array] | None, n_objects: int | None) -> int | None:
+def check_dict_shape_jax(*, d: dict[str, jax.Array] | None, n_objects: int | None) -> int | None:
     """
     Ensure all arrays in a dictionary have the same size on their last axis.
 
@@ -560,7 +560,7 @@ def check_dict_shape(*, d: dict[str, jax.Array] | None, n_objects: int | None) -
     return n_objects
 
 
-def build_hyper_edge_set_shape(
+def build_hyper_edge_set_shape_jax(
     *,
     port_dict: dict[str, jax.Array] | None,
     feature_dict: dict[str, jax.Array] | None,
@@ -579,12 +579,12 @@ def build_hyper_edge_set_shape(
     if port_dict is None and feature_dict is None:
         raise ValueError("At least one of port_dict or feature_dict must be provided.")
 
-    n_objects = check_dict_shape(d=port_dict, n_objects=None)
-    n_objects = check_dict_shape(d=feature_dict, n_objects=n_objects)
+    n_objects = check_dict_shape_jax(d=port_dict, n_objects=None)
+    n_objects = check_dict_shape_jax(d=feature_dict, n_objects=n_objects)
     return jnp.array(n_objects, dtype=jnp.dtype("float32"))
 
 
-def dict2array(features_dict: dict[str, jax.Array] | None) -> jax.Array | None:
+def dict2array_jax(features_dict: dict[str, jax.Array] | None) -> jax.Array | None:
     """
     Stack a dictionary of jax arrays into a single jax array along the last axis.
 
@@ -598,22 +598,7 @@ def dict2array(features_dict: dict[str, jax.Array] | None) -> jax.Array | None:
     return jnp.stack([features_dict[k] for k in sorted(features_dict)], axis=-1)
 
 
-def check_dict_or_none(_input: dict | jax.Array | None) -> dict | None:
-    """
-    Validate that the input is either a dict or None.
-
-    :param _input: Object to validate
-    :return: the input if it was a dict or None
-    :raises ValueError: if `_input` is neither dict nor None
-    """
-    if isinstance(_input, dict):
-        return _input
-    if _input is None:
-        return None
-    raise ValueError(f"Expected dict or None, got {type(_input)}")
-
-
-def check_no_nan(
+def check_no_nan_jax(
     *,
     port_dict: dict[str, jax.Array] | None,
     feature_dict: dict[str, jax.Array] | None,
@@ -633,7 +618,7 @@ def check_no_nan(
             raise ValueError(f"NaN detected in feature array for key '{name}'.")
 
 
-def check_valid_ports(port_dict: dict[str, jax.Array] | None) -> None:
+def check_valid_ports_jax(port_dict: dict[str, jax.Array] | None) -> None:
     """
     Ensure that ports map only to integer-valued addresses.
 
@@ -645,7 +630,7 @@ def check_valid_ports(port_dict: dict[str, jax.Array] | None) -> None:
             raise ValueError(f"Non-integer values detected in port array for key '{name}'.")
 
 
-def _check_keys_consistency(hes_1: JaxHyperEdgeSet, hes_2: JaxHyperEdgeSet):
+def _check_keys_consistency_jax(hes_1: JaxHyperEdgeSet, hes_2: JaxHyperEdgeSet):
     if (hes_1.port_names is None) != (hes_2.port_names is None):
         raise ValueError("Mismatch in presence of port_names among hyper-edge sets.")
     if (hes_1.feature_names is None) != (hes_2.feature_names is None):

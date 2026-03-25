@@ -198,7 +198,7 @@ class JaxGraphShape(dict):
             raise ValueError("JaxGraphShape is not batched.")
         return self.array.shape[0]
 
-def collate_shapes(shape_list: list[JaxGraphShape]) -> JaxGraphShape:
+def collate_shapes_jax(shape_list: list[JaxGraphShape]) -> JaxGraphShape:
     """
     Batches a list of JaxGraphShape into one batched JaxGraphShape.
 
@@ -216,7 +216,7 @@ def collate_shapes(shape_list: list[JaxGraphShape]) -> JaxGraphShape:
     return JaxGraphShape(hyper_edge_sets=hyper_edge_set_shape_batch, addresses=addresses_batch)
 
 
-def separate_shapes(shape_batch: JaxGraphShape) -> list[JaxGraphShape]:
+def separate_shapes_jax(shape_batch: JaxGraphShape) -> list[JaxGraphShape]:
     """
     Splits a batched JaxGraphShape into individual JaxGraphShape instances.
 
@@ -238,7 +238,7 @@ def separate_shapes(shape_batch: JaxGraphShape) -> list[JaxGraphShape]:
     return shape_list
 
 
-def max_shape(graph_shape_list: list[JaxGraphShape]) -> JaxGraphShape:
+def max_shape_jax(graph_shape_list: list[JaxGraphShape]) -> JaxGraphShape:
     """
     Returns the maximum jax graph shape from a list of jax graph shapes.
 
@@ -260,7 +260,7 @@ def max_shape(graph_shape_list: list[JaxGraphShape]) -> JaxGraphShape:
     return max_graph_shape
 
 
-def sum_shapes(graph_shape_list: list[JaxGraphShape]) -> JaxGraphShape:
+def sum_shapes_jax(graph_shape_list: list[JaxGraphShape]) -> JaxGraphShape:
     """
     Returns the sum jax graph shape from a list of jax graph shapes.
 
