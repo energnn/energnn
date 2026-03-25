@@ -13,8 +13,8 @@ from jax import Device
 from jax.tree_util import register_pytree_node_class
 
 from energnn.graph.graph import Graph
-from energnn.graph.jax.hyper_edge_set import JaxHyperEdgeSet, collate_hyper_edge_sets, separate_hyper_edge_sets, concatenate_hyper_edge_sets
-from energnn.graph.jax.shape import JaxGraphShape, collate_shapes, separate_shapes, sum_shapes
+from energnn.graph.jax.hyper_edge_set import JaxHyperEdgeSet, collate_hyper_edge_sets_jax, separate_hyper_edge_sets_jax, concatenate_hyper_edge_sets_jax
+from energnn.graph.jax.shape import JaxGraphShape, collate_shapes_jax, separate_shapes_jax, sum_shapes_jax
 from energnn.graph.jax.utils import jnp_to_np, np_to_jnp
 
 HYPER_EDGE_SETS = "hyper_edge_sets"
@@ -60,8 +60,8 @@ class JaxGraph(dict):
         :return: Graph that contains both the hyper-edge sets and the registry.
         """
         non_fictitious_addresses = jnp.ones(shape=[n_addresses])
-        check_hyper_edge_set_dict_type(hyper_edge_set_dict)
-        check_valid_addresses(hyper_edge_set_dict, n_addresses)
+        check_hyper_edge_set_dict_type_jax(hyper_edge_set_dict)
+        check_valid_addresses_jax(hyper_edge_set_dict, n_addresses)
         true_shape = JaxGraphShape.from_dict(hyper_edge_set_dict=hyper_edge_set_dict,
                                           non_fictitious=non_fictitious_addresses)
         current_shape = true_shape
@@ -401,7 +401,7 @@ class JaxGraph(dict):
             e.offset_addresses(offset=offset)
 
 
-def collate_graphs(graph_list: list[JaxGraph]) -> JaxGraph:
+def collate_graphs_jax(graph_list: list[JaxGraph]) -> JaxGraph:
     """
     Collate a list of JaxGraphs into a single JaxGraph with padded shapes.
 
@@ -427,14 +427,14 @@ def collate_graphs(graph_list: list[JaxGraph]) -> JaxGraph:
     current_shape = first_graph.current_shape
     for s in current_shape_list:
         assert s == current_shape
-    current_shape_batch = collate_shapes(current_shape_list)
+    current_shape_batch = collate_shapes_jax(current_shape_list)
 
     true_shape_list = [g.true_shape for g in graph_list]
-    true_shape_batch = collate_shapes(true_shape_list)
+    true_shape_batch = collate_shapes_jax(true_shape_list)
 
     hyper_edge_sets_batch = {}
     for k in first_graph.hyper_edge_sets.keys():
-        hyper_edge_sets_batch[k] = collate_hyper_edge_sets([g.hyper_edge_sets[k] for g in graph_list])
+        hyper_edge_sets_batch[k] = collate_hyper_edge_sets_jax([g.hyper_edge_sets[k] for g in graph_list])
 
     if first_graph.non_fictitious_addresses is not None:
         non_fictitious_addresses_batch = jnp.stack([g.non_fictitious_addresses for g in graph_list], axis=0)
@@ -449,7 +449,7 @@ def collate_graphs(graph_list: list[JaxGraph]) -> JaxGraph:
     )
 
 
-def separate_graphs(graph_batch: JaxGraph) -> list[JaxGraph]:
+def separate_graphs_jax(graph_batch: JaxGraph) -> list[JaxGraph]:
     """
     Split a batch of collated JaxGraph into a list of single JaxGraphs.
 
@@ -459,13 +459,13 @@ def separate_graphs(graph_batch: JaxGraph) -> list[JaxGraph]:
     :returns: List of JaxGraphs, each corresponding to one element in the batch.
     """
 
-    current_shape_list = separate_shapes(graph_batch.current_shape)
-    true_shape_list = separate_shapes(graph_batch.true_shape)
+    current_shape_list = separate_shapes_jax(graph_batch.current_shape)
+    true_shape_list = separate_shapes_jax(graph_batch.true_shape)
     n_batch = len(current_shape_list)
 
     hyper_edge_set_list_dict = {}
     for k in graph_batch.hyper_edge_sets.keys():
-        hyper_edge_set_list_dict[k] = separate_hyper_edge_sets(graph_batch.hyper_edge_sets[k])
+        hyper_edge_set_list_dict[k] = separate_hyper_edge_sets_jax(graph_batch.hyper_edge_sets[k])
 
     if graph_batch.non_fictitious_addresses is not None:
         non_fictitious_addresses_list = jnp.unstack(graph_batch.non_fictitious_addresses, axis=0)
@@ -483,7 +483,7 @@ def separate_graphs(graph_batch: JaxGraph) -> list[JaxGraph]:
     return graph_list
 
 
-def concatenate_graphs(graph_list: list[JaxGraph]) -> JaxGraph:
+def concatenate_graphs_jax(graph_list: list[JaxGraph]) -> JaxGraph:
     """
     Concatenates multiple JaxGraphs into a single JaxGraph.
 
@@ -507,12 +507,12 @@ def concatenate_graphs(graph_list: list[JaxGraph]) -> JaxGraph:
     offset_list = [sum(n_addresses_list[:i]) for i in range(len(n_addresses_list))]
 
     non_fictitious_addresses = jnp.concatenate([graph.non_fictitious_addresses for graph in graph_list], axis=0)
-    true_shape = sum_shapes([graph.true_shape for graph in graph_list])
-    current_shape = sum_shapes([graph.current_shape for graph in graph_list])
+    true_shape = sum_shapes_jax([graph.true_shape for graph in graph_list])
+    current_shape = sum_shapes_jax([graph.current_shape for graph in graph_list])
 
     [graph.offset_addresses(offset=offset) for graph, offset in zip(graph_list, offset_list)]
     hyper_edge_sets = {
-        k: concatenate_hyper_edge_sets([graph.hyper_edge_sets[k] for graph in graph_list])
+        k: concatenate_hyper_edge_sets_jax([graph.hyper_edge_sets[k] for graph in graph_list])
         for k in graph_list[0].hyper_edge_sets
     }
     [graph.offset_addresses(offset=-offset) for graph, offset in zip(graph_list, offset_list)]
@@ -525,7 +525,7 @@ def concatenate_graphs(graph_list: list[JaxGraph]) -> JaxGraph:
     )
 
 
-def check_hyper_edge_set_dict_type(hyper_edge_set_dict: dict[str, JaxHyperEdgeSet]) -> None:
+def check_hyper_edge_set_dict_type_jax(hyper_edge_set_dict: dict[str, JaxHyperEdgeSet]) -> None:
     """
     Validate that the provided mapping is a dictionary of JaxHyperEdgeSet instances.
 
@@ -539,7 +539,7 @@ def check_hyper_edge_set_dict_type(hyper_edge_set_dict: dict[str, JaxHyperEdgeSe
             raise TypeError("Item associated with '{}' key is not an 'hyper_edge_set_dict'.".format(key))
 
 
-def check_valid_addresses(hyper_edge_set_dict: dict[str, JaxHyperEdgeSet], n_addresses: jax.Array) -> None:
+def check_valid_addresses_jax(hyper_edge_set_dict: dict[str, JaxHyperEdgeSet], n_addresses: jax.Array) -> None:
     """
     Ensure that all address indices in each JaxHyperEdgeSet are valid with respect to the registry.
 
@@ -557,7 +557,7 @@ def check_valid_addresses(hyper_edge_set_dict: dict[str, JaxHyperEdgeSet], n_add
             assert jnp.all(hyper_edge_set.port_array < n_addresses)
 
 
-def get_statistics(graph: JaxGraph, axis: int | None = None, norm_graph: JaxGraph | None = None) -> dict:
+def get_statistics_jax(graph: JaxGraph, axis: int | None = None, norm_graph: JaxGraph | None = None) -> dict:
     """
     Extract summary statistics from each feature array in the jax graph's hyper-edge sets.
 
