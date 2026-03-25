@@ -17,12 +17,13 @@ from .linear_system_jax import (
     JaxLinearSystemProblemLoader,
 )
 
-__all__ = ["LinearSystemProblemGenerator",
-           "LinearSystemProblemLoader",
-           "LinearSystemProblem",
-           "LinearSystemProblemBatch",
-           "JaxLinearSystemProblemGenerator",
-           "JaxLinearSystemProblemLoader",
-           "JaxLinearSystemProblem",
-           "JaxLinearSystemProblemBatch",
-           ]
+__all__ = [
+    "LinearSystemProblemGenerator",
+    "LinearSystemProblemLoader",
+    "LinearSystemProblem",
+    "LinearSystemProblemBatch",
+    "JaxLinearSystemProblemGenerator",
+    "JaxLinearSystemProblemLoader",
+    "JaxLinearSystemProblem",
+    "JaxLinearSystemProblemBatch",
+]
