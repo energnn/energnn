@@ -1,0 +1,57 @@
+# Copyright (c) 2025, RTE (http://www.rte-france.com)
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+# SPDX-License-Identifier: MPL-2.0
+
+import pandas as pd
+
+HYPER_EDGE_SETS = "hyper_edge_sets"
+FEATURE_LIST = "feature_list"
+PORT_LIST = "port_list"
+
+
+class JaxHyperEdgeSetStructure(dict):
+    """JaxHyperEdge structure specification."""
+
+    def __init__(self, *, port_list: list[str] | None, feature_list: list[str] | None):
+        super().__init__()
+        self[PORT_LIST] = port_list
+        self[FEATURE_LIST] = feature_list
+
+    @classmethod
+    def from_list(cls, *, port_list: list[str] | None, feature_list: list[str] | None) -> "JaxHyperEdgeSetStructure":
+        return cls(port_list=port_list, feature_list=feature_list)
+
+    @property
+    def port_list(self) -> list[str] | None:
+        return self[PORT_LIST]
+
+    @property
+    def feature_list(self) -> list[str] | None:
+        return self[FEATURE_LIST]
+
+
+class JaxGraphStructure(dict):
+    """JaxGraph structure specification."""
+
+    def __init__(self, hyper_edge_sets: dict[str, JaxHyperEdgeSetStructure]):
+        super().__init__()
+        self[HYPER_EDGE_SETS] = hyper_edge_sets
+
+    @classmethod
+    def from_dict(cls, *, hyper_edge_set_structure_dict: dict[str, JaxHyperEdgeSetStructure]) -> "JaxGraphStructure":
+        return cls(hyper_edge_set_structure_dict)
+
+    @property
+    def hyper_edge_sets(self) -> dict[str, JaxHyperEdgeSetStructure]:
+        return self[HYPER_EDGE_SETS]
+
+    def __str__(self):
+        data = {
+            "Name": [edge_name for edge_name in self.hyper_edge_sets.keys()],
+            "Ports": [edge_structure.port_list for edge_structure in self.hyper_edge_sets.values()],
+            "Features": [edge_structure.feature_list for edge_structure in self.hyper_edge_sets.values()],
+        }
+        df = pd.DataFrame(data).set_index("Name")
+        return df.to_string()
