@@ -35,7 +35,6 @@ from .jax.shape import (JaxGraphShape,
                         max_shape_jax,
                         separate_shapes_jax,
                         sum_shapes_jax)
-from .jax.structure import JaxGraphStructure, JaxHyperEdgeSetStructure
 from .jax.utils import jnp_to_np, np_to_jnp
 from .shape import GraphShape, collate_shapes, max_shape, separate_shapes, sum_shapes
 from .structure import GraphStructure, HyperEdgeSetStructure
@@ -84,6 +83,4 @@ __all__ = [
     "sum_shapes_jax",
     "np_to_jnp",
     "jnp_to_np",
-    "JaxGraphStructure",
-    "JaxHyperEdgeSetStructure",
 ]
