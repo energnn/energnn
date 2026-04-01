@@ -8,13 +8,13 @@ from __future__ import annotations
 
 from typing import Any, Sequence
 
-import pandas as pd
 import jax
 import jax.numpy as jnp
+import pandas as pd
 from jax import Device
 from jax.tree_util import register_pytree_node_class
 
-from energnn.graph.hyper_edge_set import HyperEdgeSet, check_dict_or_none
+from energnn.graph.hyper_edge_set import HyperEdgeSet
 from energnn.graph.jax.utils import jnp_to_np, np_to_jnp
 from energnn.graph.utils import to_numpy
 
@@ -53,10 +53,10 @@ class JaxHyperEdgeSet(dict):
 
     @classmethod
     def from_dict(
-            cls,
-            *,
-            port_dict: dict[str, Any] | None = None,
-            feature_dict: dict[str, Any] | None = None,
+        cls,
+        *,
+        port_dict: dict[str, Any] | None = None,
+        feature_dict: dict[str, Any] | None = None,
     ) -> JaxHyperEdgeSet:
         """
         Build a JaxHyperEdgeSet from raw dicts of ports and features.
@@ -72,8 +72,8 @@ class JaxHyperEdgeSet(dict):
         :raises ValueError: If ports or features contain NaNs or if shapes mismatch.
         """
         # Convert inputs to pure numpy arrays / dicts
-        port_dict = check_dict_or_none(to_numpy(port_dict))
-        feature_dict = check_dict_or_none(to_numpy(feature_dict))
+        port_dict = check_dict_or_none_jax(to_numpy(port_dict))
+        feature_dict = check_dict_or_none_jax(to_numpy(feature_dict))
 
         check_valid_ports_jax(port_dict)
         check_no_nan_jax(port_dict=port_dict, feature_dict=feature_dict)
@@ -118,7 +118,7 @@ class JaxHyperEdgeSet(dict):
                 names=["batch_id", "object_id"],
             )
         else:
-            raise ValueError("HyperEdgeSet is neither single nor batched.")
+            raise ValueError("JaxHyperEdgeSet is neither single nor batched.")
 
         d = {}
         if self.port_names is not None:
@@ -418,6 +418,7 @@ class JaxHyperEdgeSet(dict):
         """
         self.port_dict = {k: a + jnp.array(offset) for k, a in self.port_dict.items()}
 
+
 def collate_hyper_edge_sets_jax(hyper_edge_set_list: list[JaxHyperEdgeSet]) -> JaxHyperEdgeSet:
     """
     Collate a list of JaxHyperEdgeSet into a single batched JaxHyperEdgeSet.
@@ -596,6 +597,21 @@ def dict2array_jax(features_dict: dict[str, jax.Array] | None) -> jax.Array | No
     if features_dict is None:
         return None
     return jnp.stack([features_dict[k] for k in sorted(features_dict)], axis=-1)
+
+
+def check_dict_or_none_jax(_input: dict | jnp.ndarray | None) -> dict | None:
+    """
+    Validate that the input is either a dict or None.
+
+    :param _input: Object to validate
+    :return: the input if it was a dict or None
+    :raises ValueError: if `_input` is neither dict nor None
+    """
+    if isinstance(_input, dict):
+        return _input
+    if _input is None:
+        return None
+    raise ValueError(f"Expected dict or None, got {type(_input)}")
 
 
 def check_no_nan_jax(
