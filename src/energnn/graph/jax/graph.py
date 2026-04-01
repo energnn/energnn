@@ -5,6 +5,7 @@
 # SPDX-License-Identifier: MPL-2.0
 
 from __future__ import annotations
+
 import pickle as pkl
 
 import jax
@@ -13,7 +14,12 @@ from jax import Device
 from jax.tree_util import register_pytree_node_class
 
 from energnn.graph.graph import Graph
-from energnn.graph.jax.hyper_edge_set import JaxHyperEdgeSet, collate_hyper_edge_sets_jax, separate_hyper_edge_sets_jax, concatenate_hyper_edge_sets_jax
+from energnn.graph.jax.hyper_edge_set import (
+    JaxHyperEdgeSet,
+    collate_hyper_edge_sets_jax,
+    separate_hyper_edge_sets_jax,
+    concatenate_hyper_edge_sets_jax,
+)
 from energnn.graph.jax.shape import JaxGraphShape, collate_shapes_jax, separate_shapes_jax, sum_shapes_jax
 from energnn.graph.jax.utils import jnp_to_np, np_to_jnp
 
@@ -62,8 +68,7 @@ class JaxGraph(dict):
         non_fictitious_addresses = jnp.ones(shape=[n_addresses])
         check_hyper_edge_set_dict_type_jax(hyper_edge_set_dict)
         check_valid_addresses_jax(hyper_edge_set_dict, n_addresses)
-        true_shape = JaxGraphShape.from_dict(hyper_edge_set_dict=hyper_edge_set_dict,
-                                          non_fictitious=non_fictitious_addresses)
+        true_shape = JaxGraphShape.from_dict(hyper_edge_set_dict=hyper_edge_set_dict, non_fictitious=non_fictitious_addresses)
         current_shape = true_shape
         return cls(
             hyper_edge_sets=hyper_edge_set_dict,
@@ -192,8 +197,7 @@ class JaxGraph(dict):
                 if hyper_edge_set.feature_names is not None:
                     length = jnp.shape(hyper_edge_set.feature_flat_array)[-1]
                     if length > 0:
-                        self.hyper_edge_sets[key].feature_flat_array = value[
-                            ..., i: i + length]  # Slice over the last axis
+                        self.hyper_edge_sets[key].feature_flat_array = value[..., i : i + length]  # Slice over the last axis
                         i += length
         else:
             raise ValueError("This jax graph does not contain any hyper-edge set, and can't be cast as a flat array.")
@@ -268,9 +272,11 @@ class JaxGraph(dict):
                             info[f"{object_name}/{feature_name}/{q}th-percentile"] = value
         return info
 
-    def __str__(self):
-        numpy_graph = self.to_numpy_graph()
-        return str(numpy_graph)
+    def __str__(self) -> str:
+        r = ""
+        for k, v in sorted(self.hyper_edge_sets.items()):
+            r += "{}\n{}\n".format(k, v)
+        return r
 
     def to_pickle(self, file_path: str) -> None:
         """Saves a jax graph as a pickle file.
@@ -359,9 +365,8 @@ class JaxGraph(dict):
 
         def _max_propagate(*, graph: JaxGraph, h_: jax.Array) -> jax.Array:
             """Propagates the max value of addresses through hyper-edges."""
-            import copy
 
-            h_new_ = copy.deepcopy(h_)
+            h_new_ = h_
             edge_h = {}
             for edge_key, edge in graph.hyper_edge_sets.items():
                 edge_h[edge_key] = []
@@ -374,7 +379,7 @@ class JaxGraph(dict):
                         jnp.stack([edge_h[edge_key], h_new_[address_array.astype(int)]], axis=0),
                         axis=0,
                     )
-                    jnp.maximum.at(h_new_, address_array.astype(int), new_val)
+                    h_new_ = h_new_.at[address_array.astype(int)].max(new_val)
             return h_new_
 
         if not self.is_single:
@@ -584,7 +589,7 @@ def get_statistics_jax(graph: JaxGraph, axis: int | None = None, norm_graph: Jax
     for key, hyper_edge_set in graph.hyper_edge_sets.items():
         mask = hyper_edge_set.non_fictitious
         if hyper_edge_set.feature_array is not None:
-            graph.hyper_edge_sets[key].feature_array[mask == 0] = jnp.nan
+            graph.hyper_edge_sets[key].feature_array = graph.hyper_edge_sets[key].feature_array.at[mask == 0].set(jnp.nan)
 
     info = {}
     for object_name, hyper_edge_set in graph.hyper_edge_sets.items():
