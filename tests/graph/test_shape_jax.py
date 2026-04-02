@@ -9,8 +9,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from energnn.graph.jax.shape import JaxGraphShape, collate_shapes_jax, max_shape_jax, separate_shapes_jax, \
-    sum_shapes_jax
+from energnn.graph.jax.shape import JaxGraphShape, collate_shapes_jax, max_shape_jax, separate_shapes_jax, sum_shapes_jax
 from energnn.graph.shape import GraphShape
 from tests.graph.utils import assert_graphshape_equal, get_fixed_graphshape
 from tests.graph.utils_jax import get_fixed_edge_jax
