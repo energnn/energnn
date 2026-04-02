@@ -11,9 +11,9 @@ import jax.numpy as jnp
 from jax import Device
 from jax.tree_util import register_pytree_node_class
 
+from energnn.graph.jax.hyper_edge_set import JaxHyperEdgeSet
 from energnn.graph.jax.utils import jnp_to_np, np_to_jnp
 from energnn.graph.shape import GraphShape
-from energnn.graph.jax.hyper_edge_set import JaxHyperEdgeSet
 
 HYPER_EDGE_SETS = "hyper_edge_sets"
 ADDRESSES = "addresses"
@@ -197,6 +197,7 @@ class JaxGraphShape(dict):
         if not self.is_batch:
             raise ValueError("JaxGraphShape is not batched.")
         return self.array.shape[0]
+
 
 def collate_shapes_jax(shape_list: list[JaxGraphShape]) -> JaxGraphShape:
     """
