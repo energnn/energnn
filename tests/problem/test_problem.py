@@ -11,20 +11,20 @@ import numpy as np
 import pytest
 
 from energnn.graph import GraphStructure
-from energnn.graph.graph import Graph
-from energnn.graph.hyper_edge_set import HyperEdgeSet
+from energnn.graph.jax.graph import JaxGraph
+from energnn.graph.jax.hyper_edge_set import JaxHyperEdgeSet
 from energnn.problem.problem import Problem
 
 
 def make_dummy_edge_mock(feature_names, feature_array=None):
-    m = MagicMock(spec=HyperEdgeSet)
+    m = MagicMock(spec=JaxHyperEdgeSet)
     m.feature_names = feature_names
     m.feature_array = feature_array
     return m
 
 
 def make_dummy_graph_mock(edges: dict):
-    m = MagicMock(spec=Graph)
+    m = MagicMock(spec=JaxGraph)
     m.hyper_edge_sets = edges
     return m
 
@@ -142,18 +142,18 @@ def test_get_methods_return_tuple_and_info():
 
     p = P()
     ctx, info0 = p.get_context(get_info=False)
-    assert isinstance(ctx, Graph)
+    assert isinstance(ctx, JaxGraph)
     assert info0 == {}
 
     _, info1 = p.get_context(get_info=True)
     assert info1 == {"cinfo": True}
 
     zd, zd_info = p.get_zero_decision(get_info=False)
-    assert isinstance(zd, Graph)
+    assert isinstance(zd, JaxGraph)
     assert zd_info == {}
 
     grad, g_info = p.get_gradient(decision=zd, get_info=True)
-    assert isinstance(grad, Graph)
+    assert isinstance(grad, JaxGraph)
     assert g_info == {"ginfo": "ok"}
 
     metric, m_info = p.get_score(decision=zd, get_info=True)
