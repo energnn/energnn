@@ -251,24 +251,26 @@ class JaxGraph(dict):
         )
 
     def quantiles(self, q_list: list[float] | None = None) -> dict[str, jax.Array]:
-        """
-        Computes quantiles of hyper-edge set features.
-
-        Warning : Assumes that the graph is single and not batched. Will be vmapped.
+        """Computes quantiles of hyper-edge set features.
 
         :param q_list: Percentiles to compute
-        :return: Mapping "hyper-edge set/feature/percentile" to values
+        :return: Mapping "hyper_edge_set/feature/percentile" to values.
+        :raises ValueError: If the jax graph is not single or batched and cannot be quantiled.
         """
         if q_list is None:
             q_list = [0.0, 10.0, 25.0, 50.0, 75.0, 90.0, 100.0]
         info = {}
-        for object_name, hyper_edge_set in self.hyper_edge_sets.items():
-            if hyper_edge_set.feature_names is not None:
-                for feature_name, i in hyper_edge_set.feature_names.items():
-                    array = hyper_edge_set.feature_array[..., jnp.array(i, dtype=int)]
+        for object_name, hyper_edge_sets in self.hyper_edge_sets.items():
+            if hyper_edge_sets.feature_dict is not None:
+                for feature_name, array in hyper_edge_sets.feature_dict.items():
                     if jnp.size(array) > 0:
                         for q in q_list:
-                            value = jnp.nanpercentile(array, q=q)
+                            if self.is_single:
+                                value = jnp.nanpercentile(array, q=q)
+                            elif self.is_batch:
+                                value = jnp.nanpercentile(array, q=q, axis=1)
+                            else:
+                                raise ValueError("This graph is not single or batch and cannot be quantiled.")
                             info[f"{object_name}/{feature_name}/{q}th-percentile"] = value
         return info
 
