@@ -190,7 +190,8 @@ class JaxLinearSystemProblemGenerator:
             oracle_list.append(oracle)
 
         max_context_shape = JaxGraphShape(
-            hyper_edge_sets={"arrow": jnp.array(self.n_max**2), "source": jnp.array(self.n_max)}, addresses=jnp.array(self.n_max)
+            hyper_edge_sets={"arrow": jnp.array(self.n_max**2), "source": jnp.array(self.n_max)},
+            addresses=jnp.array(self.n_max),
         )
         max_oracle_shape = JaxGraphShape(hyper_edge_sets={"source": jnp.array(self.n_max)}, addresses=jnp.array(self.n_max))
 

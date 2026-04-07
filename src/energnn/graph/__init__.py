@@ -59,6 +59,8 @@ __all__ = [
     "check_hyper_edge_set_dict_type",
     "GraphShape",
     "collate_shapes",
+    "GraphStructure",
+    "HyperEdgeSetStructure",
     "max_shape",
     "separate_shapes",
     "sum_shapes",
