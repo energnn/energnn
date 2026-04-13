@@ -38,7 +38,7 @@ class JaxGraphShape(dict):
         self[ADDRESSES] = addresses
 
     @classmethod
-    def from_dict(cls, hyper_edge_set_dict: dict[str, JaxHyperEdgeSet], non_fictitious: jax.Array) -> JaxGraphShape:
+    def from_dict(cls, hyper_edge_set_dict: dict[str, JaxHyperEdgeSet], non_fictitious: jax.Array | None) -> JaxGraphShape:
         """
         Builds a new JaxGraphShape object from a hyper-edge set dictionary and registry.
 
