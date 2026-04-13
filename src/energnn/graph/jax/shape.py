@@ -32,7 +32,7 @@ class JaxGraphShape(dict):
     compatible with JAX transformations (jit, vmap, etc.).
     """
 
-    def __init__(self, *, hyper_edge_sets: dict[str, jax.Array], addresses: jax.Array):
+    def __init__(self, *, hyper_edge_sets: dict[str, jax.Array], addresses: jax.Array) -> None:
         super().__init__()
         self[HYPER_EDGE_SETS] = hyper_edge_sets
         self[ADDRESSES] = addresses

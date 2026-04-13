@@ -44,7 +44,7 @@ class JaxHyperEdgeSet(dict):
         feature_array: jax.Array | None,
         feature_names: dict[str, jax.Array] | None,
         non_fictitious: jax.Array,
-    ):
+    ) -> None:
         super().__init__()
         self[PORT_DICT] = port_dict
         self[FEATURE_ARRAY] = feature_array
