@@ -53,7 +53,7 @@ class Graph(dict):
     @classmethod
     def from_dict(cls, *, hyper_edge_set_dict: dict[str, HyperEdgeSet], n_addresses: np.ndarray) -> Graph:
         """
-        Builds a graph from a dictionary of :class:`energnn.graph.HyperEdgeSet` and a registry.
+        Builds a graph from a dictionary of :class:`energnn.graph.HyperEdgeSet` and a number of addresses.
 
         :param hyper_edge_set_dict: Dictionary of hyper-edge sets contained in the graph.
         :param n_addresses: Number of unique addresses that appear in all the hyper-edge sets.

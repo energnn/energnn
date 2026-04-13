@@ -11,4 +11,9 @@ from .linear_system import (
     LinearSystemProblemLoader,
 )
 
-__all__ = ["LinearSystemProblemGenerator", "LinearSystemProblemLoader", "LinearSystemProblem", "LinearSystemProblemBatch"]
+__all__ = [
+    "LinearSystemProblemGenerator",
+    "LinearSystemProblemLoader",
+    "LinearSystemProblem",
+    "LinearSystemProblemBatch",
+]
