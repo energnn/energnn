@@ -178,7 +178,7 @@ class Trainer:
                     infos = self.training_step(problem_batch, get_info=True)
                     tracker.run_append(infos={"train": infos}, step=self.train_step)
                 else:
-                    _ = self.training_step(problem_batch, get_info=True)
+                    _ = self.training_step(problem_batch, get_info=False)
 
                 # If True, run evaluation
                 if (eval_period is not None) and (self.train_step % eval_period == 0) and (val_loader is not None):
