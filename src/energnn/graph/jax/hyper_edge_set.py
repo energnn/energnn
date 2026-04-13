@@ -211,7 +211,7 @@ class JaxHyperEdgeSet(dict):
         if self.is_batch:
             return int(self.array.shape[0])
         else:
-            raise ValueError("HyperEdgeSet is not batched.")
+            raise ValueError("JaxHyperEdgeSet is not batched.")
 
     @property
     def feature_names(self) -> dict[str, jax.Array] | None:
@@ -433,7 +433,7 @@ def collate_hyper_edge_sets_jax(hyper_edge_set_list: list[JaxHyperEdgeSet]) -> J
     :raises ValueError: Raised if not all JaxHyperEdgeSet share the same keys in port_names or feature_names.
     """
     if not hyper_edge_set_list:
-        raise IndexError("collate_edges requires at least one JaxHyperEdge to collate.")
+        raise IndexError("collate_hyper_edge_sets_jax requires at least one JaxHyperEdgeSet to collate.")
 
     first_hyper_edge_set = hyper_edge_set_list[0]
 
@@ -476,7 +476,7 @@ def separate_hyper_edge_sets_jax(hyper_edge_set_batch: JaxHyperEdgeSet) -> list[
     """
     Separate a batched JaxHyperEdgeSet into its constituent JaxHyperEdgeSet instances.
 
-    The input JaxHyperEdgeSet must have been created by :py:func:`collate_hyper_edge_sets` or otherwise
+    The input JaxHyperEdgeSet must have been created by :py:func:`collate_hyper_edge_sets_jax` or otherwise
     its property "array" must return a 3D array.
 
     :param hyper_edge_set_batch: The batched JaxHyperEdgeSet to unstack.
@@ -570,7 +570,7 @@ def build_hyper_edge_set_shape_jax(
     Builds a jax.numpy array representing the number of hyper-edges.
 
     Validate that `port_dict` and `feature_dict` have consistent sizes
-    on their last dimensions and return a scalar numpy array containing that count.
+    on their last dimensions and return a scalar jax array containing that count.
 
     :param port_dict: Mapping from port names to jax.numpy arrays, or None.
     :param feature_dict: Mapping of feature names to jax.numpy arrays, or None.
