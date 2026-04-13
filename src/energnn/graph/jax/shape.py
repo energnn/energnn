@@ -208,7 +208,7 @@ def collate_shapes_jax(shape_list: list[JaxGraphShape]) -> JaxGraphShape:
     :raises ValueError: If the input list is empty.
     """
     if not shape_list:
-        raise ValueError("Empty shape list provided to collate_shapes.")
+        raise ValueError("Empty shape list provided to collate_shapes_jax.")
 
     hyper_edge_set_shape_batch = {
         k: jnp.stack([s.hyper_edge_sets[k] for s in shape_list], axis=0) for k in shape_list[0].hyper_edge_sets
@@ -251,7 +251,7 @@ def max_shape_jax(graph_shape_list: list[JaxGraphShape]) -> JaxGraphShape:
     :raises ValueError: If the list is empty or contains non-JaxGraphShape.
     """
     if not graph_shape_list:
-        raise ValueError("Empty input list given for max_shape.")
+        raise ValueError("Empty input list given for max_shape_jax.")
 
     max_graph_shape = graph_shape_list[0]
     for graph_shape in graph_shape_list:
@@ -270,7 +270,7 @@ def sum_shapes_jax(graph_shape_list: list[JaxGraphShape]) -> JaxGraphShape:
     :raises ValueError: If the list is empty or contains non-JaxGraphShape.
     """
     if not graph_shape_list:
-        raise ValueError("Empty input list given for sum_shapes.")
+        raise ValueError("Empty input list given for sum_shapes_jax.")
 
     sum_graph_shape = graph_shape_list[0]
     for graph_shape in graph_shape_list[1:]:
