@@ -17,8 +17,8 @@ from energnn.graph.graph import Graph
 from energnn.graph.jax.hyper_edge_set import (
     JaxHyperEdgeSet,
     collate_hyper_edge_sets_jax,
-    separate_hyper_edge_sets_jax,
     concatenate_hyper_edge_sets_jax,
+    separate_hyper_edge_sets_jax,
 )
 from energnn.graph.jax.shape import JaxGraphShape, collate_shapes_jax, separate_shapes_jax, sum_shapes_jax
 from energnn.graph.jax.utils import jnp_to_np, np_to_jnp
@@ -59,7 +59,7 @@ class JaxGraph(dict):
     @classmethod
     def from_dict(cls, *, hyper_edge_set_dict: dict[str, JaxHyperEdgeSet], n_addresses: jax.Array) -> JaxGraph:
         """
-        Builds a graph from a dictionary of :class:`energnn.graph.JaxHyperEdgeSet` and a registry.
+        Builds a graph from a dictionary of :class:`energnn.graph.JaxHyperEdgeSet` and a number of addresses.
 
         :param hyper_edge_set_dict: Dictionary of hyper-edge sets contained in the graph.
         :param n_addresses: Number of unique addresses that appear in all the hyper-edge sets.
