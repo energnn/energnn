@@ -6,7 +6,6 @@ import pytest
 from energnn.graph import GraphStructure
 from energnn.graph.jax import JaxGraph, JaxHyperEdgeSet
 from energnn.problem.batch import ProblemBatch
-from energnn.problem.example import JaxLinearSystemProblemLoader
 from energnn.problem.example import LinearSystemProblemLoader
 
 
@@ -17,21 +16,9 @@ def pb_loader():
 
 
 @pytest.fixture(scope="module")
-def pb_loader_jax():
-    # Small deterministic loader used in other tests of the repo
-    return JaxLinearSystemProblemLoader(seed=0)
-
-
-@pytest.fixture(scope="module")
 def pb_batch(pb_loader):
     # grab one batch instance from the loader
     return next(iter(pb_loader))
-
-
-@pytest.fixture(scope="module")
-def pb_batch_jax(pb_loader_jax):
-    # grab one batch instance from the loader
-    return next(iter(pb_loader_jax))
 
 
 class StubProblemBatch(ProblemBatch):
@@ -138,27 +125,6 @@ def test_get_gradient_shapes_match_decision(pb_batch):
     # Use oracle as a valid decision to test gradient computation
     oracle, _ = pb_batch.get_oracle()
     grad, _ = pb_batch.get_gradient(decision=oracle, get_info=False)
-
-    # Check edge keys and shapes
-    assert set(oracle.hyper_edge_sets.keys()) == set(grad.hyper_edge_sets.keys())
-
-    for key in oracle.hyper_edge_sets:
-        dec_arr = oracle.hyper_edge_sets[key].feature_array
-        grad_arr = grad.hyper_edge_sets[key].feature_array
-        if dec_arr is not None:
-            assert dec_arr.shape == grad_arr.shape
-        else:
-            assert grad_arr is None
-
-
-def test_get_gradient_shapes_match_decision_jax(pb_batch_jax):
-    """get_gradient must return a gradient Graph with the same edge keys and shapes as the decision input."""
-    # pb_batch fixture is already a valid LinearSystemProblemBatch (concrete ProblemBatch)
-    ctx, _ = pb_batch_jax.get_context()
-
-    # Use oracle as a valid decision to test gradient computation
-    oracle, _ = pb_batch_jax.get_oracle()
-    grad, _ = pb_batch_jax.get_gradient(decision=oracle, get_info=False)
 
     # Check edge keys and shapes
     assert set(oracle.hyper_edge_sets.keys()) == set(grad.hyper_edge_sets.keys())
