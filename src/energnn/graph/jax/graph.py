@@ -425,7 +425,7 @@ def collate_graphs_jax(graph_list: list[JaxGraph]) -> JaxGraph:
     :raises AssertionError: If the `current_shape` differs among inputs.
     """
     if not graph_list:
-        raise ValueError("collate_graphs requires at least one Graph.")
+        raise ValueError("collate_graphs requires at least one JaxGraph.")
 
     first_graph = graph_list[0]
 
@@ -543,14 +543,14 @@ def check_hyper_edge_set_dict_type_jax(hyper_edge_set_dict: dict[str, JaxHyperEd
         raise TypeError("Provided 'hyper_edge_set_dict' is not a 'dict', but a {}.".format(type(hyper_edge_set_dict)))
     for key, hyper_edge_set in hyper_edge_set_dict.items():
         if not isinstance(hyper_edge_set, JaxHyperEdgeSet):
-            raise TypeError("Item associated with '{}' key is not an 'hyper_edge_set_dict'.".format(key))
+            raise TypeError("Item associated with '{}' key is not an 'JaxHyperEdgeSet'.".format(key))
 
 
 def check_valid_addresses_jax(hyper_edge_set_dict: dict[str, JaxHyperEdgeSet], n_addresses: jax.Array) -> None:
     """
     Ensure that all address indices in each JaxHyperEdgeSet are valid with respect to the registry.
 
-    Iterates over all hyper-edge sets in `hyper_edge_set_dict` and, if a hyper-edge set defines `address_names`,
+    Iterates over all hyper-edge sets in `hyper_edge_set_dict` and, if a hyper-edge set defines `port_names`,
     checks that its integer-coded addresses do not exceed the provided count array.
 
     :param hyper_edge_set_dict: Mapping from hyper-edge set names to JaxHyperEdgeSet objects containing address arrays.
