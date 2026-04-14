@@ -90,10 +90,10 @@ def test_pytree_flatten_unflatten_roundtrip():
 def test_tree_unflatten_classmethod_missing_keys_raises_keyerror():
     gs = get_fixed_graphshape()
     jgs = JaxGraphShape.from_numpy_shape(gs, dtype="float32")
-    children = list(jgs.values())
-    # wrong aux_data should raise KeyError
-    aux_data = ("bad", "keys")
-    with pytest.raises(KeyError):
+    children, aux = jgs.tree_flatten()
+    # Provide aux_data missing required elements
+    aux_data = ("bad",) # Only one element
+    with pytest.raises(ValueError):
         JaxGraphShape.tree_unflatten(aux_data, children)
 
 

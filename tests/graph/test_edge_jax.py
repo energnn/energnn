@@ -129,16 +129,14 @@ def test_pytree_flatten_and_unflatten_roundtrip():
 
 def test_tree_unflatten_classmethod_missing_keys_raises_keyerror():
     """
-    Directly call the classmethod tree_unflatten with insufficient aux_data
-    to trigger a KeyError inside (zipping will create a dict missing required keys).
+    Directly call the classmethod tree_unflatten with insufficient aux_data.
     """
-    # Prepare children matching the number of expected keys, but provide wrong aux_data
     np_edge = get_fixed_edge()
     jax_edge = JaxHyperEdgeSet.from_numpy_hyper_edge_set(np_edge, dtype="float32")
-    children = list(jax_edge.values())
-    # Provide aux_data missing required key strings
-    aux_data = ("some", "keys", "not", "matching")
-    with pytest.raises(KeyError):
+    children = list(jax_edge.tree_flatten()[0])
+    # Provide aux_data missing required elements (expected 3: port_keys, feat_keys, backend)
+    aux_data = ("bad", "keys")
+    with pytest.raises(ValueError):
         JaxHyperEdgeSet.tree_unflatten(aux_data, children)
 
 

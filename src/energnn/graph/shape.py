@@ -6,11 +6,13 @@
 
 from __future__ import annotations
 
+import numpy as np
 from typing import Any
 
 from jax.tree_util import register_pytree_node_class
 
 from energnn.graph.backend import Backend, NumpyBackend, JaxBackend
+from energnn.graph.utils import to_numpy
 
 HYPER_EDGE_SETS = "hyper_edge_sets"
 ADDRESSES = "addresses"
@@ -74,6 +76,32 @@ class GraphShape(dict):
         hyper_edge_sets = {k: backend.array(v) for k, v in count_shape[HYPER_EDGE_SETS].items()}
         addresses = backend.array(count_shape[ADDRESSES])
         return cls(hyper_edge_sets=hyper_edge_sets, addresses=addresses, backend=backend)
+
+    def __eq__(self, other: Any) -> bool:
+        if not isinstance(other, GraphShape):
+            return False
+        if self.keys() != other.keys():
+            return False
+        
+        # Check addresses
+        try:
+            if not np.all(to_numpy(self.addresses) == to_numpy(other.addresses)):
+                return False
+        except Exception:
+            return False
+            
+        # Check hyper_edge_sets
+        self_hes = self.hyper_edge_sets
+        other_hes = other.hyper_edge_sets
+        if self_hes.keys() != other_hes.keys():
+            return False
+        for k in self_hes:
+            try:
+                if not np.all(to_numpy(self_hes[k]) == to_numpy(other_hes[k])):
+                    return False
+            except Exception:
+                return False
+        return True
 
     @classmethod
     def max(cls, a: GraphShape, b: GraphShape) -> GraphShape:
@@ -160,23 +188,28 @@ class JaxGraphShape(GraphShape):
         """
         Flatten the JaxGraphShape for JAX PyTree compatibility.
 
-        :returns: Flat children and auxiliary data (the keys order).
+        :returns: Flat children and auxiliary data.
         """
-        children = self.values()
-        aux = self.keys()
+        # Move all arrays to children. hes_values contains the per-edge-set shapes.
+        hes_keys = sorted(self.hyper_edge_sets.keys())
+        hes_values = tuple(self.hyper_edge_sets[k] for k in hes_keys)
+        
+        children = (self.addresses, hes_values)
+        aux = (tuple(hes_keys), self._backend)
         return children, aux
 
     @classmethod
     def tree_unflatten(cls, aux_data, children) -> JaxGraphShape:
         """
-        Reconstruct a JaxGraphShape from flattened data, required for JAX compatibility.
-
-        :param aux_data: Sequence of keys matching the order of the children.
-        :param children: Sequence of array values.
-        :return: A reconstructed JaxGraphShape instance.
+        Reconstruct a JaxGraphShape from flattened data.
         """
-        d = dict(zip(aux_data, children))
-        return cls(hyper_edge_sets=d[HYPER_EDGE_SETS], addresses=d[ADDRESSES])
+        aux_list = list(aux_data)
+        if len(aux_list) != 2:
+             raise ValueError("aux_data must have 2 elements: (hes_keys, backend)")
+        addresses, hes_values = children
+        hes_keys, backend = aux_list
+        hyper_edge_sets = dict(zip(hes_keys, hes_values))
+        return cls(hyper_edge_sets=hyper_edge_sets, addresses=addresses)
 
     @classmethod
     def from_numpy_shape(cls, shape: GraphShape, device: Any | None = None, dtype: str = "float32") -> JaxGraphShape:

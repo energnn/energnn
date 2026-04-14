@@ -10,6 +10,7 @@ import pickle as pkl
 from typing import Any, Sequence
 
 import numpy as np
+import jax
 from jax.tree_util import register_pytree_node_class
 
 from energnn.graph.backend import Backend, NumpyBackend, JaxBackend
@@ -72,7 +73,11 @@ class Graph(dict):
         non_fictitious_addresses = backend.ones(shape=[n_addresses])
         check_hyper_edge_set_dict_type(hyper_edge_set_dict)
         check_valid_addresses(hyper_edge_set_dict, n_addresses, backend)
-        true_shape = GraphShape.from_dict(
+        
+        # Use JaxGraphShape if we are creating a JaxGraph
+        shape_cls = JaxGraphShape if cls.__name__ == "JaxGraph" else GraphShape
+        
+        true_shape = shape_cls.from_dict(
             hyper_edge_set_dict=hyper_edge_set_dict, non_fictitious=non_fictitious_addresses, backend=backend
         )
         current_shape = true_shape
@@ -344,6 +349,13 @@ class Graph(dict):
         :return: Mapping "hyper_edge_set/feature/percentile" to values.
         :raises ValueError: If the graph is not single or batched and cannot be quantiled.
         """
+        # If we are in JAX JIT, we cannot compute quantiles and return them in a dict 
+        # that will be used for logging (which expects concrete values).
+        # We check if any array is a JAX Tracer.
+        for hes in self.hyper_edge_sets.values():
+            if hes.feature_array is not None and isinstance(hes.feature_array, jax.core.Tracer):
+                return {}
+
         if q_list is None:
             q_list = [0.0, 10.0, 25.0, 50.0, 75.0, 90.0, 100.0]
         info = {}
@@ -388,28 +400,33 @@ class JaxGraph(Graph):
         Flattens the JaxGraph for JAX PyTree compatibility.
 
         Make only tensor-like batched data part of the children so that operations like
-        `jax.tree.map(lambda x: x[0], tree)` work seamlessly. We keep shapes static in aux.
+        `jax.tree.map(lambda x: x[0], tree)` work seamlessly.
         """
-        children = (self[HYPER_EDGE_SETS], self[NON_FICTITIOUS_ADDRESSES])
-        aux = (self[TRUE_SHAPE], self[CURRENT_SHAPE])
+        # Sort hyper_edge_sets for deterministic auxiliary data/children structure
+        keys = sorted(self[HYPER_EDGE_SETS].keys())
+        hes_tuple = tuple(self[HYPER_EDGE_SETS][k] for k in keys)
+        
+        # Shapes (TRUE_SHAPE, CURRENT_SHAPE) are part of children as they contain arrays 
+        # (JAX Tracers) that must be consistently handled across PyTrees.
+        children = (hes_tuple, self[NON_FICTITIOUS_ADDRESSES], self[TRUE_SHAPE], self[CURRENT_SHAPE])
+        aux = (tuple(keys), self._backend)
         return children, aux
 
     @classmethod
     def tree_unflatten(cls, aux_data, children) -> JaxGraph:
         """
         Reconstructs a JaxGraph from flattened data, required for JAX compatibility.
-
-        :param aux_data: Tuple of static data (true_shape, current_shape).
-        :param children: Tuple of dynamic children (hyper_edge_sets, non_fictitious_addresses).
-        :return: A reconstructed JaxGraph instance.
         """
-        true_shape, current_shape = aux_data
-        hyper_edge_sets, non_fictitious_addresses = children
+        keys, backend = aux_data
+        hes_tuple, non_fictitious_addresses, true_shape, current_shape = children
+        
+        hyper_edge_sets = dict(zip(keys, hes_tuple))
         return cls(
             hyper_edge_sets=hyper_edge_sets,
             true_shape=true_shape,
             current_shape=current_shape,
             non_fictitious_addresses=non_fictitious_addresses,
+            backend=backend,
         )
 
     @classmethod
@@ -618,19 +635,29 @@ def get_statistics(graph: Graph, axis: int | None = None, norm_graph: Graph | No
                     rmse = np.sqrt(np.nanmean(feat_array**2, axis=axis))
                     info["{}/{}/rmse".format(object_name, feature_name)] = rmse
                     if norm_graph is not None:
-                        norm_array = to_numpy(norm_graph.hyper_edge_sets[object_name].feature_dict[feature_name])
-                        norm_array = norm_array - np.nanmean(norm_array)
-                        nrmse = rmse / (np.sqrt(np.nanmean(norm_array**2, axis=axis)) + 1e-9)
-                        info["{}/{}/nrmse".format(object_name, feature_name)] = nrmse
+                        norm_hes = norm_graph.hyper_edge_sets[object_name]
+                        norm_feat_dict = norm_hes.feature_dict
+                        if norm_feat_dict is not None and feature_name in norm_feat_dict:
+                            norm_array = to_numpy(norm_feat_dict[feature_name])
+                            norm_array = norm_array - np.nanmean(norm_array)
+                            nrmse = rmse / (np.sqrt(np.nanmean(norm_array**2, axis=axis)) + 1e-9)
+                            info["{}/{}/nrmse".format(object_name, feature_name)] = nrmse
+                        else:
+                            info["{}/{}/nrmse".format(object_name, feature_name)] = None
 
                     # Mean Absolute Error
                     mae = np.nanmean(np.abs(feat_array), axis=axis)
                     info["{}/{}/mae".format(object_name, feature_name)] = mae
                     if norm_graph is not None:
-                        norm_array = to_numpy(norm_graph.hyper_edge_sets[object_name].feature_dict[feature_name])
-                        norm_array = norm_array - np.nanmean(norm_array)
-                        nmae = mae / (np.nanmean(np.abs(norm_array), axis=axis) + 1e-9)
-                        info["{}/{}/nmae".format(object_name, feature_name)] = nmae
+                        norm_hes = norm_graph.hyper_edge_sets[object_name]
+                        norm_feat_dict = norm_hes.feature_dict
+                        if norm_feat_dict is not None and feature_name in norm_feat_dict:
+                            norm_array = to_numpy(norm_feat_dict[feature_name])
+                            norm_array = norm_array - np.nanmean(norm_array)
+                            nmae = mae / (np.nanmean(np.abs(norm_array), axis=axis) + 1e-9)
+                            info["{}/{}/nmae".format(object_name, feature_name)] = nmae
+                        else:
+                            info["{}/{}/nmae".format(object_name, feature_name)] = None
 
                     # Moments
                     info["{}/{}/mean".format(object_name, feature_name)] = np.nanmean(feat_array, axis=axis)
@@ -644,6 +671,7 @@ def get_statistics(graph: Graph, axis: int | None = None, norm_graph: Graph | No
                     info["{}/{}/25th".format(object_name, feature_name)] = np.nanpercentile(feat_array, q=25, axis=axis)
                     info["{}/{}/10th".format(object_name, feature_name)] = np.nanpercentile(feat_array, q=10, axis=axis)
                     info["{}/{}/min".format(object_name, feature_name)] = np.nanmin(feat_array, axis=axis)
+    return info
 # Backward compatibility aliases
 JaxGraphShape = JaxGraphShape
 JaxHyperEdgeSet = JaxHyperEdgeSet

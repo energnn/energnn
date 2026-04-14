@@ -80,8 +80,8 @@ class NODECoupler(Coupler):
         solution = diffrax.diffeqsolve(
             terms=diffrax.ODETerm(F),
             solver=self.solver,
-            t0=0,
-            t1=1,
+            t0=0.0,
+            t1=1.0,
             dt0=self.dt,
             y0=h_0,
             saveat=diffrax.SaveAt(t1=True),

@@ -96,6 +96,8 @@ def test_quantiles_match_numpy_graph_quantiles():
 
 def test_from_dict_and_basic_props():
     g = make_graph_with_registry_jax(n_addresses=5, n_obj=3)
+    # The true_shape might be flattened/unflattened if registered as pytree, 
+    # but here it's still JaxGraphShape after creation.
     assert isinstance(g.true_shape, JaxGraphShape)
     assert isinstance(g.current_shape, JaxGraphShape)
     # As constructed, graph is single

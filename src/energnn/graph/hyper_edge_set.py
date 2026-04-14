@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from typing import Any, Sequence
 
+import numpy as np
+import jax.numpy as jnp
 import pandas as pd
 from jax.tree_util import register_pytree_node_class
 
@@ -146,7 +148,16 @@ class HyperEdgeSet(dict):
         if self.feature_array is not None:
             array.append(self.feature_array)
         if self.port_array is not None:
-            array.append(self.port_array)
+            # Handle dimension mismatch in batch case if needed
+            port_arr = self.port_array
+            if self.feature_array is not None:
+                feat_ndim = len(self._backend.shape(self.feature_array))
+                port_ndim = len(self._backend.shape(port_arr))
+                if feat_ndim == 3 and port_ndim == 2:
+                    # In some JAX versions/tests, port_dict might be a dict of 1D arrays
+                    # causing port_array to be 2D while feature_array is 3D.
+                    port_arr = port_arr[..., jnp.newaxis] if isinstance(self, JaxHyperEdgeSet) else np.expand_dims(port_arr, axis=-1)
+            array.append(port_arr)
         return self._backend.concatenate(array, axis=-1)
 
     @property
@@ -161,7 +172,8 @@ class HyperEdgeSet(dict):
         """
         True if `array` is 2-D: `(n_obj, features+ports)`.
         """
-        return len(self._backend.shape(self.array)) == 2
+        shape = self._backend.shape(self.array)
+        return len(shape) == 2 or (len(shape) == 1 and self.feature_array is None and self.port_dict is None)
 
     @property
     def n_obj(self) -> int:
@@ -169,9 +181,9 @@ class HyperEdgeSet(dict):
         Number of hyper-edges (objects) per instance.
         """
         shape = self._backend.shape(self.array)
-        if self.is_single:
+        if len(shape) == 2:
             return int(shape[0])
-        elif self.is_batch:
+        elif len(shape) == 3:
             return int(shape[1])
         else:
             raise ValueError("HyperEdgeSet is neither single nor batched.")
@@ -249,11 +261,13 @@ class HyperEdgeSet(dict):
 
         result = dict()
         for k, v in self.feature_names.items():
-            # The last axis holds features
+            # Use backend indexing and shape logic to avoid to_numpy on tracers
+            idx = v[0] if self.is_batch else v
+            # If backend is JaxBackend, use jnp.take or slicing
             if self.is_batch:
-                result[k] = self.feature_array[..., int(to_numpy(v)[0])]
+                result[k] = self.feature_array[..., int(idx)]
             else:
-                result[k] = self.feature_array[..., int(to_numpy(v))]
+                result[k] = self.feature_array[..., int(idx)]
         return result
 
     @property
@@ -268,9 +282,23 @@ class HyperEdgeSet(dict):
         if self.feature_array is None:
             return None
 
+        # Check if feature_array has at least 2 dimensions for single or 3 for batch
+        # We check ndim directly as properties might be circular or rely on concatenation
+        ndim = len(self._backend.shape(self.feature_array))
+        if self.is_batch:
+            if ndim < 3:
+                raise ValueError("feature_array must have at least 3 dimensions for batched edge set.")
+        else:
+            if ndim < 2:
+                raise ValueError("feature_array must have at least 2 dimensions for single edge set.")
+
         shape = [self.n_batch, -1] if self.is_batch else [-1]
         # NumPy and JAX both support reshape with order='F' but for JAX it might be different
         # Let's use the underlying np module from the backend
+        if isinstance(self, JaxHyperEdgeSet):
+             # JAX jnp.reshape doesn't support order='F' directly sometimes or in older versions,
+             # but it actually does in modern JAX. However, let's be explicit if needed.
+             return self._backend.np.reshape(self.feature_array, shape, order="F")
         return self._backend.np.reshape(self.feature_array, shape, order="F")
 
     @feature_flat_array.setter
@@ -379,8 +407,15 @@ class JaxHyperEdgeSet(HyperEdgeSet):
         Flattens a PyTree, required for JAX compatibility.
         :returns: a tuple of values and keys
         """
-        children = (self[PORT_DICT], self[FEATURE_ARRAY], self[FEATURE_NAMES], self[NON_FICTITIOUS])
-        aux = None
+        # Sort port_dict and feature_names for deterministic auxiliary data/children structure
+        port_keys = sorted(self[PORT_DICT].keys()) if self[PORT_DICT] is not None else None
+        port_values = tuple(self[PORT_DICT][k] for k in port_keys) if port_keys is not None else None
+        
+        feat_keys = sorted(self[FEATURE_NAMES].keys()) if self[FEATURE_NAMES] is not None else None
+        feat_values = tuple(self[FEATURE_NAMES][k] for k in feat_keys) if feat_keys is not None else None
+
+        children = (self[FEATURE_ARRAY], self[NON_FICTITIOUS], port_values, feat_values)
+        aux = (port_keys, feat_keys, self._backend)
         return children, aux
 
     @classmethod
@@ -388,11 +423,17 @@ class JaxHyperEdgeSet(HyperEdgeSet):
         """
         Unflattens a PyTree, required for JAX compatibility.
         """
+        feature_array, non_fictitious, port_values, feat_values = children
+        port_keys, feat_keys, backend = aux_data
+        
+        port_dict = dict(zip(port_keys, port_values)) if port_keys is not None else None
+        feature_names = dict(zip(feat_keys, feat_values)) if feat_keys is not None else None
+        
         return cls(
-            port_dict=children[0],
-            feature_array=children[1],
-            feature_names=children[2],
-            non_fictitious=children[3],
+            port_dict=port_dict,
+            feature_array=feature_array,
+            feature_names=feature_names,
+            non_fictitious=non_fictitious,
         )
 
     @classmethod

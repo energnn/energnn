@@ -63,6 +63,12 @@ class Backend(ABC):
 
 
 class NumpyBackend(Backend):
+    def __eq__(self, other):
+        return isinstance(other, NumpyBackend)
+
+    def __hash__(self):
+        return hash(NumpyBackend)
+
     @property
     def np(self) -> Any:
         return np
@@ -102,6 +108,12 @@ class NumpyBackend(Backend):
 
 
 class JaxBackend(Backend):
+    def __eq__(self, other):
+        return isinstance(other, JaxBackend)
+
+    def __hash__(self):
+        return hash(JaxBackend)
+
     @property
     def np(self) -> Any:
         return jnp
