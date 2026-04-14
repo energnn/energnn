@@ -96,7 +96,6 @@ class HyperEdgeSet(dict):
             feature_array=feature_array,
             feature_names=feature_names,
             non_fictitious=non_fictitious,
-            backend=backend,
         )
 
     def __str__(self) -> str:
@@ -260,13 +259,9 @@ class HyperEdgeSet(dict):
 
         result = dict()
         for k, v in self.feature_names.items():
-            # Use backend indexing and shape logic to avoid to_numpy on tracers
+            # The last axis holds features
             idx = v[0] if self.is_batch else v
-            # If backend is JaxBackend, use jnp.take or slicing
-            if self.is_batch:
-                result[k] = self.feature_array[..., int(idx)]
-            else:
-                result[k] = self.feature_array[..., int(idx)]
+            result[k] = self.feature_array[..., int(idx)]
         return result
 
     @property
@@ -390,7 +385,6 @@ class JaxHyperEdgeSet(HyperEdgeSet):
         feature_array: Any | None,
         feature_names: dict[str, Any] | None,
         non_fictitious: Any,
-        backend: Backend | None = None,
     ) -> None:
         # Ignore provided backend and force JAX backend to ensure correct JAX behavior
         super().__init__(
@@ -618,6 +612,16 @@ def concatenate_hyper_edge_sets(hyper_edge_set_list: list[HyperEdgeSet]) -> Hype
 def check_dict_shape(*, d: dict[str, Any] | None, n_objects: int | None, backend: Backend | None = None) -> int | None:
     """
     Ensure all arrays in a dictionary have the same size on their last axis.
+
+    If `n_objects` is not provided, it is inferred from the first array’s last dimension.
+    Otherwise, every array’s last dimension must match the given `n_objects`.
+
+    :param d: Mapping from feature/port name to `numpy` array
+                   where each array’s last axis is object-indexed.
+    :param n_objects: Optional expected size of the last axis; if None, will be inferred.
+    :return: The validated or inferred `n_objects`.
+
+    :raises ValueError: If any array’s last dimension does not match `n_objects`.
     """
     backend = backend or NumpyBackend()
     if d is not None:
@@ -638,6 +642,14 @@ def build_hyper_edge_set_shape(
 ) -> Any:
     """
     Builds an array representing the number of hyper-edges.
+
+    Validate that `port_dict` and `feature_dict` have consistent sizes
+    on their last dimensions and return a scalar numpy array containing that count.
+
+    :param port_dict: Mapping from port names to numpy arrays, or None.
+    :param feature_dict: Mapping of feature names to numpy arrays, or None.
+    :return: A scalar numpy array of dtype float32 with the number of objects.
+    :raises ValueError: If both inputs are None, or if their shapes conflict.
     """
     backend = backend or NumpyBackend()
     if port_dict is None and feature_dict is None:
@@ -651,6 +663,11 @@ def build_hyper_edge_set_shape(
 def dict2array(features_dict: dict[str, Any] | None, backend: Backend | None = None) -> Any | None:
     """
     Stack a dictionary of arrays into a single array along the last axis.
+
+    The arrays are stacked in alphabetical order of their dictionary keys.
+
+    :param features_dict: Mapping from a feature name to a `numpy` array, or None.
+    :return: A stacked array with an added last dimension for features, or None.
     """
     backend = backend or NumpyBackend()
     if features_dict is None:
@@ -661,6 +678,10 @@ def dict2array(features_dict: dict[str, Any] | None, backend: Backend | None = N
 def check_dict_or_none(_input: dict | Any | None) -> dict | None:
     """
     Validate that the input is either a dict or None.
+
+    :param _input: Object to validate
+    :return: the input if it was a dict or None
+    :raises ValueError: if `_input` is neither dict nor None
     """
     if isinstance(_input, dict):
         return _input
@@ -677,6 +698,10 @@ def check_no_nan(
 ) -> None:
     """
     Ensure there are no NaN values in port or feature arrays.
+
+    :param port_dict: Mapping from port names to arrays, or None.
+    :param feature_dict: Mapping of feature names to arrays, or None.
+    :raises ValueError: If any array contains NaN.
     """
     backend = backend or NumpyBackend()
     for name, arr in (port_dict or {}).items():
@@ -690,6 +715,9 @@ def check_no_nan(
 def check_valid_ports(port_dict: dict[str, Any] | None, backend: Backend | None = None) -> None:
     """
     Ensure that ports map only to integer-valued addresses.
+
+    :param port_dict: Mapping from port names to arrays, or None.
+    :raises ValueError: If any port array has entries that are not integer.
     """
     backend = backend or NumpyBackend()
     for name, arr in (port_dict or {}).items():
