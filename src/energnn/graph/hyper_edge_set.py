@@ -75,8 +75,8 @@ class HyperEdgeSet(dict):
         """
         backend = backend or NumpyBackend()
         # Convert inputs to pure arrays / dicts
-        port_dict = check_dict_or_none(to_numpy(port_dict))
-        feature_dict = check_dict_or_none(to_numpy(feature_dict))
+        port_dict = check_dict_or_none(port_dict)
+        feature_dict = check_dict_or_none(feature_dict)
 
         check_valid_ports(port_dict, backend)
         check_no_nan(port_dict=port_dict, feature_dict=feature_dict, backend=backend)
@@ -127,10 +127,10 @@ class HyperEdgeSet(dict):
         d = {}
         if self.port_names is not None:
             for k, v in sorted(self.port_dict.items()):
-                d[("ports", k)] = to_numpy(v).reshape([-1])
+                d[("ports", k)] = v.reshape([-1])
         if self.feature_names is not None:
             for k, v in sorted(self.feature_dict.items()):
-                d[("features", k)] = to_numpy(v).reshape([-1])
+                d[("features", k)] = v.reshape([-1])
 
         return pd.DataFrame(d, index=index).__str__()
 

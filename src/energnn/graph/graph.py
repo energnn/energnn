@@ -262,7 +262,7 @@ class Graph(dict):
         for key, hyper_edge_set_shape in target_shape.hyper_edge_sets.items():
             self.hyper_edge_sets[key].pad(hyper_edge_set_shape)
         
-        diff = int(to_numpy(target_shape.addresses)) - int(to_numpy(self.current_shape.addresses))
+        diff = int(target_shape.addresses) - int(self.current_shape.addresses)
         self.non_fictitious_addresses = self._backend.np.pad(
             self.non_fictitious_addresses, [0, diff]
         )
@@ -276,7 +276,7 @@ class Graph(dict):
         """
         for key, hyper_edge_set_shape in self.true_shape.hyper_edge_sets.items():
             self.hyper_edge_sets[key].unpad(hyper_edge_set_shape)
-        self.non_fictitious_addresses = self.non_fictitious_addresses[: int(to_numpy(self.true_shape.addresses))]
+        self.non_fictitious_addresses = self.non_fictitious_addresses[: int(self.true_shape.addresses)]
         self.current_shape = self.true_shape
 
     def count_connected_components(self) -> tuple[int, Any]:
@@ -318,7 +318,7 @@ class Graph(dict):
             # For simplicity, if it's Jax, we could try to implement it in Jax or just use the current implementation with to_numpy
             # But the existing code is already numpy based.
         
-        h = np.arange(len(to_numpy(self.non_fictitious_addresses)))
+        h = np.arange(len(self.non_fictitious_addresses))
         # Ensure we work with numpy for this part as it uses in-place operations
         # If it was JaxGraph, we'd need a Jax implementation.
         # But JaxGraph didn't override this, so it was already broken for Jax if it was called.
@@ -595,8 +595,9 @@ def check_valid_addresses(hyper_edge_set_dict: dict[str, HyperEdgeSet], n_addres
     backend = backend or NumpyBackend()
     for key, hyper_edge_set in hyper_edge_set_dict.items():
         if hyper_edge_set.port_names is not None:
-            # We use to_numpy for assertions to be safe across backends
-            assert np.all(to_numpy(hyper_edge_set.port_array) < to_numpy(n_addresses))
+            # We use to_numpy only if it's already NumPy for performance, 
+            # or keep it as-is for JAX since it's just an assertion
+            assert np.all(hyper_edge_set.port_array < n_addresses)
 
 
 def get_statistics(graph: Graph, axis: int | None = None, norm_graph: Graph | None = None) -> dict:
@@ -621,7 +622,7 @@ def get_statistics(graph: Graph, axis: int | None = None, norm_graph: Graph | No
                 # The original code used feature_dict which we'll reconstruct from our NaN-filled array
                 feature_names = hyper_edge_set.feature_names
                 for feature_name, v in feature_names.items():
-                    idx = int(to_numpy(v))
+                    idx = int(v)
                     # Extract column
                     feat_array = array[..., idx]
                     

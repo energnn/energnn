@@ -85,7 +85,7 @@ class GraphShape(dict):
         
         # Check addresses
         try:
-            if not np.all(to_numpy(self.addresses) == to_numpy(other.addresses)):
+            if not np.all(self.addresses == other.addresses):
                 return False
         except Exception:
             return False
@@ -97,7 +97,7 @@ class GraphShape(dict):
             return False
         for k in self_hes:
             try:
-                if not np.all(to_numpy(self_hes[k]) == to_numpy(other_hes[k])):
+                if not np.all(self_hes[k] == other_hes[k]):
                     return False
             except Exception:
                 return False
