@@ -146,15 +146,9 @@ class HyperEdgeSet(dict):
         if self.feature_array is not None:
             array.append(self.feature_array)
         if self.port_array is not None:
-            # Handle dimension mismatch in batch case if needed
             port_arr = self.port_array
             if self.feature_array is not None:
-                feat_ndim = len(self._backend.shape(self.feature_array))
-                port_ndim = len(self._backend.shape(port_arr))
-                if feat_ndim == 3 and port_ndim == 2:
-                    # In some JAX versions/tests, port_dict might be a dict of 1D arrays
-                    # causing port_array to be 2D while feature_array is 3D.
-                    port_arr = port_arr[..., jnp.newaxis] if isinstance(self, JaxHyperEdgeSet) else np.expand_dims(port_arr, axis=-1)
+                port_arr = self._backend.broadcast_to_match_ndims(self.feature_array, port_arr)
             array.append(port_arr)
         return self._backend.concatenate(array, axis=-1)
 

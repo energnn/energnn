@@ -261,10 +261,8 @@ class Graph(dict):
 
         for key, hyper_edge_set_shape in target_shape.hyper_edge_sets.items():
             self.hyper_edge_sets[key].pad(hyper_edge_set_shape)
-
-        diff = int(target_shape.addresses) - int(self.current_shape.addresses)
-        self.non_fictitious_addresses = self._backend.np.pad(
-            self.non_fictitious_addresses, [0, diff]
+        self.non_fictitious_addresses = np.pad(
+            self.non_fictitious_addresses, [0, int(target_shape.addresses) - int(self.current_shape.addresses)]
         )
         self.current_shape = target_shape
 
@@ -311,10 +309,6 @@ class Graph(dict):
             raise ValueError("Graph is not single.")
 
         h = np.arange(len(self.non_fictitious_addresses))
-        # Ensure we work with numpy for this part as it uses in-place operations
-        # If it was JaxGraph, we'd need a Jax implementation.
-        # But JaxGraph didn't override this, so it was already broken for Jax if it was called.
-
         converged = False
         while not converged:
             h_new = _max_propagate(graph=self, h_=h)

@@ -61,6 +61,14 @@ class Backend(ABC):
         pass
 
     @abstractmethod
+    def broadcast_to_match_ndims(self, target: Any, source: Any) -> Any:
+        """
+        Broadcasting logic: If source has fewer dimensions than target,
+        expand source with extra dimensions at the end until ndims match.
+        """
+        pass
+
+    @abstractmethod
     def maximum(self, x: Any, y: Any) -> Any:
         pass
 
@@ -109,6 +117,14 @@ class NumpyBackend(Backend):
     def reshape(self, x: Any, shape: Any, order: str = "C") -> Any:
         return np.reshape(x, shape, order=order)
 
+    def broadcast_to_match_ndims(self, target: Any, source: Any) -> Any:
+        target_ndim = len(self.shape(target))
+        source_ndim = len(self.shape(source))
+        while source_ndim < target_ndim:
+            source = np.expand_dims(source, axis=-1)
+            source_ndim += 1
+        return source
+
     def maximum(self, x: Any, y: Any) -> Any:
         return np.maximum(x, y)
 
@@ -156,6 +172,14 @@ class JaxBackend(Backend):
 
     def reshape(self, x: Any, shape: Any, order: str = "C") -> Any:
         return jnp.reshape(x, shape, order=order)
+
+    def broadcast_to_match_ndims(self, target: Any, source: Any) -> Any:
+        target_ndim = len(self.shape(target))
+        source_ndim = len(self.shape(source))
+        while source_ndim < target_ndim:
+            source = jnp.expand_dims(source, axis=-1)
+            source_ndim += 1
+        return source
 
     def maximum(self, x: Any, y: Any) -> Any:
         return jnp.maximum(x, y)
