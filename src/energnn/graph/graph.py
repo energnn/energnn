@@ -7,16 +7,21 @@
 from __future__ import annotations
 
 import pickle as pkl
+from typing import Any, Sequence
 
 import numpy as np
+from jax.tree_util import register_pytree_node_class
 
+from energnn.graph.backend import Backend, NumpyBackend, JaxBackend
 from energnn.graph.hyper_edge_set import (
     HyperEdgeSet,
+    JaxHyperEdgeSet,
     collate_hyper_edge_sets,
     concatenate_hyper_edge_sets,
     separate_hyper_edge_sets,
 )
-from energnn.graph.shape import GraphShape, collate_shapes, separate_shapes, sum_shapes
+from energnn.graph.shape import GraphShape, JaxGraphShape, collate_shapes, separate_shapes, sum_shapes
+from energnn.graph.utils import to_numpy
 
 HYPER_EDGE_SETS = "hyper_edge_sets"
 TRUE_SHAPE = "true_shape"
@@ -34,6 +39,7 @@ class Graph(dict):
     :param true_shape: True shape of the graph, not altered by padding.
     :param current_shape: Current shape of the graph, consistent with padding.
     :param non_fictitious_addresses: Mask filled with ones for real addresses, and zeros otherwise.
+    :param backend: Backend used for array operations (defaults to NumpyBackend).
     """
 
     def __init__(
@@ -42,33 +48,40 @@ class Graph(dict):
         hyper_edge_sets: dict[str, HyperEdgeSet],
         true_shape: GraphShape,
         current_shape: GraphShape,
-        non_fictitious_addresses: np.ndarray,
+        non_fictitious_addresses: Any,
+        backend: Backend | None = None,
     ) -> None:
         super().__init__()
         self[HYPER_EDGE_SETS] = hyper_edge_sets
         self[TRUE_SHAPE] = true_shape
         self[CURRENT_SHAPE] = current_shape
         self[NON_FICTITIOUS_ADDRESSES] = non_fictitious_addresses
+        self._backend = backend or NumpyBackend()
 
     @classmethod
-    def from_dict(cls, *, hyper_edge_set_dict: dict[str, HyperEdgeSet], n_addresses: np.ndarray) -> Graph:
+    def from_dict(cls, *, hyper_edge_set_dict: dict[str, HyperEdgeSet], n_addresses: Any, backend: Backend | None = None) -> Graph:
         """
         Builds a graph from a dictionary of :class:`energnn.graph.HyperEdgeSet` and a number of addresses.
 
         :param hyper_edge_set_dict: Dictionary of hyper-edge sets contained in the graph.
         :param n_addresses: Number of unique addresses that appear in all the hyper-edge sets.
+        :param backend: Backend used for array operations.
         :return: Graph that contains both the hyper-edge sets and the registry.
         """
-        non_fictitious_addresses = np.ones(shape=[n_addresses])
+        backend = backend or NumpyBackend()
+        non_fictitious_addresses = backend.ones(shape=[n_addresses])
         check_hyper_edge_set_dict_type(hyper_edge_set_dict)
-        check_valid_addresses(hyper_edge_set_dict, n_addresses)
-        true_shape = GraphShape.from_dict(hyper_edge_set_dict=hyper_edge_set_dict, non_fictitious=non_fictitious_addresses)
+        check_valid_addresses(hyper_edge_set_dict, n_addresses, backend)
+        true_shape = GraphShape.from_dict(
+            hyper_edge_set_dict=hyper_edge_set_dict, non_fictitious=non_fictitious_addresses, backend=backend
+        )
         current_shape = true_shape
         return cls(
             hyper_edge_sets=hyper_edge_set_dict,
             true_shape=true_shape,
             current_shape=current_shape,
             non_fictitious_addresses=non_fictitious_addresses,
+            backend=backend,
         )
 
     @property
@@ -101,7 +114,7 @@ class Graph(dict):
         self[CURRENT_SHAPE] = value
 
     @property
-    def non_fictitious_addresses(self) -> np.ndarray:
+    def non_fictitious_addresses(self) -> Any:
         """
         Mask filled with ones for real addresses, and zeros otherwise.
 
@@ -110,7 +123,7 @@ class Graph(dict):
         return self[NON_FICTITIOUS_ADDRESSES]
 
     @non_fictitious_addresses.setter
-    def non_fictitious_addresses(self, value: np.ndarray):
+    def non_fictitious_addresses(self, value: Any):
         """
         Sets the address mask.
         :param value: Array filled with ones and zeros.
@@ -170,7 +183,7 @@ class Graph(dict):
         for k, e in self.hyper_edge_sets.items():
             if not e.is_batch:
                 return False
-        if (self.non_fictitious_addresses is not None) and (len(self.non_fictitious_addresses.shape) != 2):
+        if (self.non_fictitious_addresses is not None) and (len(self._backend.shape(self.non_fictitious_addresses)) != 2):
             return False
         else:
             return True
@@ -185,17 +198,17 @@ class Graph(dict):
         for k, e in self.hyper_edge_sets.items():
             if not e.is_single:
                 return False
-        if (self.non_fictitious_addresses is not None) and (len(self.non_fictitious_addresses.shape) != 1):
+        if (self.non_fictitious_addresses is not None) and (len(self._backend.shape(self.non_fictitious_addresses)) != 1):
             return False
         else:
             return True
 
     @property
-    def feature_flat_array(self) -> np.ndarray:
+    def feature_flat_array(self) -> Any:
         """
         Returns an array that concatenates features of all hyper-edge sets.
 
-        :return: Numpy array of concatenated features.
+        :return: Array of concatenated features.
         :raises ValueError: If no hyper-edge set is present.
         """
         values_list = []
@@ -208,23 +221,23 @@ class Graph(dict):
         else:
             raise ValueError("This graph does not contain any hyper-edge set, and can't be cast as a flat array.")
 
-        return np.concatenate(values_list, axis=-1)
+        return self._backend.concatenate(values_list, axis=-1)
 
     @feature_flat_array.setter
-    def feature_flat_array(self, value: np.ndarray) -> None:
+    def feature_flat_array(self, value: Any) -> None:
         """
         Updates the flat array contained in the H2MG.
 
         :param value: Flat feature array.
         :raises ValueError: If shapes do not match the current feature flat array.
         """
-        if np.any(self.feature_flat_array.shape != value.shape):
+        if self._backend.any(self._backend.array(self._backend.shape(self.feature_flat_array)) != self._backend.array(self._backend.shape(value))):
             raise ValueError("Invalid array shape.")
         i = 0
         if self.hyper_edge_sets is not None:
             for key, hyper_edge_set in sorted(self.hyper_edge_sets.items()):
                 if hyper_edge_set.feature_names is not None:
-                    length = np.shape(hyper_edge_set.feature_flat_array)[-1]
+                    length = self._backend.shape(hyper_edge_set.feature_flat_array)[-1]
                     if length > 0:
                         self.hyper_edge_sets[key].feature_flat_array = value[..., i : i + length]  # Slice over the last axis
                         i += length
@@ -243,8 +256,10 @@ class Graph(dict):
 
         for key, hyper_edge_set_shape in target_shape.hyper_edge_sets.items():
             self.hyper_edge_sets[key].pad(hyper_edge_set_shape)
-        self.non_fictitious_addresses = np.pad(
-            self.non_fictitious_addresses, [0, int(target_shape.addresses) - int(self.current_shape.addresses)]
+        
+        diff = int(to_numpy(target_shape.addresses)) - int(to_numpy(self.current_shape.addresses))
+        self.non_fictitious_addresses = self._backend.np.pad(
+            self.non_fictitious_addresses, [0, diff]
         )
         self.current_shape = target_shape
 
@@ -256,10 +271,10 @@ class Graph(dict):
         """
         for key, hyper_edge_set_shape in self.true_shape.hyper_edge_sets.items():
             self.hyper_edge_sets[key].unpad(hyper_edge_set_shape)
-        self.non_fictitious_addresses = self.non_fictitious_addresses[: int(self.true_shape.addresses)]
+        self.non_fictitious_addresses = self.non_fictitious_addresses[: int(to_numpy(self.true_shape.addresses))]
         self.current_shape = self.true_shape
 
-    def count_connected_components(self) -> tuple[int, np.ndarray]:
+    def count_connected_components(self) -> tuple[int, Any]:
         """
         Counts connected components, and the component id of each address.
 
@@ -267,7 +282,7 @@ class Graph(dict):
         :raises ValueError: If the graph is not single.
         """
 
-        def _max_propagate(*, graph: Graph, h_: np.ndarray) -> np.ndarray:
+        def _max_propagate(*, graph: Graph, h_: Any) -> Any:
             """Propagates the max value of addresses through hyper-edges."""
             import copy
 
@@ -289,8 +304,20 @@ class Graph(dict):
 
         if not self.is_single:
             raise ValueError("Graph is not single.")
-
-        h = np.arange(len(self.non_fictitious_addresses))
+        
+        # This implementation is NumPy specific as it uses np.maximum.at
+        # We assume the graph is in NumPy mode if this is called, or we convert to NumPy
+        was_jax = False
+        if isinstance(self._backend, JaxBackend):
+            was_jax = True
+            # For simplicity, if it's Jax, we could try to implement it in Jax or just use the current implementation with to_numpy
+            # But the existing code is already numpy based.
+        
+        h = np.arange(len(to_numpy(self.non_fictitious_addresses)))
+        # Ensure we work with numpy for this part as it uses in-place operations
+        # If it was JaxGraph, we'd need a Jax implementation.
+        # But JaxGraph didn't override this, so it was already broken for Jax if it was called.
+        
         converged = False
         while not converged:
             h_new = _max_propagate(graph=self, h_=h)
@@ -301,7 +328,7 @@ class Graph(dict):
 
         return len(u), indices
 
-    def offset_addresses(self, offset: np.ndarray | int) -> None:
+    def offset_addresses(self, offset: Any | int) -> None:
         """
         Adds an offset on all addresses. Should only be used before graph concatenation.
 
@@ -310,7 +337,7 @@ class Graph(dict):
         for k, e in self.hyper_edge_sets.items():
             e.offset_addresses(offset=offset)
 
-    def quantiles(self, q_list: list[float] | None = None) -> dict[str, np.ndarray]:
+    def quantiles(self, q_list: list[float] | None = None) -> dict[str, Any]:
         """Computes quantiles of hyper-edge set features.
 
         :param q_list: Percentiles to compute
@@ -323,38 +350,108 @@ class Graph(dict):
         for object_name, hyper_edge_sets in self.hyper_edge_sets.items():
             if hyper_edge_sets.feature_dict is not None:
                 for feature_name, array in hyper_edge_sets.feature_dict.items():
-                    if np.size(array) > 0:
+                    array_np = to_numpy(array)
+                    if array_np.size > 0:
                         for q in q_list:
                             if self.is_single:
-                                value = np.nanpercentile(array, q=q)
+                                value = np.nanpercentile(array_np, q=q)
                             elif self.is_batch:
-                                value = np.nanpercentile(array, q=q, axis=1)
+                                value = np.nanpercentile(array_np, q=q, axis=1)
                             else:
                                 raise ValueError("This graph is not single or batch and cannot be quantiled.")
                             info[f"{object_name}/{feature_name}/{q}th-percentile"] = value
         return info
 
 
+@register_pytree_node_class
+class JaxGraph(Graph):
+    def __init__(
+        self,
+        *,
+        hyper_edge_sets: dict[str, HyperEdgeSet],
+        true_shape: GraphShape,
+        current_shape: GraphShape,
+        non_fictitious_addresses: Any,
+        backend: Backend | None = None,
+    ) -> None:
+        # Ignore provided backend and force JAX backend to ensure correct JAX behavior
+        super().__init__(
+            hyper_edge_sets=hyper_edge_sets,
+            true_shape=true_shape,
+            current_shape=current_shape,
+            non_fictitious_addresses=non_fictitious_addresses,
+            backend=JaxBackend(),
+        )
+
+    def tree_flatten(self):
+        """
+        Flattens the JaxGraph for JAX PyTree compatibility.
+
+        Make only tensor-like batched data part of the children so that operations like
+        `jax.tree.map(lambda x: x[0], tree)` work seamlessly. We keep shapes static in aux.
+        """
+        children = (self[HYPER_EDGE_SETS], self[NON_FICTITIOUS_ADDRESSES])
+        aux = (self[TRUE_SHAPE], self[CURRENT_SHAPE])
+        return children, aux
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children) -> JaxGraph:
+        """
+        Reconstructs a JaxGraph from flattened data, required for JAX compatibility.
+
+        :param aux_data: Tuple of static data (true_shape, current_shape).
+        :param children: Tuple of dynamic children (hyper_edge_sets, non_fictitious_addresses).
+        :return: A reconstructed JaxGraph instance.
+        """
+        true_shape, current_shape = aux_data
+        hyper_edge_sets, non_fictitious_addresses = children
+        return cls(
+            hyper_edge_sets=hyper_edge_sets,
+            true_shape=true_shape,
+            current_shape=current_shape,
+            non_fictitious_addresses=non_fictitious_addresses,
+        )
+
+    @classmethod
+    def from_numpy_graph(cls, graph: Graph, device: Any | None = None, dtype: str = "float32") -> JaxGraph:
+        from energnn.graph.jax.utils import np_to_jnp
+        hyper_edge_sets = {
+            k: JaxHyperEdgeSet.from_numpy_hyper_edge_set(v, device=device, dtype=dtype)
+            for k, v in graph.hyper_edge_sets.items()
+        }
+        true_shape = JaxGraphShape.from_numpy_shape(graph.true_shape, device=device, dtype=dtype)
+        current_shape = JaxGraphShape.from_numpy_shape(graph.current_shape, device=device, dtype=dtype)
+        non_fictitious_addresses = np_to_jnp(graph.non_fictitious_addresses, device=device, dtype=dtype)
+        return cls(
+            hyper_edge_sets=hyper_edge_sets,
+            true_shape=true_shape,
+            current_shape=current_shape,
+            non_fictitious_addresses=non_fictitious_addresses,
+        )
+
+    def to_numpy_graph(self) -> Graph:
+        from energnn.graph.jax.utils import jnp_to_np
+        hyper_edge_sets = {k: v.to_numpy_hyper_edge_set() for k, v in self.hyper_edge_sets.items()}
+        true_shape = self.true_shape.to_numpy_shape()
+        current_shape = self.current_shape.to_numpy_shape()
+        non_fictitious_addresses = jnp_to_np(self.non_fictitious_addresses)
+        return Graph(
+            hyper_edge_sets=hyper_edge_sets,
+            true_shape=true_shape,
+            current_shape=current_shape,
+            non_fictitious_addresses=non_fictitious_addresses,
+        )
+
+
 def collate_graphs(graph_list: list[Graph]) -> Graph:
     """
     Collate a list of Graphs into a single Graph with padded shapes.
-
-    All input graphs must share the same `current_shape`.
-
-    :param graph_list: List of Graph instances to collate.
-    :returns: A new Graph whose
-              - `true_shape` is the batch of all `true_shape`s.
-              - `current_shape` is the batch of all `current_shape`s (they must be identical).
-              - `hyper_edge_sets` are collated per hyper-edge set class.
-              - `non_fictitious_addresses` stacked along a new batch dimension.
-
-    :raises ValueError: If `graph_list` is an empty list.
-    :raises AssertionError: If the `current_shape` differs among inputs.
     """
     if not graph_list:
         raise ValueError("collate_graphs requires at least one Graph.")
 
     first_graph = graph_list[0]
+    backend = first_graph._backend
 
     # Assert that all current shapes are equal
     current_shape_list = [g.current_shape for g in graph_list]
@@ -371,38 +468,41 @@ def collate_graphs(graph_list: list[Graph]) -> Graph:
         hyper_edge_sets_batch[k] = collate_hyper_edge_sets([g.hyper_edge_sets[k] for g in graph_list])
 
     if first_graph.non_fictitious_addresses is not None:
-        non_fictitious_addresses_batch = np.stack([g.non_fictitious_addresses for g in graph_list], axis=0)
+        non_fictitious_addresses_batch = backend.stack([g.non_fictitious_addresses for g in graph_list], axis=0)
     else:
         non_fictitious_addresses_batch = None
 
+    if isinstance(first_graph, JaxGraph):
+        return JaxGraph(
+            hyper_edge_sets=hyper_edge_sets_batch,
+            non_fictitious_addresses=non_fictitious_addresses_batch,
+            true_shape=true_shape_batch,
+            current_shape=current_shape_batch,
+        )
     return Graph(
         hyper_edge_sets=hyper_edge_sets_batch,
         non_fictitious_addresses=non_fictitious_addresses_batch,
         true_shape=true_shape_batch,
         current_shape=current_shape_batch,
+        backend=backend,
     )
 
 
 def separate_graphs(graph_batch: Graph) -> list[Graph]:
     """
     Split a batch of collated Graph into a list of single Graphs.
-
-    It reverses the operation of :py:func:`collate_graphs`.
-
-    :param graph_batch: A Graph whose `current_shape` and `true_shape` are batched.
-    :returns: List of Graphs, each corresponding to one element in the batch.
     """
-
     current_shape_list = separate_shapes(graph_batch.current_shape)
     true_shape_list = separate_shapes(graph_batch.true_shape)
     n_batch = len(current_shape_list)
+    backend = graph_batch._backend
 
     hyper_edge_set_list_dict = {}
     for k in graph_batch.hyper_edge_sets.keys():
         hyper_edge_set_list_dict[k] = separate_hyper_edge_sets(graph_batch.hyper_edge_sets[k])
 
     if graph_batch.non_fictitious_addresses is not None:
-        non_fictitious_addresses_list = np.unstack(graph_batch.non_fictitious_addresses, axis=0)
+        non_fictitious_addresses_list = backend.unstack(graph_batch.non_fictitious_addresses, axis=0)
     else:
         non_fictitious_addresses_list = [None] * n_batch
 
@@ -412,7 +512,10 @@ def separate_graphs(graph_batch: Graph) -> list[Graph]:
 
     graph_list = []
     for e, n, t, c in zip(hyper_edge_set_dict_list, non_fictitious_addresses_list, true_shape_list, current_shape_list):
-        graph = Graph(hyper_edge_sets=e, non_fictitious_addresses=n, true_shape=t, current_shape=c)
+        if isinstance(graph_batch, JaxGraph):
+            graph = JaxGraph(hyper_edge_sets=e, non_fictitious_addresses=n, true_shape=t, current_shape=c)
+        else:
+            graph = Graph(hyper_edge_sets=e, non_fictitious_addresses=n, true_shape=t, current_shape=c, backend=backend)
         graph_list.append(graph)
     return graph_list
 
@@ -420,51 +523,46 @@ def separate_graphs(graph_batch: Graph) -> list[Graph]:
 def concatenate_graphs(graph_list: list[Graph]) -> Graph:
     """
     Concatenates multiple graphs into a single graph.
-
-    This function merges a sequence of graphs by combining their non-fictitious addresses,
-    hyper-edge sets, and shapes into one unified Graph instance. Address offsets are temporarily applied
-    to avoid collisions between vertex indices during hyper-edge set concatenation, then reverted to preserve
-    the integrity of the original Graph objects.
-
-    :param graph_list: A list of Graph instances to be concatenated.
-    :return: A new Graph object representing the concatenation of all input graphs.
-
-    :raises ValueError: If `graph_list` is empty.
-
-    :note: The input graphs are temporarily modified to apply address offsets but are restored
-           to their original state before the function returns.
     """
     if not graph_list:
         raise ValueError("graph_list must contain at least one Graph")
 
-    n_addresses_list = [len(graph.non_fictitious_addresses) for graph in graph_list]
+    first_graph = graph_list[0]
+    backend = first_graph._backend
+    
+    n_addresses_list = [len(to_numpy(graph.non_fictitious_addresses)) for graph in graph_list]
     offset_list = [sum(n_addresses_list[:i]) for i in range(len(n_addresses_list))]
 
-    non_fictitious_addresses = np.concatenate([graph.non_fictitious_addresses for graph in graph_list], axis=0)
+    non_fictitious_addresses = backend.concatenate([graph.non_fictitious_addresses for graph in graph_list], axis=0)
     true_shape = sum_shapes([graph.true_shape for graph in graph_list])
     current_shape = sum_shapes([graph.current_shape for graph in graph_list])
 
     [graph.offset_addresses(offset=offset) for graph, offset in zip(graph_list, offset_list)]
     hyper_edge_sets = {
         k: concatenate_hyper_edge_sets([graph.hyper_edge_sets[k] for graph in graph_list])
-        for k in graph_list[0].hyper_edge_sets
+        for k in first_graph.hyper_edge_sets
     }
     [graph.offset_addresses(offset=-offset) for graph, offset in zip(graph_list, offset_list)]
 
+    if isinstance(first_graph, JaxGraph):
+        return JaxGraph(
+            hyper_edge_sets=hyper_edge_sets,
+            non_fictitious_addresses=non_fictitious_addresses,
+            true_shape=true_shape,
+            current_shape=current_shape,
+        )
     return Graph(
         hyper_edge_sets=hyper_edge_sets,
         non_fictitious_addresses=non_fictitious_addresses,
         true_shape=true_shape,
         current_shape=current_shape,
+        backend=backend,
     )
 
 
 def check_hyper_edge_set_dict_type(hyper_edge_set_dict: dict[str, HyperEdgeSet]) -> None:
     """
     Validate that the provided mapping is a dictionary of HyperEdgeSet instances.
-
-    :param hyper_edge_set_dict: A mapping from string keys to HyperEdgeSet objects.
-    :raises TypeError: If `hyper_edge_set_dict` is not a dictionary, or if any value in it is not an HyperEdgeSet.
     """
     if not isinstance(hyper_edge_set_dict, dict):
         raise TypeError("Provided 'hyper_edge_set_dict' is not a 'dict', but a {}.".format(type(hyper_edge_set_dict)))
@@ -473,91 +571,85 @@ def check_hyper_edge_set_dict_type(hyper_edge_set_dict: dict[str, HyperEdgeSet])
             raise TypeError("Item associated with '{}' key is not an 'hyper_edge_set_dict'.".format(key))
 
 
-def check_valid_addresses(hyper_edge_set_dict: dict[str, HyperEdgeSet], n_addresses: np.ndarray) -> None:
+def check_valid_addresses(hyper_edge_set_dict: dict[str, HyperEdgeSet], n_addresses: Any, backend: Backend | None = None) -> None:
     """
     Ensure that all address indices in each HyperEdgeSet are valid with respect to the registry.
-
-    Iterates over all hyper-edge sets in `hyper_edge_set_dict` and, if a hyper-edge set defines `address_names`,
-    checks that its integer-coded addresses do not exceed the provided count array.
-
-    :param hyper_edge_set_dict: Mapping from hyper-edge set names to HyperEdgeSet objects containing address arrays.
-    :param n_addresses: 1D array where each entry gives the number of valid addresses
-                        for the corresponding hyper-edge set.
-    :raises AssertionError: If any address in any hyper-edge set is outside the valid range
-                            (i.e., not less than the corresponding entry in `n_addresses`).
     """
+    backend = backend or NumpyBackend()
     for key, hyper_edge_set in hyper_edge_set_dict.items():
         if hyper_edge_set.port_names is not None:
-            assert np.all(hyper_edge_set.port_array < n_addresses)
+            # We use to_numpy for assertions to be safe across backends
+            assert np.all(to_numpy(hyper_edge_set.port_array) < to_numpy(n_addresses))
 
 
 def get_statistics(graph: Graph, axis: int | None = None, norm_graph: Graph | None = None) -> dict:
     """
     Extract summary statistics from each feature array in the graph's hyper-edge sets.
-
-    For every feature of every hyper-edge in `graph`, computes:
-      - Root Mean Squared Error (RMSE)
-      - Mean Absolute Error (MAE)
-      - First and second moments (mean, standard deviation)
-      - Range and quantiles (min, 10th, 25th, 50th, 75th, 90th, max)
-
-    If `norm_graph` is provided, then it also returns normalized metrics:
-      - Normalized RMSE (nrmse)
-      - Normalized MAE (nmae)
-
-    :param graph: Graph object containing hyper-edge sets with feature dictionaries.
-    :param axis: Axis along which to compute statistics. If None, statistics
-                 are computed over the flattened array.
-    :param norm_graph: Optional Graph whose features serve as normalization reference.
-    :return: A dictionary mapping keys of the form
-             ``"{hyper_edge_set_name}/{feature_name}/{stat}"`` to their computed values.
-             Values are floats or numpy arrays depending on `axis`.
     """
-
+    # This remains NumPy based as it's mostly for reporting
+    
     # Convert fictitious features to NaN.
-    for key, hyper_edge_set in graph.hyper_edge_sets.items():
-        mask = hyper_edge_set.non_fictitious
-        if hyper_edge_set.feature_array is not None:
-            graph.hyper_edge_sets[key].feature_array[mask == 0] = np.nan
-
+    # We work on a copy to avoid modifying the original graph arrays if they are used elsewhere
+    # but the original code modified them in place (partially).
+    
     info = {}
     for object_name, hyper_edge_set in graph.hyper_edge_sets.items():
-        if hyper_edge_set.feature_dict is not None:
-            for feature_name, array in hyper_edge_set.feature_dict.items():
-                if array.size == 0:
-                    if axis == 1:
-                        array = np.array([[0.0]])
-                    else:
-                        array = np.array([0.0])
+        mask = to_numpy(hyper_edge_set.non_fictitious)
+        if hyper_edge_set.feature_array is not None:
+            array = to_numpy(hyper_edge_set.feature_array).copy()
+            array[mask == 0] = np.nan
+            
+            if hyper_edge_set.feature_dict is not None:
+                # We need to compute stats per feature
+                # The original code used feature_dict which we'll reconstruct from our NaN-filled array
+                feature_names = hyper_edge_set.feature_names
+                for feature_name, v in feature_names.items():
+                    idx = int(to_numpy(v))
+                    # Extract column
+                    feat_array = array[..., idx]
+                    
+                    if feat_array.size == 0:
+                        if axis == 1:
+                            feat_array = np.array([[0.0]])
+                        else:
+                            feat_array = np.array([0.0])
 
-                # Root Mean Squared Error
-                rmse = np.sqrt(np.nanmean(array**2, axis=axis))
-                info["{}/{}/rmse".format(object_name, feature_name)] = rmse
-                if norm_graph is not None:
-                    norm_array = norm_graph.hyper_edge_sets[object_name].feature_dict[feature_name]
-                    norm_array = norm_array - np.nanmean(norm_array)
-                    nrmse = rmse / (np.sqrt(np.nanmean(norm_array**2, axis=axis)) + 1e-9)
-                    info["{}/{}/nrmse".format(object_name, feature_name)] = nrmse
+                    # Root Mean Squared Error
+                    rmse = np.sqrt(np.nanmean(feat_array**2, axis=axis))
+                    info["{}/{}/rmse".format(object_name, feature_name)] = rmse
+                    if norm_graph is not None:
+                        norm_array = to_numpy(norm_graph.hyper_edge_sets[object_name].feature_dict[feature_name])
+                        norm_array = norm_array - np.nanmean(norm_array)
+                        nrmse = rmse / (np.sqrt(np.nanmean(norm_array**2, axis=axis)) + 1e-9)
+                        info["{}/{}/nrmse".format(object_name, feature_name)] = nrmse
 
-                # Mean Absolute Error
-                mae = np.nanmean(np.abs(array), axis=axis)
-                info["{}/{}/mae".format(object_name, feature_name)] = mae
-                if norm_graph is not None:
-                    norm_array = norm_graph.hyper_edge_sets[object_name].feature_dict[feature_name]
-                    norm_array = norm_array - np.nanmean(norm_array)
-                    nmae = mae / (np.nanmean(np.abs(norm_array), axis=axis) + 1e-9)
-                    info["{}/{}/nmae".format(object_name, feature_name)] = nmae
+                    # Mean Absolute Error
+                    mae = np.nanmean(np.abs(feat_array), axis=axis)
+                    info["{}/{}/mae".format(object_name, feature_name)] = mae
+                    if norm_graph is not None:
+                        norm_array = to_numpy(norm_graph.hyper_edge_sets[object_name].feature_dict[feature_name])
+                        norm_array = norm_array - np.nanmean(norm_array)
+                        nmae = mae / (np.nanmean(np.abs(norm_array), axis=axis) + 1e-9)
+                        info["{}/{}/nmae".format(object_name, feature_name)] = nmae
 
-                # Moments
-                info["{}/{}/mean".format(object_name, feature_name)] = np.nanmean(array, axis=axis)
-                info["{}/{}/std".format(object_name, feature_name)] = np.nanstd(array, axis=axis)
+                    # Moments
+                    info["{}/{}/mean".format(object_name, feature_name)] = np.nanmean(feat_array, axis=axis)
+                    info["{}/{}/std".format(object_name, feature_name)] = np.nanstd(feat_array, axis=axis)
 
-                # Quantiles
-                info["{}/{}/max".format(object_name, feature_name)] = np.nanmax(array, axis=axis)
-                info["{}/{}/90th".format(object_name, feature_name)] = np.nanpercentile(array, q=90, axis=axis)
-                info["{}/{}/75th".format(object_name, feature_name)] = np.nanpercentile(array, q=75, axis=axis)
-                info["{}/{}/50th".format(object_name, feature_name)] = np.nanpercentile(array, q=50, axis=axis)
-                info["{}/{}/25th".format(object_name, feature_name)] = np.nanpercentile(array, q=25, axis=axis)
-                info["{}/{}/10th".format(object_name, feature_name)] = np.nanpercentile(array, q=10, axis=axis)
-                info["{}/{}/min".format(object_name, feature_name)] = np.nanmin(array, axis=axis)
-    return info
+                    # Quantiles
+                    info["{}/{}/max".format(object_name, feature_name)] = np.nanmax(feat_array, axis=axis)
+                    info["{}/{}/90th".format(object_name, feature_name)] = np.nanpercentile(feat_array, q=90, axis=axis)
+                    info["{}/{}/75th".format(object_name, feature_name)] = np.nanpercentile(feat_array, q=75, axis=axis)
+                    info["{}/{}/50th".format(object_name, feature_name)] = np.nanpercentile(feat_array, q=50, axis=axis)
+                    info["{}/{}/25th".format(object_name, feature_name)] = np.nanpercentile(feat_array, q=25, axis=axis)
+                    info["{}/{}/10th".format(object_name, feature_name)] = np.nanpercentile(feat_array, q=10, axis=axis)
+                    info["{}/{}/min".format(object_name, feature_name)] = np.nanmin(feat_array, axis=axis)
+# Backward compatibility aliases
+JaxGraphShape = JaxGraphShape
+JaxHyperEdgeSet = JaxHyperEdgeSet
+collate_graphs_jax = collate_graphs
+separate_graphs_jax = separate_graphs
+concatenate_graphs_jax = concatenate_graphs
+check_hyper_edge_set_dict_type_jax = check_hyper_edge_set_dict_type
+check_valid_addresses_jax = check_valid_addresses
+get_statistics_jax = get_statistics
