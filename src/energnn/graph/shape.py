@@ -12,7 +12,6 @@ from typing import Any
 from jax.tree_util import register_pytree_node_class
 
 from energnn.graph.backend import Backend, NumpyBackend, JaxBackend
-from energnn.graph.utils import to_numpy
 
 HYPER_EDGE_SETS = "hyper_edge_sets"
 ADDRESSES = "addresses"
@@ -82,14 +81,14 @@ class GraphShape(dict):
             return False
         if self.keys() != other.keys():
             return False
-        
+
         # Check addresses
         try:
             if not np.all(self.addresses == other.addresses):
                 return False
         except Exception:
             return False
-            
+
         # Check hyper_edge_sets
         self_hes = self.hyper_edge_sets
         other_hes = other.hyper_edge_sets
@@ -193,7 +192,7 @@ class JaxGraphShape(GraphShape):
         # Move all arrays to children. hes_values contains the per-edge-set shapes.
         hes_keys = sorted(self.hyper_edge_sets.keys())
         hes_values = tuple(self.hyper_edge_sets[k] for k in hes_keys)
-        
+
         children = (self.addresses, hes_values)
         aux = (tuple(hes_keys), self._backend)
         return children, aux
@@ -205,7 +204,7 @@ class JaxGraphShape(GraphShape):
         """
         aux_list = list(aux_data)
         if len(aux_list) != 2:
-             raise ValueError("aux_data must have 2 elements: (hes_keys, backend)")
+            raise ValueError("aux_data must have 2 elements: (hes_keys, backend)")
         addresses, hes_values = children
         hes_keys, backend = aux_list
         hyper_edge_sets = dict(zip(hes_keys, hes_values))
@@ -241,7 +240,7 @@ def collate_shapes(shape_list: list[GraphShape]) -> GraphShape:
         k: backend.stack([s.hyper_edge_sets[k] for s in shape_list], axis=0) for k in shape_list[0].hyper_edge_sets
     }
     addresses_batch = backend.stack([s.addresses for s in shape_list], axis=0)
-    
+
     if isinstance(shape_list[0], JaxGraphShape):
         return JaxGraphShape(hyper_edge_sets=hyper_edge_set_shape_batch, addresses=addresses_batch)
     return GraphShape(hyper_edge_sets=hyper_edge_set_shape_batch, addresses=addresses_batch, backend=backend)
@@ -261,7 +260,7 @@ def separate_shapes(shape_batch: GraphShape) -> list[GraphShape]:
     backend = shape_batch._backend
     addresses_list = backend.unstack(shape_batch.addresses, axis=0)
     a = {k: backend.unstack(shape_batch.hyper_edge_sets[k], axis=0) for k in shape_batch.hyper_edge_sets}
-    
+
     keys = list(a.keys())
     n_samples = len(addresses_list)
     hyper_edge_set_list = []
@@ -297,7 +296,7 @@ def max_shape(graph_shape_list: list[GraphShape]) -> GraphShape:
         if not isinstance(graph_shape, GraphShape):
             raise ValueError("Invalid input in graph_list, expected GraphShape.")
         max_graph_shape = GraphShape.max(max_graph_shape, graph_shape)
-    
+
     if isinstance(graph_shape_list[0], JaxGraphShape):
         return JaxGraphShape(hyper_edge_sets=max_graph_shape.hyper_edge_sets, addresses=max_graph_shape.addresses)
     return max_graph_shape
@@ -319,13 +318,7 @@ def sum_shapes(graph_shape_list: list[GraphShape]) -> GraphShape:
         if not isinstance(graph_shape, GraphShape):
             raise ValueError("Invalid input in graph_list, expected GraphShape.")
         sum_graph_shape = GraphShape.sum(sum_graph_shape, graph_shape)
-    
+
     if isinstance(graph_shape_list[0], JaxGraphShape):
         return JaxGraphShape(hyper_edge_sets=sum_graph_shape.hyper_edge_sets, addresses=sum_graph_shape.addresses)
     return sum_graph_shape
-
-# Backward compatibility aliases
-collate_shapes_jax = collate_shapes
-separate_shapes_jax = separate_shapes
-sum_shapes_jax = sum_shapes
-max_shape_jax = max_shape

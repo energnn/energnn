@@ -3,7 +3,6 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any, TypeVar
 
-import jax
 import jax.numpy as jnp
 import numpy as np
 

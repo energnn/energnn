@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import pickle as pkl
-from typing import Any, Sequence
+from typing import Any
 
 import numpy as np
 import jax
@@ -73,10 +73,10 @@ class Graph(dict):
         non_fictitious_addresses = backend.ones(shape=[n_addresses])
         check_hyper_edge_set_dict_type(hyper_edge_set_dict)
         check_valid_addresses(hyper_edge_set_dict, n_addresses, backend)
-        
+
         # Use JaxGraphShape if we are creating a JaxGraph
         shape_cls = JaxGraphShape if cls.__name__ == "JaxGraph" else GraphShape
-        
+
         true_shape = shape_cls.from_dict(
             hyper_edge_set_dict=hyper_edge_set_dict, non_fictitious=non_fictitious_addresses, backend=backend
         )
@@ -261,7 +261,7 @@ class Graph(dict):
 
         for key, hyper_edge_set_shape in target_shape.hyper_edge_sets.items():
             self.hyper_edge_sets[key].pad(hyper_edge_set_shape)
-        
+
         diff = int(target_shape.addresses) - int(self.current_shape.addresses)
         self.non_fictitious_addresses = self._backend.np.pad(
             self.non_fictitious_addresses, [0, diff]
@@ -309,20 +309,12 @@ class Graph(dict):
 
         if not self.is_single:
             raise ValueError("Graph is not single.")
-        
-        # This implementation is NumPy specific as it uses np.maximum.at
-        # We assume the graph is in NumPy mode if this is called, or we convert to NumPy
-        was_jax = False
-        if isinstance(self._backend, JaxBackend):
-            was_jax = True
-            # For simplicity, if it's Jax, we could try to implement it in Jax or just use the current implementation with to_numpy
-            # But the existing code is already numpy based.
-        
+
         h = np.arange(len(self.non_fictitious_addresses))
         # Ensure we work with numpy for this part as it uses in-place operations
         # If it was JaxGraph, we'd need a Jax implementation.
         # But JaxGraph didn't override this, so it was already broken for Jax if it was called.
-        
+
         converged = False
         while not converged:
             h_new = _max_propagate(graph=self, h_=h)
@@ -349,7 +341,7 @@ class Graph(dict):
         :return: Mapping "hyper_edge_set/feature/percentile" to values.
         :raises ValueError: If the graph is not single or batched and cannot be quantiled.
         """
-        # If we are in JAX JIT, we cannot compute quantiles and return them in a dict 
+        # If we are in JAX JIT, we cannot compute quantiles and return them in a dict
         # that will be used for logging (which expects concrete values).
         # We check if any array is a JAX Tracer.
         for hes in self.hyper_edge_sets.values():
@@ -405,8 +397,8 @@ class JaxGraph(Graph):
         # Sort hyper_edge_sets for deterministic auxiliary data/children structure
         keys = sorted(self[HYPER_EDGE_SETS].keys())
         hes_tuple = tuple(self[HYPER_EDGE_SETS][k] for k in keys)
-        
-        # Shapes (TRUE_SHAPE, CURRENT_SHAPE) are part of children as they contain arrays 
+
+        # Shapes (TRUE_SHAPE, CURRENT_SHAPE) are part of children as they contain arrays
         # (JAX Tracers) that must be consistently handled across PyTrees.
         children = (hes_tuple, self[NON_FICTITIOUS_ADDRESSES], self[TRUE_SHAPE], self[CURRENT_SHAPE])
         aux = (tuple(keys), self._backend)
@@ -419,7 +411,7 @@ class JaxGraph(Graph):
         """
         keys, backend = aux_data
         hes_tuple, non_fictitious_addresses, true_shape, current_shape = children
-        
+
         hyper_edge_sets = dict(zip(keys, hes_tuple))
         return cls(
             hyper_edge_sets=hyper_edge_sets,
@@ -546,8 +538,8 @@ def concatenate_graphs(graph_list: list[Graph]) -> Graph:
 
     first_graph = graph_list[0]
     backend = first_graph._backend
-    
-    n_addresses_list = [len(to_numpy(graph.non_fictitious_addresses)) for graph in graph_list]
+
+    n_addresses_list = [len(graph.non_fictitious_addresses) for graph in graph_list]
     offset_list = [sum(n_addresses_list[:i]) for i in range(len(n_addresses_list))]
 
     non_fictitious_addresses = backend.concatenate([graph.non_fictitious_addresses for graph in graph_list], axis=0)
@@ -595,7 +587,7 @@ def check_valid_addresses(hyper_edge_set_dict: dict[str, HyperEdgeSet], n_addres
     backend = backend or NumpyBackend()
     for key, hyper_edge_set in hyper_edge_set_dict.items():
         if hyper_edge_set.port_names is not None:
-            # We use to_numpy only if it's already NumPy for performance, 
+            # We use to_numpy only if it's already NumPy for performance,
             # or keep it as-is for JAX since it's just an assertion
             assert np.all(hyper_edge_set.port_array < n_addresses)
 
@@ -605,18 +597,18 @@ def get_statistics(graph: Graph, axis: int | None = None, norm_graph: Graph | No
     Extract summary statistics from each feature array in the graph's hyper-edge sets.
     """
     # This remains NumPy based as it's mostly for reporting
-    
+
     # Convert fictitious features to NaN.
     # We work on a copy to avoid modifying the original graph arrays if they are used elsewhere
     # but the original code modified them in place (partially).
-    
+
     info = {}
     for object_name, hyper_edge_set in graph.hyper_edge_sets.items():
         mask = to_numpy(hyper_edge_set.non_fictitious)
         if hyper_edge_set.feature_array is not None:
             array = to_numpy(hyper_edge_set.feature_array).copy()
             array[mask == 0] = np.nan
-            
+
             if hyper_edge_set.feature_dict is not None:
                 # We need to compute stats per feature
                 # The original code used feature_dict which we'll reconstruct from our NaN-filled array
@@ -625,7 +617,7 @@ def get_statistics(graph: Graph, axis: int | None = None, norm_graph: Graph | No
                     idx = int(v)
                     # Extract column
                     feat_array = array[..., idx]
-                    
+
                     if feat_array.size == 0:
                         if axis == 1:
                             feat_array = np.array([[0.0]])
@@ -673,12 +665,3 @@ def get_statistics(graph: Graph, axis: int | None = None, norm_graph: Graph | No
                     info["{}/{}/10th".format(object_name, feature_name)] = np.nanpercentile(feat_array, q=10, axis=axis)
                     info["{}/{}/min".format(object_name, feature_name)] = np.nanmin(feat_array, axis=axis)
     return info
-# Backward compatibility aliases
-JaxGraphShape = JaxGraphShape
-JaxHyperEdgeSet = JaxHyperEdgeSet
-collate_graphs_jax = collate_graphs
-separate_graphs_jax = separate_graphs
-concatenate_graphs_jax = concatenate_graphs
-check_hyper_edge_set_dict_type_jax = check_hyper_edge_set_dict_type
-check_valid_addresses_jax = check_valid_addresses
-get_statistics_jax = get_statistics

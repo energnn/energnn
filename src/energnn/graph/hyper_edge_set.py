@@ -14,7 +14,6 @@ import pandas as pd
 from jax.tree_util import register_pytree_node_class
 
 from energnn.graph.backend import Backend, NumpyBackend, JaxBackend
-from energnn.graph.utils import to_numpy
 
 FEATURE_ARRAY = "feature_array"
 FEATURE_NAMES = "feature_names"
@@ -296,9 +295,9 @@ class HyperEdgeSet(dict):
         # NumPy and JAX both support reshape with order='F' but for JAX it might be different
         # Let's use the underlying np module from the backend
         if isinstance(self, JaxHyperEdgeSet):
-             # JAX jnp.reshape doesn't support order='F' directly sometimes or in older versions,
-             # but it actually does in modern JAX. However, let's be explicit if needed.
-             return self._backend.np.reshape(self.feature_array, shape, order="F")
+            # JAX jnp.reshape doesn't support order='F' directly sometimes or in older versions,
+            # but it actually does in modern JAX. However, let's be explicit if needed.
+            return self._backend.np.reshape(self.feature_array, shape, order="F")
         return self._backend.np.reshape(self.feature_array, shape, order="F")
 
     @feature_flat_array.setter
@@ -410,7 +409,7 @@ class JaxHyperEdgeSet(HyperEdgeSet):
         # Sort port_dict and feature_names for deterministic auxiliary data/children structure
         port_keys = sorted(self[PORT_DICT].keys()) if self[PORT_DICT] is not None else None
         port_values = tuple(self[PORT_DICT][k] for k in port_keys) if port_keys is not None else None
-        
+
         feat_keys = sorted(self[FEATURE_NAMES].keys()) if self[FEATURE_NAMES] is not None else None
         feat_values = tuple(self[FEATURE_NAMES][k] for k in feat_keys) if feat_keys is not None else None
 
@@ -425,10 +424,10 @@ class JaxHyperEdgeSet(HyperEdgeSet):
         """
         feature_array, non_fictitious, port_values, feat_values = children
         port_keys, feat_keys, backend = aux_data
-        
+
         port_dict = dict(zip(port_keys, port_values)) if port_keys is not None else None
         feature_names = dict(zip(feat_keys, feat_values)) if feat_keys is not None else None
-        
+
         return cls(
             port_dict=port_dict,
             feature_array=feature_array,
@@ -594,7 +593,7 @@ def concatenate_hyper_edge_sets(hyper_edge_set_list: list[HyperEdgeSet]) -> Hype
     """
     first_hes = hyper_edge_set_list[0]
     backend = first_hes._backend
-    
+
     port_dict = {
         k: backend.concatenate([hes.port_dict[k] for hes in hyper_edge_set_list], axis=0)
         for k in first_hes.port_dict
@@ -602,7 +601,7 @@ def concatenate_hyper_edge_sets(hyper_edge_set_list: list[HyperEdgeSet]) -> Hype
     feature_array = backend.concatenate([hes.feature_array for hes in hyper_edge_set_list], axis=0)
     feature_names = first_hes.feature_names
     non_fictitious = backend.concatenate([hes.non_fictitious for hes in hyper_edge_set_list], axis=0)
-    
+
     if isinstance(first_hes, JaxHyperEdgeSet):
         return JaxHyperEdgeSet(
             port_dict=port_dict, feature_array=feature_array, feature_names=feature_names, non_fictitious=non_fictitious
@@ -697,7 +696,7 @@ def check_valid_ports(port_dict: dict[str, Any] | None, backend: Backend | None 
         # Using np.allclose might be tricky for JAX backend if we don't have it in Backend
         # but most backends support basic comparison
         if not backend.all(backend.np.isclose(arr, backend.array(arr, dtype="int32"))):
-             raise ValueError(f"Non-integer values detected in port array for key '{name}'.")
+            raise ValueError(f"Non-integer values detected in port array for key '{name}'.")
 
 
 def _check_keys_consistency(hes_1, hes_2):
@@ -709,15 +708,3 @@ def _check_keys_consistency(hes_1, hes_2):
         raise ValueError("Inconsistent port_names keys among hyper-edge sets.")
     if hes_1.feature_names and hes_1.feature_names.keys() != hes_2.feature_names.keys():
         raise ValueError("Inconsistent feature_names keys among hyper-edge sets.")
-
-# Backward compatibility aliases
-collate_hyper_edge_sets_jax = collate_hyper_edge_sets
-separate_hyper_edge_sets_jax = separate_hyper_edge_sets
-concatenate_hyper_edge_sets_jax = concatenate_hyper_edge_sets
-check_dict_shape_jax = check_dict_shape
-build_hyper_edge_set_shape_jax = build_hyper_edge_set_shape
-dict2array_jax = dict2array
-check_dict_or_none_jax = check_dict_or_none
-check_no_nan_jax = check_no_nan
-check_valid_ports_jax = check_valid_ports
-_check_keys_consistency_jax = _check_keys_consistency
