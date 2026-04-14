@@ -57,6 +57,10 @@ class Backend(ABC):
         pass
 
     @abstractmethod
+    def reshape(self, x: Any, shape: Any, order: str = "C") -> Any:
+        pass
+
+    @abstractmethod
     def maximum(self, x: Any, y: Any) -> Any:
         pass
 
@@ -102,6 +106,9 @@ class NumpyBackend(Backend):
     def shape(self, x: Any) -> tuple[int, ...]:
         return np.shape(x)
 
+    def reshape(self, x: Any, shape: Any, order: str = "C") -> Any:
+        return np.reshape(x, shape, order=order)
+
     def maximum(self, x: Any, y: Any) -> Any:
         return np.maximum(x, y)
 
@@ -146,6 +153,9 @@ class JaxBackend(Backend):
 
     def shape(self, x: Any) -> tuple[int, ...]:
         return jnp.shape(x)
+
+    def reshape(self, x: Any, shape: Any, order: str = "C") -> Any:
+        return jnp.reshape(x, shape, order=order)
 
     def maximum(self, x: Any, y: Any) -> Any:
         return jnp.maximum(x, y)

@@ -170,8 +170,7 @@ class HyperEdgeSet(dict):
         """
         True if `array` is 2-D: `(n_obj, features+ports)`.
         """
-        shape = self._backend.shape(self.array)
-        return len(shape) == 2 or (len(shape) == 1 and self.feature_array is None and self.port_dict is None)
+        return len(self._backend.shape(self.array)) == 2
 
     @property
     def n_obj(self) -> int:
@@ -179,9 +178,9 @@ class HyperEdgeSet(dict):
         Number of hyper-edges (objects) per instance.
         """
         shape = self._backend.shape(self.array)
-        if len(shape) == 2:
+        if self.is_single:
             return int(shape[0])
-        elif len(shape) == 3:
+        elif self.is_batch:
             return int(shape[1])
         else:
             raise ValueError("HyperEdgeSet is neither single nor batched.")
@@ -276,24 +275,8 @@ class HyperEdgeSet(dict):
         if self.feature_array is None:
             return None
 
-        # Check if feature_array has at least 2 dimensions for single or 3 for batch
-        # We check ndim directly as properties might be circular or rely on concatenation
-        ndim = len(self._backend.shape(self.feature_array))
-        if self.is_batch:
-            if ndim < 3:
-                raise ValueError("feature_array must have at least 3 dimensions for batched edge set.")
-        else:
-            if ndim < 2:
-                raise ValueError("feature_array must have at least 2 dimensions for single edge set.")
-
         shape = [self.n_batch, -1] if self.is_batch else [-1]
-        # NumPy and JAX both support reshape with order='F' but for JAX it might be different
-        # Let's use the underlying np module from the backend
-        if isinstance(self, JaxHyperEdgeSet):
-            # JAX jnp.reshape doesn't support order='F' directly sometimes or in older versions,
-            # but it actually does in modern JAX. However, let's be explicit if needed.
-            return self._backend.np.reshape(self.feature_array, shape, order="F")
-        return self._backend.np.reshape(self.feature_array, shape, order="F")
+        return self._backend.reshape(self.feature_array, shape, order="F")
 
     @feature_flat_array.setter
     def feature_flat_array(self, array: Any) -> None:
@@ -308,9 +291,9 @@ class HyperEdgeSet(dict):
             raise ValueError("Shape mismatch for feature_flat_array setter.")
         if self.feature_names is not None:
             if self.is_single:
-                self.feature_array = self._backend.np.reshape(array, [self.n_obj, -1], order="F")
+                self.feature_array = self._backend.reshape(array, [self.n_obj, -1], order="F")
             elif self.is_batch:
-                self.feature_array = self._backend.np.reshape(array, [self.n_batch, self.n_obj, -1], order="F")
+                self.feature_array = self._backend.reshape(array, [self.n_batch, self.n_obj, -1], order="F")
 
     def pad(self, target_shape: Any | int) -> None:
         """
