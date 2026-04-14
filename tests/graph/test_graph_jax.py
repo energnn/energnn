@@ -14,17 +14,17 @@ import pytest
 
 from energnn.graph.graph import Graph
 from energnn.graph.hyper_edge_set import HyperEdgeSet
-from energnn.graph.jax.graph import (
+from energnn.graph.graph import (
     JaxGraph,
-    collate_graphs_jax,
-    separate_graphs_jax,
-    concatenate_graphs_jax,
-    get_statistics_jax,
-    check_hyper_edge_set_dict_type_jax,
-    check_valid_addresses_jax,
+    collate_graphs as collate_graphs_jax,
+    separate_graphs as separate_graphs_jax,
+    concatenate_graphs as concatenate_graphs_jax,
+    get_statistics as get_statistics_jax,
+    check_hyper_edge_set_dict_type as check_hyper_edge_set_dict_type_jax,
+    check_valid_addresses as check_valid_addresses_jax,
 )
-from energnn.graph.jax.hyper_edge_set import JaxHyperEdgeSet
-from energnn.graph.jax.shape import JaxGraphShape
+from energnn.graph.hyper_edge_set import JaxHyperEdgeSet
+from energnn.graph.shape import JaxGraphShape
 from tests.graph.utils import assert_graphs_equal, make_graph_with_registry
 from tests.graph.utils_jax import (
     make_graph_with_registry_jax,

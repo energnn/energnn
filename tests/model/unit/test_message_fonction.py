@@ -11,7 +11,8 @@ import numpy as np
 from flax import nnx
 
 from energnn.graph import GraphStructure, HyperEdgeSetStructure
-from energnn.graph.jax import JaxGraph, JaxHyperEdgeSet
+from energnn.graph.graph import JaxGraph
+from energnn.graph.hyper_edge_set import JaxHyperEdgeSet
 from energnn.model.coupler.message_passing.message_passing_function import (
     IdentityMessagePassingFunction,
     LocalSumMessagePassingFunction,

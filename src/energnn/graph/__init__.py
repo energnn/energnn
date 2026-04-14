@@ -4,42 +4,54 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 # SPDX-License-Identifier: MPL-2.0
 
-from .graph import Graph, check_hyper_edge_set_dict_type, collate_graphs, concatenate_graphs, get_statistics, separate_graphs
+from .graph import (
+    Graph,
+    JaxGraph,
+    check_hyper_edge_set_dict_type,
+    check_hyper_edge_set_dict_type as check_hyper_edge_set_dict_type_jax,
+    collate_graphs,
+    collate_graphs as collate_graphs_jax,
+    concatenate_graphs,
+    concatenate_graphs as concatenate_graphs_jax,
+    get_statistics,
+    get_statistics as get_statistics_jax,
+    separate_graphs,
+    separate_graphs as separate_graphs_jax,
+)
 from .hyper_edge_set import (
     HyperEdgeSet,
-    build_hyper_edge_set_shape,
-    check_dict_or_none,
-    check_dict_shape,
-    check_no_nan,
-    collate_hyper_edge_sets,
-    concatenate_hyper_edge_sets,
-    dict2array,
-    separate_hyper_edge_sets,
-)
-from .jax.graph import (
-    JaxGraph,
-    collate_graphs_jax,
-    concatenate_graphs_jax,
-    get_statistics_jax,
-    separate_graphs_jax,
-    check_hyper_edge_set_dict_type_jax,
-)
-from .jax.hyper_edge_set import (
     JaxHyperEdgeSet,
-    collate_hyper_edge_sets_jax,
-    concatenate_hyper_edge_sets_jax,
-    separate_hyper_edge_sets_jax,
-    check_dict_shape_jax,
-    build_hyper_edge_set_shape_jax,
-    dict2array_jax,
-    check_dict_or_none_jax,
-    check_no_nan_jax,
+    build_hyper_edge_set_shape,
+    build_hyper_edge_set_shape as build_hyper_edge_set_shape_jax,
+    check_dict_or_none,
+    check_dict_or_none as check_dict_or_none_jax,
+    check_dict_shape,
+    check_dict_shape as check_dict_shape_jax,
+    check_no_nan,
+    check_no_nan as check_no_nan_jax,
+    collate_hyper_edge_sets,
+    collate_hyper_edge_sets as collate_hyper_edge_sets_jax,
+    concatenate_hyper_edge_sets,
+    concatenate_hyper_edge_sets as concatenate_hyper_edge_sets_jax,
+    dict2array,
+    dict2array as dict2array_jax,
+    separate_hyper_edge_sets,
+    separate_hyper_edge_sets as separate_hyper_edge_sets_jax,
 )
-from .jax.shape import JaxGraphShape, collate_shapes_jax, max_shape_jax, separate_shapes_jax, sum_shapes_jax
-from .jax.utils import jnp_to_np, np_to_jnp
-from .shape import GraphShape, collate_shapes, max_shape, separate_shapes, sum_shapes
+from .shape import (
+    GraphShape,
+    JaxGraphShape,
+    collate_shapes,
+    collate_shapes as collate_shapes_jax,
+    max_shape,
+    max_shape as max_shape_jax,
+    separate_shapes,
+    separate_shapes as separate_shapes_jax,
+    sum_shapes,
+    sum_shapes as sum_shapes_jax,
+)
 from .structure import GraphStructure, HyperEdgeSetStructure
-from .utils import to_numpy
+from .utils import jnp_to_np, np_to_jnp, to_numpy
 
 __all__ = [
     "HyperEdgeSet",

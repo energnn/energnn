@@ -7,9 +7,9 @@
 import chex
 import jax.numpy as jnp
 
-from energnn.graph.jax.graph import JaxGraph
-from energnn.graph.jax.hyper_edge_set import JaxHyperEdgeSet
-from energnn.graph.jax.shape import JaxGraphShape
+from energnn.graph.graph import JaxGraph
+from energnn.graph.hyper_edge_set import JaxHyperEdgeSet
+from energnn.graph.shape import JaxGraphShape
 
 
 def get_fixed_edge_jax():

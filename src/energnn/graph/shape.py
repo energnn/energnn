@@ -213,13 +213,13 @@ class JaxGraphShape(GraphShape):
 
     @classmethod
     def from_numpy_shape(cls, shape: GraphShape, device: Any | None = None, dtype: str = "float32") -> JaxGraphShape:
-        from energnn.graph.jax.utils import np_to_jnp
+        from energnn.graph.utils import np_to_jnp
         hyper_edge_sets = np_to_jnp(shape.hyper_edge_sets, device=device, dtype=dtype)
         addresses = np_to_jnp(shape.addresses, device=device, dtype=dtype)
         return cls(hyper_edge_sets=hyper_edge_sets, addresses=addresses)
 
     def to_numpy_shape(self) -> GraphShape:
-        from energnn.graph.jax.utils import jnp_to_np
+        from energnn.graph.utils import jnp_to_np
         hyper_edge_sets = jnp_to_np(self.hyper_edge_sets)
         addresses = jnp_to_np(self.addresses)
         return GraphShape(hyper_edge_sets=hyper_edge_sets, addresses=addresses)

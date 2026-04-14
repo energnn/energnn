@@ -10,19 +10,19 @@ import numpy as np
 import pytest
 
 from energnn.graph.hyper_edge_set import HyperEdgeSet
-from energnn.graph.jax.hyper_edge_set import (
+from energnn.graph.hyper_edge_set import (
     JaxHyperEdgeSet,
-    build_hyper_edge_set_shape_jax,
-    check_dict_shape_jax,
-    check_dict_or_none_jax,
-    check_no_nan_jax,
-    check_valid_ports_jax,
-    collate_hyper_edge_sets_jax,
-    concatenate_hyper_edge_sets_jax,
-    dict2array_jax,
-    separate_hyper_edge_sets_jax,
+    build_hyper_edge_set_shape as build_hyper_edge_set_shape_jax,
+    check_dict_shape as check_dict_shape_jax,
+    check_dict_or_none as check_dict_or_none_jax,
+    check_no_nan as check_no_nan_jax,
+    check_valid_ports as check_valid_ports_jax,
+    collate_hyper_edge_sets as collate_hyper_edge_sets_jax,
+    concatenate_hyper_edge_sets as concatenate_hyper_edge_sets_jax,
+    dict2array as dict2array_jax,
+    separate_hyper_edge_sets as separate_hyper_edge_sets_jax,
 )
-from energnn.graph.jax.utils import np_to_jnp
+from energnn.graph.utils import np_to_jnp
 from tests.graph.utils import assert_edges_equal, get_fixed_edge
 from tests.graph.utils_jax import get_fixed_edge_jax
 

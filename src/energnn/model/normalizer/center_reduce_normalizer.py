@@ -9,7 +9,7 @@ import jax.numpy as jnp
 from flax import nnx
 
 from energnn.graph import GraphStructure, JaxGraph
-from energnn.graph.jax import JaxHyperEdgeSet
+from energnn.graph.hyper_edge_set import JaxHyperEdgeSet
 from .normalizer import Normalizer
 
 

@@ -431,7 +431,7 @@ class JaxGraph(Graph):
 
     @classmethod
     def from_numpy_graph(cls, graph: Graph, device: Any | None = None, dtype: str = "float32") -> JaxGraph:
-        from energnn.graph.jax.utils import np_to_jnp
+        from energnn.graph.utils import np_to_jnp
         hyper_edge_sets = {
             k: JaxHyperEdgeSet.from_numpy_hyper_edge_set(v, device=device, dtype=dtype)
             for k, v in graph.hyper_edge_sets.items()
@@ -447,7 +447,7 @@ class JaxGraph(Graph):
         )
 
     def to_numpy_graph(self) -> Graph:
-        from energnn.graph.jax.utils import jnp_to_np
+        from energnn.graph.utils import jnp_to_np
         hyper_edge_sets = {k: v.to_numpy_hyper_edge_set() for k, v in self.hyper_edge_sets.items()}
         true_shape = self.true_shape.to_numpy_shape()
         current_shape = self.current_shape.to_numpy_shape()

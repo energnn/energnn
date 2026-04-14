@@ -8,7 +8,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from energnn.graph.jax import JaxGraph
+from energnn.graph.graph import JaxGraph
 from energnn.model.decoder.invariant_decoder import InvariantDecoder, MeanInvariantDecoder, SumInvariantDecoder
 from energnn.model.utils import MLP
 from energnn.problem.example import LinearSystemProblemLoader

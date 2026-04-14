@@ -440,7 +440,7 @@ class JaxHyperEdgeSet(HyperEdgeSet):
     def from_numpy_hyper_edge_set(
         cls, hyper_edge_set: HyperEdgeSet, device: Any | None = None, dtype: str = "float32"
     ) -> JaxHyperEdgeSet:
-        from energnn.graph.jax.utils import np_to_jnp
+        from energnn.graph.utils import np_to_jnp
         port_dict = np_to_jnp(hyper_edge_set.port_dict, device=device, dtype=dtype)
         feature_array = np_to_jnp(hyper_edge_set.feature_array, device=device, dtype=dtype)
         feature_names = np_to_jnp(hyper_edge_set.feature_names, device=device, dtype=dtype)
@@ -450,7 +450,7 @@ class JaxHyperEdgeSet(HyperEdgeSet):
         )
 
     def to_numpy_hyper_edge_set(self) -> HyperEdgeSet:
-        from energnn.graph.jax.utils import jnp_to_np
+        from energnn.graph.utils import jnp_to_np
         port_dict = jnp_to_np(self.port_dict)
         feature_array = jnp_to_np(self.feature_array)
         feature_names = jnp_to_np(self.feature_names)

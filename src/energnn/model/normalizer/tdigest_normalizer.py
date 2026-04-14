@@ -16,7 +16,8 @@ from jax import ShapeDtypeStruct
 from jax.experimental import io_callback
 
 from energnn.graph import GraphStructure
-from energnn.graph.jax import JaxGraph, JaxHyperEdgeSet
+from energnn.graph.graph import JaxGraph
+from energnn.graph.hyper_edge_set import JaxHyperEdgeSet
 from .normalizer import Normalizer
 
 

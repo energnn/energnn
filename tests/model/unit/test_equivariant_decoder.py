@@ -10,7 +10,8 @@ import jax.numpy as jnp
 import numpy as np
 
 from energnn.graph import GraphStructure, HyperEdgeSetStructure
-from energnn.graph.jax import JaxGraph, JaxHyperEdgeSet
+from energnn.graph.graph import JaxGraph
+from energnn.graph.hyper_edge_set import JaxHyperEdgeSet
 from energnn.model.decoder.equivariant_decoder import MLPEquivariantDecoder
 from energnn.problem.example import LinearSystemProblemLoader
 

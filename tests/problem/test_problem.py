@@ -11,8 +11,8 @@ import numpy as np
 import pytest
 
 from energnn.graph import GraphStructure
-from energnn.graph.jax.graph import JaxGraph
-from energnn.graph.jax.hyper_edge_set import JaxHyperEdgeSet
+from energnn.graph.graph import JaxGraph
+from energnn.graph.hyper_edge_set import JaxHyperEdgeSet
 from energnn.problem.problem import Problem
 
 
