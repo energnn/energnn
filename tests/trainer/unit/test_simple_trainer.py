@@ -4,15 +4,18 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
+from unittest import mock
 from unittest.mock import MagicMock
 
 import jax
 import jax.numpy as jnp
 import optax
+import pytest
 from flax import nnx
 
 from energnn.graph import JaxGraph, JaxHyperEdgeSet
 from energnn.model import GNN, IdentityEncoder
+from energnn.problem import ProblemBatch
 from energnn.problem.example import LinearSystemProblemLoader
 from energnn.trainer import Trainer
 from energnn.trainer.trainer import _cast_cotangent_to_primal_dtype
@@ -252,3 +255,67 @@ def test_train_with_tracker_and_storage():
     # m_cp.wait_until_finished should be called at the end of train
     assert m_cp.wait_until_finished.called
     assert m_cp._options.best_mode == "min"
+
+
+class TestJitCaching:
+    """Tests for Trainer's JIT-cached training and evaluation pathways."""
+
+    @pytest.fixture(scope="class")
+    def loader(self) -> LinearSystemProblemLoader:
+        return LinearSystemProblemLoader(dataset_size=4, batch_size=4)
+
+    @pytest.fixture(scope="class")
+    def batch(self, loader: LinearSystemProblemLoader) -> ProblemBatch:
+        return next(iter(loader))
+
+    @pytest.fixture
+    def model(self, loader: LinearSystemProblemLoader) -> GNN:
+        return create_tiny_model(loader.context_structure)
+
+    @pytest.mark.parametrize("get_info", [True, False])
+    def test_apply_forward_vjp_roundtrip(
+        self, model: GNN, batch: ProblemBatch, get_info: bool
+    ) -> None:
+        """_apply_forward_vjp returns a vjp_fn whose gradient tree matches params, for both get_info branches."""
+        jax_context, _ = batch.get_context(get_info=get_info, step=0)
+        graphdef, params, rest = nnx.split(model, nnx.Param, ...)
+
+        decision, rest_updated, vjp_fn = Trainer._apply_forward_vjp(
+            graphdef, params, rest, jax_context, get_info
+        )
+        (grads, _) = vjp_fn(
+            (jax.tree.map(jnp.zeros_like, decision), jax.tree.map(jnp.zeros_like, rest_updated))
+        )
+        assert jax.tree.structure(grads) == jax.tree.structure(params)
+
+    def test_params_change_and_stay_finite_across_steps(
+        self, model: GNN, batch: ProblemBatch
+    ) -> None:
+        """Repeated training_step calls mutate params and keep values finite."""
+        trainer = Trainer(model=model, gradient_transformation=optax.sgd(1e-1))
+        before = [jnp.array(x) for x in jax.tree.leaves(nnx.state(model, nnx.Param))]
+
+        for _ in range(5):
+            trainer.training_step(batch, get_info=False)
+
+        after = jax.tree.leaves(nnx.state(model, nnx.Param))
+        assert all(jnp.all(jnp.isfinite(x)) for x in after)
+        assert any(not jnp.allclose(b, a) for b, a in zip(before, after))
+
+    def test_apply_forward_vjp_traced_once_across_steps(
+        self, model: GNN, batch: ProblemBatch
+    ) -> None:
+        """_apply_forward_vjp's Python body runs exactly once over repeated training steps."""
+        trace_count = [0]
+        original = Trainer._apply_forward_vjp
+
+        def counting(*args, **kwargs):
+            trace_count[0] += 1
+            return original(*args, **kwargs)
+
+        with mock.patch.object(Trainer, "_apply_forward_vjp", staticmethod(counting)):
+            trainer = Trainer(model=model, gradient_transformation=optax.sgd(1e-3))
+            for _ in range(5):
+                trainer.training_step(batch, get_info=False)
+
+        assert trace_count[0] == 1
