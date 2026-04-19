@@ -273,24 +273,16 @@ class TestJitCaching:
         return create_tiny_model(loader.context_structure)
 
     @pytest.mark.parametrize("get_info", [True, False])
-    def test_apply_forward_vjp_roundtrip(
-        self, model: GNN, batch: ProblemBatch, get_info: bool
-    ) -> None:
+    def test_apply_forward_vjp_roundtrip(self, model: GNN, batch: ProblemBatch, get_info: bool) -> None:
         """_apply_forward_vjp returns a vjp_fn whose gradient tree matches params, for both get_info branches."""
         jax_context, _ = batch.get_context(get_info=get_info, step=0)
         graphdef, params, rest = nnx.split(model, nnx.Param, ...)
 
-        decision, rest_updated, vjp_fn = Trainer._apply_forward_vjp(
-            graphdef, params, rest, jax_context, get_info
-        )
-        (grads, _) = vjp_fn(
-            (jax.tree.map(jnp.zeros_like, decision), jax.tree.map(jnp.zeros_like, rest_updated))
-        )
+        decision, rest_updated, vjp_fn = Trainer._apply_forward_vjp(graphdef, params, rest, jax_context, get_info)
+        (grads, _) = vjp_fn((jax.tree.map(jnp.zeros_like, decision), jax.tree.map(jnp.zeros_like, rest_updated)))
         assert jax.tree.structure(grads) == jax.tree.structure(params)
 
-    def test_params_change_and_stay_finite_across_steps(
-        self, model: GNN, batch: ProblemBatch
-    ) -> None:
+    def test_params_change_and_stay_finite_across_steps(self, model: GNN, batch: ProblemBatch) -> None:
         """Repeated training_step calls mutate params and keep values finite."""
         trainer = Trainer(model=model, gradient_transformation=optax.sgd(1e-1))
         before = [jnp.array(x) for x in jax.tree.leaves(nnx.state(model, nnx.Param))]
@@ -302,9 +294,7 @@ class TestJitCaching:
         assert all(jnp.all(jnp.isfinite(x)) for x in after)
         assert any(not jnp.allclose(b, a) for b, a in zip(before, after))
 
-    def test_apply_forward_vjp_traced_once_across_steps(
-        self, model: GNN, batch: ProblemBatch
-    ) -> None:
+    def test_apply_forward_vjp_traced_once_across_steps(self, model: GNN, batch: ProblemBatch) -> None:
         """_apply_forward_vjp's Python body runs exactly once over repeated training steps."""
         trace_count = [0]
         original = Trainer._apply_forward_vjp

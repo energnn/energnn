@@ -109,6 +109,7 @@ class Trainer:
     @staticmethod
     def _apply_forward_vjp(graphdef, params, rest, jax_context, get_info):
         """Forward pass + VJP setup, designed to be JIT-compiled once and reused."""
+
         def f_forward(p, r):
             model = nnx.merge(graphdef, p, r)
             decision, _ = model.forward_batch(graph=jax_context, get_info=get_info)
@@ -345,9 +346,7 @@ class Trainer:
             jax_context, infos["1_context"] = problem_batch.get_context(get_info=get_info, step=self.train_step)
 
             graphdef, params, rest = nnx.split(self.model, nnx.Param, ...)
-            jax_decision, rest_updated, vjp_fn = self._jit_apply(
-                graphdef, params, rest, jax_context, get_info
-            )
+            jax_decision, rest_updated, vjp_fn = self._jit_apply(graphdef, params, rest, jax_context, get_info)
 
             nnx.update(self.model, rest_updated)
             jax_gradient, infos["3_gradient"] = problem_batch.get_gradient(
@@ -380,9 +379,7 @@ class Trainer:
 
             jax_context, infos["1_context"] = problem_batch.get_context(get_info=True, step=self.train_step)
 
-            jax_decision, infos["2_forward"], rest_updated = self._jit_eval_forward(
-                model=self.model, context=jax_context
-            )
+            jax_decision, infos["2_forward"], rest_updated = self._jit_eval_forward(model=self.model, context=jax_context)
 
             score, infos["3_score"] = problem_batch.get_score(decision=jax_decision, get_info=True, step=self.train_step)
 
