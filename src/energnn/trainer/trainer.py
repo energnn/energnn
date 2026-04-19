@@ -48,30 +48,9 @@ def _cast_cotangent_to_primal_dtype(cotangent_pytree, primal_pytree):
     return jax.tree.map(_cast_leaf, cotangent_pytree, primal_pytree)
 
 
-def _update_params(optimizer: nnx.Optimizer, model: GNN, gradient: nnx.State, get_info: bool) -> dict:
-    r"""
-    Updates the model weights using the gradient.
-
-    :param optimizer: Optimizer instance.
-    :param model: Core Graph Neural Network model.
-    :param gradient: Gradient for model parameters.
-    :param get_info: If True, return diagnostic info on grads and updates.
-    :returns: Dictionary of diagnostic information.
-    """
-
-    def update_params(optimizer, model, gradient):
-        optimizer.update(model, gradient)
-
-    nnx.jit(update_params)(optimizer, model, gradient)
-
-    if get_info:
-        infos = {
-            # "grads/l2_norm": optax.tree_utils.tree_l2_norm(grads),
-        }
-    else:
-        infos = {}
-
-    return infos
+def _update_params_fn(optimizer: nnx.Optimizer, model: GNN, gradient: nnx.State) -> None:
+    """JIT-compatible function that applies the optimizer update."""
+    optimizer.update(model, gradient)
 
 
 def _setup_ckpt_mngr(checkpoint_manager: CheckpointManager, optim_mode: Literal["minimize", "maximize"]):
@@ -120,6 +99,31 @@ class Trainer:
         self.optimizer = nnx.Optimizer(self.model, gradient_transformation, wrt=nnx.Param)
         self.train_step: int = 0
         self.best_score: float | None = None
+
+        # Cache JIT-compiled wrappers to avoid NNX re-tracing overhead each step.
+        # `get_info` is static because downstream code branches on its concrete value.
+        self._jit_apply = nnx.jit(self._apply_forward_vjp, static_argnames=("get_info",))
+        self._jit_eval_forward = nnx.jit(self._eval_forward)
+        self._jit_update_params = nnx.jit(_update_params_fn)
+
+    @staticmethod
+    def _apply_forward_vjp(graphdef, params, rest, jax_context, get_info):
+        """Forward pass + VJP setup, designed to be JIT-compiled once and reused."""
+        def f_forward(p, r):
+            model = nnx.merge(graphdef, p, r)
+            decision, _ = model.forward_batch(graph=jax_context, get_info=get_info)
+            _, _, r_updated = nnx.split(model, nnx.Param, ...)
+            return decision, r_updated
+
+        (jax_decision, rest_updated), vjp_fn = jax.vjp(f_forward, params, rest)
+        return jax_decision, rest_updated, vjp_fn
+
+    @staticmethod
+    def _eval_forward(model, context):
+        """Forward pass for evaluation, designed to be JIT-compiled once and reused."""
+        decision, info = model.forward_batch(graph=context, get_info=True)
+        _, _, r_updated = nnx.split(model, nnx.Param, ...)
+        return decision, info, r_updated
 
     def train(
         self,
@@ -340,37 +344,23 @@ class Trainer:
             infos = {}
             jax_context, infos["1_context"] = problem_batch.get_context(get_info=get_info, step=self.train_step)
 
-            def apply(params, rest, jax_context):
-                def f_forward(p, r):
-                    model = nnx.merge(graphdef, p, r)
-                    decision, _ = model.forward_batch(graph=jax_context, get_info=get_info)
-                    _, _, r_updated = nnx.split(model, nnx.Param, ...)
-                    return decision, r_updated
-
-                (jax_decision, rest_updated), vjp_fn = jax.vjp(f_forward, params, rest)
-                return jax_decision, rest_updated, vjp_fn
-
             graphdef, params, rest = nnx.split(self.model, nnx.Param, ...)
-            jax_decision, rest_updated, vjp_fn = nnx.jit(apply)(params, rest, jax_context)
-
-            def model_vjp(cotangent):
-                # We only care about the cotangent of the decision, not the rest
-                rest_cotangent = jax.tree.map(jnp.zeros_like, rest_updated)
-                (grads_params, _) = vjp_fn((cotangent, rest_cotangent))
-                return (grads_params,)
+            jax_decision, rest_updated, vjp_fn = self._jit_apply(
+                graphdef, params, rest, jax_context, get_info
+            )
 
             nnx.update(self.model, rest_updated)
             jax_gradient, infos["3_gradient"] = problem_batch.get_gradient(
                 decision=jax_decision, get_info=get_info, step=self.train_step
             )
             jax_cotangent = _cast_cotangent_to_primal_dtype(jax_gradient, jax_decision)
-            (grads_params,) = model_vjp(jax_cotangent)
-            infos["4_update"] = _update_params(
-                optimizer=self.optimizer,
-                model=self.model,
-                gradient=grads_params,
-                get_info=get_info,
-            )
+
+            # Backward pass
+            rest_cotangent = jax.tree.map(jnp.zeros_like, rest_updated)
+            (grads_params, _) = vjp_fn((jax_cotangent, rest_cotangent))
+
+            self._jit_update_params(self.optimizer, self.model, grads_params)
+            infos["4_update"] = {}
 
         # Flatten and numpify infos
         infos = flatdict.FlatDict(infos, delimiter="/")
@@ -390,12 +380,9 @@ class Trainer:
 
             jax_context, infos["1_context"] = problem_batch.get_context(get_info=True, step=self.train_step)
 
-            def f(model, context):
-                decision, info = model.forward_batch(graph=context, get_info=True)
-                _, _, r_updated = nnx.split(model, nnx.Param, ...)
-                return decision, info, r_updated
-
-            jax_decision, infos["2_forward"], rest_updated = nnx.jit(f)(model=self.model, context=jax_context)
+            jax_decision, infos["2_forward"], rest_updated = self._jit_eval_forward(
+                model=self.model, context=jax_context
+            )
 
             score, infos["3_score"] = problem_batch.get_score(decision=jax_decision, get_info=True, step=self.train_step)
 
