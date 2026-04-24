@@ -6,10 +6,10 @@ But first, make sure to check the :doc:`basics` and :doc:`tutorial_notebook` pag
 
 Each use case implementation shall encompass their underlying business logic:
 
-- How input data (i.e., **contexts**) are defined and loaded in memory,
-- How output data (i.e., **decisions**) should look like,
+- How input data (i.e., **contexts**, see :term:`Context`) are defined and loaded in memory,
+- How output data (i.e., **decisions**, see :term:`Decision`) should look like,
 - How the gradient shall be estimated (closed-form for supervised learning vs.
-  Monte Carlo estimation for more complex cases).
+  Monte Carlo estimation for more complex cases, minimizing the **objective function**, see :term:`Objective Function`).
 
 Depending on the use case, very different implementation choices can be made, but all should respect the interface
 defined in :mod:`energnn.problem`.
@@ -21,11 +21,11 @@ Overview
 
 Implementing your custom use case requires the following class implementations.
 
-1. :class:`~energnn.problem.Problem` -- Implements the logic for a single problem instance (context, gradient, score).
-2. :class:`~energnn.problem.ProblemBatch` -- Handles batching of multiple problem instances together. The implementation
+1. :term:`Problem` (:class:`~energnn.problem.Problem`) -- Implements the logic for a single **problem** instance (context, gradient, score).
+2. :term:`Problem Batch` (:class:`~energnn.problem.ProblemBatch`) -- Handles **batching** of multiple problem instances together. The implementation
    can be optimized for parallel computation, and even leverage GPU parallelization.
 3. :class:`~energnn.problem.ProblemLoader` -- Iterates over a whole dataset of problems,
-   by returning a different :class:`~energnn.problem.ProblemBatch` at every iteration.
+   by returning a different **problem batch** at every iteration.
 
 All three classes should however share two common properties, :attr:`~energnn.problem.Problem.context_structure`
 and :attr:`~energnn.problem.Problem.decision_structure`, which define the name of the object classes and of their
@@ -38,7 +38,7 @@ Step 0 — Define Graph Structures
 
 **EnerGNN** uses the class :class:`~energnn.graph.GraphStructure` to understand the format of your data.
 You must define a structure
-for your **contexts** and your **decisions**.
+for your **contexts** (see :term:`Context`) and your **decisions** (see :term:`Decision`).
 They are mandatory properties for your :class:`~energnn.problem.Problem`, :class:`~energnn.problem.ProblemBatch`
 and :class:`~energnn.problem.ProblemLoader` implementations.
 
@@ -149,11 +149,11 @@ improvement for a decision.
             # Implement your own load method
             pass
 
-Step 2 — Handle Batching (ProblemBatch)
+Step 2 — Handle Batching (Problem Batch)
 ---------------------------------------
 
-To train efficiently on GPUs, multiple problems are grouped together into a :class:`energnn.problem.ProblemBatch`.
-The batch interface mirrors the :class:`~energnn.problem.Problem` interface but operates on concatenated graphs.
+To train efficiently on GPUs, multiple problems are grouped together into a **problem batch** (:term:`Problem Batch`).
+The batch interface mirrors the :term:`Problem` interface but operates on concatenated graphs.
 
 It is very common that the different problem instances within a batch have a different amount of objects for a given class.
 For instance, consider a batch with 2 instances, where:

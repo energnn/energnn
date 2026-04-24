@@ -85,6 +85,7 @@ User guides
     :maxdepth: 2
 
     basics
+    glossary
     tutorial_notebook
     custom_use_case
 
