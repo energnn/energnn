@@ -12,7 +12,9 @@ import numpy as np
 from omegaconf import DictConfig
 
 from energnn.graph import GraphStructure, HyperEdgeSetStructure
-from energnn.graph.jax import JaxGraph, JaxGraphShape, JaxHyperEdgeSet, collate_graphs_jax
+from energnn.graph.graph import JaxGraph, collate_graphs as collate_graphs_jax
+from energnn.graph.shape import JaxGraphShape
+from energnn.graph.hyper_edge_set import JaxHyperEdgeSet
 from ..batch import ProblemBatch
 from ..loader import ProblemLoader
 from ..problem import Problem

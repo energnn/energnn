@@ -9,7 +9,8 @@ import jax.numpy as jnp
 import numpy as np
 
 import energnn.model.normalizer.tdigest_normalizer as tdn
-from energnn.graph.jax import JaxGraph, JaxHyperEdgeSet
+from energnn.graph.graph import JaxGraph
+from energnn.graph.hyper_edge_set import JaxHyperEdgeSet
 from energnn.model.normalizer.tdigest_normalizer import (
     TDigestModule,
     TDigestNormalizer,

@@ -13,7 +13,9 @@ from flax.nnx import initializers
 from flax.typing import Initializer
 
 from energnn.graph import GraphStructure
-from energnn.graph.jax.graph import JaxGraph, JaxGraphShape, JaxHyperEdgeSet
+from energnn.graph.graph import JaxGraph
+from energnn.graph.shape import JaxGraphShape
+from energnn.graph.hyper_edge_set import JaxHyperEdgeSet
 from energnn.model.utils import Activation, MLP, gather
 from .decoder import Decoder
 

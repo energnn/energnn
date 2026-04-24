@@ -4,7 +4,8 @@ import numpy as np
 import pytest
 
 from energnn.graph import GraphStructure
-from energnn.graph.jax import JaxGraph, JaxHyperEdgeSet
+from energnn.graph.graph import JaxGraph
+from energnn.graph.hyper_edge_set import JaxHyperEdgeSet
 from energnn.problem.batch import ProblemBatch
 from energnn.problem.example import LinearSystemProblemLoader
 
