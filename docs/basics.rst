@@ -3,7 +3,7 @@ Basics
 
 This page introduces the general framework of the **EnerGNN** library.
 
-- It introduces **Amortized Optimization** [Amos2022]_ (see :term:`Glossary`), which encompasses traditional supervised learning.
+- It introduces **Amortized Optimization** [Amos2022]_ (see :term:`Amortized Optimization`), which encompasses traditional supervised learning.
 - It explains how to implement your own use case using the :mod:`energnn.problem` interface.
 - It outlines the core features of our :mod:`energnn.graph` data representation module (:term:`H2MG`).
 - It gives some details about the GNN architectures implemented in :mod:`energnn.model`.
@@ -48,7 +48,7 @@ This leads to the following **Amortized Optimization** [Amos2022]_ problem:
         x &\sim p & & \text{(1) Context sampling}\\
         \hat{y} &\gets \hat{y}_\theta(x) & & \text{(2) Decision inference} \\
         \hat{g} &\gets \nabla_y f(\hat{y};x) & & \text{(3) Gradient estimation} \\
-        \theta &\gets \theta - \alpha J_\theta[\hat{y}_\theta]^\top.\hat{g} & & \text{(4) Back-propagation}
+        \theta &\gets \theta - \alpha \text{J}_\theta[\hat{y}_\theta]^\top \cdot \hat{g} & & \text{(4) Back-propagation}
     \end{align}
 
 **EnerGNN** handles steps (2) and (4), which are independent of the use case, while
