@@ -150,7 +150,7 @@ improvement for a decision.
             pass
 
 Step 2 — Handle Batching (Problem Batch)
----------------------------------------
+----------------------------------------
 
 To train efficiently on GPUs, multiple problems are grouped together into a **problem batch** (:term:`Problem Batch`).
 The batch interface mirrors the :term:`Problem` interface but operates on concatenated graphs.

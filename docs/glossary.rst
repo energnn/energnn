@@ -58,7 +58,7 @@ Optimization Concepts
     Amortized Optimization
         A framework where a model (like a :abbr:`GNN (Graph Neural Network)`) is trained to predict the solution
         to an optimization problem directly,
-        rather than solving each instance from scratch using iterative solvers. For a detailed introduction, see [Amos2022]_.
+        rather than solving each instance from scratch using iterative solvers. For a detailed introduction, see [Amos22]_.
 
 Deep Learning & Framework
 -------------------------
@@ -90,4 +90,4 @@ Deep Learning & Framework
 References
 ----------
 
-.. [Amos2022] Brandon Amos. "Tutorial on Amortized Optimization". *Foundations and Trends in Machine Learning*, 2022.
+.. [Amos22] Brandon Amos. "Tutorial on Amortized Optimization". *Foundations and Trends in Machine Learning*, 2022.
