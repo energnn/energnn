@@ -95,13 +95,13 @@ def test_mlp_encoder_single_shapes_and_feature_names():
 def test_mlp_encoder_handles_none_feature_array_gracefully():
     # Build a JaxGraph with one edge having feature_array=None
     edge_with_none = JaxHyperEdgeSet(
-        port_dict=jax_context.hyper_edge_sets["arrow"].port_dict,
+        port_dict=jax_context.hyper_edge_sets["line"].port_dict,
         feature_array=None,
         feature_names=None,
-        non_fictitious=jax_context.hyper_edge_sets["arrow"].non_fictitious,
+        non_fictitious=jax_context.hyper_edge_sets["line"].non_fictitious,
     )
     custom_graph = JaxGraph(
-        hyper_edge_sets={"arrow": edge_with_none, "source": jax_context.hyper_edge_sets["source"]},
+        hyper_edge_sets={"line": edge_with_none, "bus": jax_context.hyper_edge_sets["bus"]},
         non_fictitious_addresses=jax_context.non_fictitious_addresses,
         true_shape=jax_context.true_shape,
         current_shape=jax_context.current_shape,
@@ -110,9 +110,9 @@ def test_mlp_encoder_handles_none_feature_array_gracefully():
     enc = MLPEncoder(in_structure=pb_loader.context_structure, hidden_sizes=[4], out_size=3, activation=None, seed=3)
     out, infos = enc(graph=custom_graph, get_info=False)
 
-    assert out.hyper_edge_sets["arrow"].feature_array is None
-    assert out.hyper_edge_sets["arrow"].feature_names is None
-    assert out.hyper_edge_sets["source"].feature_array.shape[-1] == 3
+    assert out.hyper_edge_sets["line"].feature_array is None
+    assert out.hyper_edge_sets["line"].feature_names is None
+    assert out.hyper_edge_sets["bus"].feature_array.shape[-1] == 3
 
 
 def test_mlp_encoder_jit_and_vmap_compatibility(mlp_encoder):
@@ -138,28 +138,28 @@ def test_mlp_encoder_jit_and_vmap_compatibility(mlp_encoder):
 
 def test_mlp_encoder_multiple_edge_types_independent_processing():
     # create two different JaxEdges with specific feature sizes
-    arrow_edge = jax_context.hyper_edge_sets["arrow"]
-    source_edge = jax_context.hyper_edge_sets["source"]
+    line_edge = jax_context.hyper_edge_sets["line"]
+    bus_edge = jax_context.hyper_edge_sets["bus"]
 
     def _n_obj(e):
         if e.feature_array is not None:
             return int(e.feature_array.shape[0])
         return int(jnp.array(e.non_fictitious).shape[0])
 
-    n_obj_arrow = _n_obj(arrow_edge)
-    n_obj_source = _n_obj(source_edge)
+    n_obj_line = _n_obj(line_edge)
+    n_obj_bus = _n_obj(bus_edge)
 
     e1 = JaxHyperEdgeSet(
-        port_dict=arrow_edge.port_dict,
-        feature_array=jnp.ones((n_obj_arrow, 2), dtype=jnp.float32),
+        port_dict=line_edge.port_dict,
+        feature_array=jnp.ones((n_obj_line, 2), dtype=jnp.float32),
         feature_names={"a": jnp.array(0), "b": jnp.array(1)},
-        non_fictitious=arrow_edge.non_fictitious,
+        non_fictitious=line_edge.non_fictitious,
     )
     e2 = JaxHyperEdgeSet(
-        port_dict=source_edge.port_dict,
-        feature_array=jnp.ones((n_obj_source, 3), dtype=jnp.float32),
+        port_dict=bus_edge.port_dict,
+        feature_array=jnp.ones((n_obj_bus, 3), dtype=jnp.float32),
         feature_names={"c": jnp.array(0), "d": jnp.array(1), "e": jnp.array(2)},
-        non_fictitious=source_edge.non_fictitious,
+        non_fictitious=bus_edge.non_fictitious,
     )
 
     custom_graph = JaxGraph(
@@ -192,29 +192,29 @@ def test_mlp_encoder_numeric_identity():
     Build a graph and replace the MLPs by identity functions to expect exact equality
     (modulo fictitious masking).
     """
-    arrow_edge = jax_context.hyper_edge_sets["arrow"]
-    source_edge = jax_context.hyper_edge_sets["source"]
+    line_edge = jax_context.hyper_edge_sets["line"]
+    bus_edge = jax_context.hyper_edge_sets["bus"]
 
-    n_obj_arrow = int(arrow_edge.feature_array.shape[0])
-    n_obj_source = int(source_edge.feature_array.shape[0])
+    n_obj_line = int(line_edge.feature_array.shape[0])
+    n_obj_bus = int(bus_edge.feature_array.shape[0])
     d = 4
 
     # Create edges with linear values to verify identity mapping
-    e_arrow = JaxHyperEdgeSet(
-        port_dict=arrow_edge.port_dict,
-        feature_array=jnp.linspace(0.0, 1.0, num=n_obj_arrow * d, dtype=jnp.float32).reshape((n_obj_arrow, d)),
+    e_line = JaxHyperEdgeSet(
+        port_dict=line_edge.port_dict,
+        feature_array=jnp.linspace(0.0, 1.0, num=n_obj_line * d, dtype=jnp.float32).reshape((n_obj_line, d)),
         feature_names={f"fa{i}": jnp.array(i) for i in range(d)},
-        non_fictitious=arrow_edge.non_fictitious,
+        non_fictitious=line_edge.non_fictitious,
     )
-    e_source = JaxHyperEdgeSet(
-        port_dict=source_edge.port_dict,
-        feature_array=jnp.linspace(0.0, 1.0, num=n_obj_source * d, dtype=jnp.float32).reshape((n_obj_source, d)),
+    e_bus = JaxHyperEdgeSet(
+        port_dict=bus_edge.port_dict,
+        feature_array=jnp.linspace(0.0, 1.0, num=n_obj_bus * d, dtype=jnp.float32).reshape((n_obj_bus, d)),
         feature_names={f"fs{i}": jnp.array(i) for i in range(d)},
-        non_fictitious=source_edge.non_fictitious,
+        non_fictitious=bus_edge.non_fictitious,
     )
 
     custom_graph = JaxGraph(
-        hyper_edge_sets={"arrow": e_arrow, "source": e_source},
+        hyper_edge_sets={"line": e_line, "bus": e_bus},
         non_fictitious_addresses=jax_context.non_fictitious_addresses,
         true_shape=jax_context.true_shape,
         current_shape=jax_context.current_shape,
@@ -222,17 +222,15 @@ def test_mlp_encoder_numeric_identity():
 
     enc = MLPEncoder(in_structure=pb_loader.context_structure, hidden_sizes=[], out_size=d, activation=None, seed=123)
     # Replace both MLPs by identity
-    enc.mlp_dict["arrow"] = lambda x: x
-    enc.mlp_dict["source"] = lambda x: x
+    enc.mlp_dict["line"] = lambda x: x
+    enc.mlp_dict["bus"] = lambda x: x
 
     out, _ = enc(graph=custom_graph, get_info=False)
 
-    expected_arrow = e_arrow.feature_array * jnp.expand_dims(e_arrow.non_fictitious, -1)
-    expected_source = e_source.feature_array * jnp.expand_dims(e_source.non_fictitious, -1)
+    expected_line = e_line.feature_array * jnp.expand_dims(e_line.non_fictitious, -1)
+    expected_bus = e_bus.feature_array * jnp.expand_dims(e_bus.non_fictitious, -1)
 
     np.testing.assert_allclose(
-        np.array(out.hyper_edge_sets["arrow"].feature_array), np.array(expected_arrow), rtol=0.0, atol=1e-6
+        np.array(out.hyper_edge_sets["line"].feature_array), np.array(expected_line), rtol=0.0, atol=1e-6
     )
-    np.testing.assert_allclose(
-        np.array(out.hyper_edge_sets["source"].feature_array), np.array(expected_source), rtol=0.0, atol=1e-6
-    )
+    np.testing.assert_allclose(np.array(out.hyper_edge_sets["bus"].feature_array), np.array(expected_bus), rtol=0.0, atol=1e-6)

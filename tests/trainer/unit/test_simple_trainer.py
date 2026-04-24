@@ -32,10 +32,10 @@ def create_tiny_model(context_structure):
             # No params here, just pass through
             decision = JaxGraph(
                 hyper_edge_sets={
-                    "source": JaxHyperEdgeSet(
+                    "bus": JaxHyperEdgeSet(
                         port_dict=None,
                         feature_array=coordinates,
-                        feature_names={"value": jnp.array(0)},
+                        feature_names={"phase_angle": jnp.array(0)},
                         non_fictitious=jnp.ones(coordinates.shape[0]),
                     )
                 },
@@ -51,7 +51,7 @@ def create_tiny_model(context_structure):
             self.linear = nnx.Linear(1, 1, rngs=nnx.Rngs(1))
 
         def __call__(self, graph, get_info=False):
-            x = graph.hyper_edge_sets["source"].feature_array
+            x = graph.hyper_edge_sets["bus"].feature_array
             return self.linear(x), {}
 
     return GNN(

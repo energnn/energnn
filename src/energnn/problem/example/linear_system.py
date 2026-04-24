@@ -19,12 +19,12 @@ from ..problem import Problem
 
 LINEAR_SYSTEM_CONTEXT_STRUCTURE = GraphStructure(
     hyper_edge_sets={
-        "arrow": HyperEdgeSetStructure(port_list=["from", "to"], feature_list=["value"]),
-        "source": HyperEdgeSetStructure(port_list=["id"], feature_list=["value"]),
+        "line": HyperEdgeSetStructure(port_list=["from", "to"], feature_list=["susceptance"]),
+        "bus": HyperEdgeSetStructure(port_list=["id"], feature_list=["active_power_injection"]),
     }
 )
 LINEAR_SYSTEM_DECISION_STRUCTURE = GraphStructure(
-    hyper_edge_sets={"source": HyperEdgeSetStructure(port_list=None, feature_list=["value"])}
+    hyper_edge_sets={"bus": HyperEdgeSetStructure(port_list=None, feature_list=["phase_angle"])}
 )
 
 
@@ -140,13 +140,43 @@ class LinearSystemProblem(Problem):
 
 
 def _generate_sparse_linear_system(n, m):
-    """Generates sparse matrix A and vectors b and x such that Ax = b."""
-    A_dense = np.random.randn(n, n)
-    threshold = np.sort(np.reshape(np.abs(A_dense), -1))[-m]
-    A = np.where(np.abs(A_dense) >= threshold, A_dense, 0)
-    x = np.random.randn(n)
-    b = A @ x
-    return A, b, x
+    """Generates sparse matrix B and vectors P and theta such that B theta = P for a DC network."""
+    # Ensure connectivity by building a spanning tree first
+    B = np.zeros((n, n))
+    nodes = np.arange(n)
+    np.random.shuffle(nodes)
+    for i in range(n - 1):
+        u, v = nodes[i], nodes[i + 1]
+        weight = np.random.rand() + 0.5
+        B[u, v] = B[v, u] = -weight
+
+    # Add remaining m - (n-1) edges
+    possible_edges = []
+    for i in range(n):
+        for j in range(i + 1, n):
+            if B[i, j] == 0:
+                possible_edges.append((i, j))
+
+    if possible_edges and m > n - 1:
+        n_extra = min(m - (n - 1), len(possible_edges))
+        idx = np.random.choice(len(possible_edges), n_extra, replace=False)
+        for i in idx:
+            u, v = possible_edges[i]
+            weight = np.random.rand() + 0.5
+            B[u, v] = B[v, u] = -weight
+
+    # B is Laplacian matrix-like (off-diagonal < 0, diagonal = -sum(off-diagonal))
+    # For a DC network: P = B * theta. B is the susceptance matrix.
+    # To have a unique solution, we often fix one node's voltage (slack bus) or add some shunt conductance.
+    # Here we'll add a small shunt to ensure invertibility if needed,
+    # but the usual DC power flow has sum(P) = 0.
+    # Let's make it more generic: B theta = P where B is the susceptance matrix.
+    for i in range(n):
+        B[i, i] = -np.sum(B[i, :]) + 0.1  # 0.1 for shunt conductance to ground to ensure invertibility
+
+    theta = np.random.randn(n)
+    P = B @ theta
+    return B, P, theta
 
 
 class LinearSystemProblemGenerator:
@@ -161,20 +191,21 @@ class LinearSystemProblemGenerator:
         np.random.seed(seed)
 
     def generate_problem(self) -> LinearSystemProblem:
-        n = np.random.randint(1, self.n_max + 1)
-        m = np.random.randint(1, n**2 + 1)
-        A, b, x = _generate_sparse_linear_system(n, m)
+        n = np.random.randint(2, self.n_max + 1)
+        m = np.random.randint(n - 1, n * (n - 1) // 2 + 1)
+        B, P, theta = _generate_sparse_linear_system(n, m)
 
         # Context
-        arrow_edge = JaxHyperEdgeSet.from_dict(
-            port_dict={"from": np.nonzero(A)[0], "to": np.nonzero(A)[1]}, feature_dict={"value": A[np.nonzero(A)]}
-        )
-        source_edge = JaxHyperEdgeSet.from_dict(port_dict={"id": np.arange(n)}, feature_dict={"value": b})
-        context = JaxGraph.from_dict(hyper_edge_set_dict={"arrow": arrow_edge, "source": source_edge}, n_addresses=n)
+        # Use line for off-diagonal terms
+        rows, cols = np.nonzero(np.triu(B, k=1))
+        line = JaxHyperEdgeSet.from_dict(port_dict={"from": rows, "to": cols}, feature_dict={"susceptance": -B[rows, cols]})
+        bus_context = JaxHyperEdgeSet.from_dict(port_dict={"id": np.arange(n)}, feature_dict={"active_power_injection": P})
+        context = JaxGraph.from_dict(hyper_edge_set_dict={"line": line, "bus": bus_context}, n_addresses=jnp.array(n))
 
         # Oracle
-        source_edge = JaxHyperEdgeSet.from_dict(port_dict=None, feature_dict={"value": x})
-        oracle = JaxGraph.from_dict(hyper_edge_set_dict={"source": source_edge}, n_addresses=n)
+        # Use bus for the solution (phase angles)
+        bus_oracle = JaxHyperEdgeSet.from_dict(port_dict=None, feature_dict={"phase_angle": theta})
+        oracle = JaxGraph.from_dict(hyper_edge_set_dict={"bus": bus_oracle}, n_addresses=jnp.array(n))
 
         return LinearSystemProblem(context=context, oracle=oracle)
 
@@ -190,10 +221,13 @@ class LinearSystemProblemGenerator:
             oracle_list.append(oracle)
 
         max_context_shape = JaxGraphShape(
-            hyper_edge_sets={"arrow": jnp.array(self.n_max**2), "source": jnp.array(self.n_max)},
+            hyper_edge_sets={
+                "line": jnp.array(self.n_max * (self.n_max - 1) // 2),
+                "bus": jnp.array(self.n_max),
+            },
             addresses=jnp.array(self.n_max),
         )
-        max_oracle_shape = JaxGraphShape(hyper_edge_sets={"source": jnp.array(self.n_max)}, addresses=jnp.array(self.n_max))
+        max_oracle_shape = JaxGraphShape(hyper_edge_sets={"bus": jnp.array(self.n_max)}, addresses=jnp.array(self.n_max))
 
         [context.pad(target_shape=max_context_shape) for context in context_list]
         [oracle.pad(target_shape=max_oracle_shape) for oracle in oracle_list]

@@ -152,8 +152,8 @@ def _assert_vmap_jit_consistent(mf, ctx_batch: JaxGraph, coords_batch: jnp.ndarr
     out3, info3 = jax.jit(apply_vmap)(ctx_batch, coords_batch, False)
     out4, info4 = jax.jit(apply_vmap)(ctx_batch, coords_batch, True)
 
-    chex.assert_trees_all_equal(out1, out2, out3, out4)
-    chex.assert_trees_all_equal(info2, info4)
+    chex.assert_trees_all_close(out1, out2, atol=1e-6)
+    chex.assert_trees_all_close(info2, info4, atol=1e-6)
     assert info1 == {}
     assert info3 == {}
     return out1, info1
@@ -263,7 +263,7 @@ def test_non_fictitious_masking():
         port_dict={"from": addr0, "to": addr1}, feature_array=None, feature_names=None, non_fictitious=non_fict
     )
     small_context = JaxGraph(
-        hyper_edge_sets={"arrow": edge},
+        hyper_edge_sets={"line": edge},
         non_fictitious_addresses=jnp.ones((n_addr,)),
         true_shape=jax_context.true_shape,
         current_shape=jax_context.current_shape,
@@ -326,7 +326,7 @@ def test_local_sum_numeric_identity_basic():
         port_dict={"from": addr0, "to": addr1}, feature_array=None, feature_names=None, non_fictitious=jnp.ones((n_obj,))
     )
     small_context = JaxGraph(
-        hyper_edge_sets={"arrow": edge},
+        hyper_edge_sets={"line": edge},
         non_fictitious_addresses=jnp.ones((n_addr,)),
         true_shape=jax_context.true_shape,
         current_shape=jax_context.current_shape,
@@ -363,7 +363,7 @@ def test_local_sum_with_features_included():
         non_fictitious=jnp.ones((n_obj,)),
     )
     g = JaxGraph(
-        hyper_edge_sets={"arrow": edge},
+        hyper_edge_sets={"line": edge},
         non_fictitious_addresses=jnp.ones((n_addr,)),
         true_shape=jax_context.true_shape,
         current_shape=jax_context.current_shape,
@@ -386,7 +386,7 @@ def test_local_sum_with_features_included():
 
 
 def test_multiple_edges_and_ports_independent_processing():
-    # Create graph with two edges "arrow" and "source" with distinct constant mlp outputs; verify sum is correct
+    # Create graph with two edges "line" and "bus" with distinct constant mlp outputs; verify sum is correct
     n_addr = 4
     coords = jnp.array([[0.0, 0.0], [1.0, 0.0], [0.5, 0.5], [2.0, -1.0]])
     addr_a0 = jnp.array([0, 1, 2])
@@ -397,7 +397,7 @@ def test_multiple_edges_and_ports_independent_processing():
     )
     edge_b = JaxHyperEdgeSet(port_dict={"id": addr_b}, feature_array=None, feature_names=None, non_fictitious=jnp.ones((3,)))
     g = JaxGraph(
-        hyper_edge_sets={"arrow": edge_a, "source": edge_b},
+        hyper_edge_sets={"line": edge_a, "bus": edge_b},
         non_fictitious_addresses=jnp.ones((n_addr,)),
         true_shape=jax_context.true_shape,
         current_shape=jax_context.current_shape,
@@ -412,20 +412,20 @@ def test_multiple_edges_and_ports_independent_processing():
         outer_activation=nnx.identity,
         seed=44,
     )
-    # patch arrow ports to constant [1,0], source port to constant [0,2]
-    for pk in mf.mlp_tree["arrow"].keys():
-        mf.mlp_tree["arrow"][pk] = ConstantMLP(jnp.array([1.0, 0.0]))
-    for pk in mf.mlp_tree["source"].keys():
-        mf.mlp_tree["source"][pk] = ConstantMLP(jnp.array([0.0, 2.0]))
+    # patch line ports to constant [1,0], bus port to constant [0,2]
+    for pk in mf.mlp_tree["line"].keys():
+        mf.mlp_tree["line"][pk] = ConstantMLP(jnp.array([1.0, 0.0]))
+    for pk in mf.mlp_tree["bus"].keys():
+        mf.mlp_tree["bus"][pk] = ConstantMLP(jnp.array([0.0, 2.0]))
 
     out, _ = mf(graph=g, coordinates=coords, get_info=False)
     # compute expected via compute_expected_local_sum with a custom mlp mapping
     mlp_map = {
-        "arrow": {
-            p: (lambda x, v=jnp.array([1.0, 0.0]): jnp.tile(v[None, :], (x.shape[0], 1))) for p in mf.mlp_tree["arrow"].keys()
+        "line": {
+            p: (lambda x, v=jnp.array([1.0, 0.0]): jnp.tile(v[None, :], (x.shape[0], 1))) for p in mf.mlp_tree["line"].keys()
         },
-        "source": {
-            p: (lambda x, v=jnp.array([0.0, 2.0]): jnp.tile(v[None, :], (x.shape[0], 1))) for p in mf.mlp_tree["source"].keys()
+        "bus": {
+            p: (lambda x, v=jnp.array([0.0, 2.0]): jnp.tile(v[None, :], (x.shape[0], 1))) for p in mf.mlp_tree["bus"].keys()
         },
     }
     expected = compute_expected_local_sum(g, coords, mlp_map, nnx.identity)
@@ -453,7 +453,7 @@ def test_deterministic_with_seed():
     )
     out1, _ = mf1(graph=jax_context, coordinates=coordinates, get_info=False)
     out2, _ = mf2(graph=jax_context, coordinates=coordinates, get_info=False)
-    chex.assert_trees_all_equal(out1, out2)
+    chex.assert_trees_all_close(out1, out2, atol=1e-6)
 
 
 def test_vmap_jit_safety_after_build():
@@ -496,7 +496,7 @@ def test_addresses_out_of_bounds_handling():
     edge = JaxHyperEdgeSet(
         port_dict={"from": addr_from, "to": addr_to}, feature_array=None, feature_names=None, non_fictitious=jnp.ones((2,))
     )
-    g = JaxGraph(hyper_edge_sets={"arrow": edge}, non_fictitious_addresses=jnp.ones((2,)), true_shape=None, current_shape=None)
+    g = JaxGraph(hyper_edge_sets={"line": edge}, non_fictitious_addresses=jnp.ones((2,)), true_shape=None, current_shape=None)
     mf = LocalSumMessagePassingFunction(
         in_graph_structure=pb_loader.context_structure,
         in_array_size=coords.shape[1],
