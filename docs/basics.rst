@@ -3,13 +3,13 @@ Basics
 
 This page introduces the general framework of the **EnerGNN** library.
 
-- It introduces **Amortized Optimization** [1], which encompasses traditional supervised learning.
+- It introduces **Amortized Optimization** [Amos2022]_ (see :term:`Amortized Optimization`), which encompasses traditional supervised learning.
 - It explains how to implement your own use case using the :mod:`energnn.problem` interface.
-- It outlines the core features of our :mod:`energnn.graph` data representation module.
+- It outlines the core features of our :mod:`energnn.graph` data representation module (:term:`H2MG`).
 - It gives some details about the GNN architectures implemented in :mod:`energnn.model`.
 - It shows how to train a GNN model over your own use case using the :mod:`energnn.train` module.
 
-[1] Brandon Amos, *Tutorial on Amortized Optimization*, 2022.
+.. [Amos2022] Brandon Amos, *Tutorial on Amortized Optimization*, 2022.
 
 -----
 
@@ -26,13 +26,13 @@ Consider an optimization problem formulated as follows:
 
 where:
 
-- :math:`x` is a **context** graph (input data),
-- :math:`y` is a **decision** graph (output data),
-- :math:`f` is the **objective** function to minimize.
+- :math:`x` is a **context** graph (input data, see :term:`Context`),
+- :math:`y` is a **decision** graph (output data, see :term:`Decision`),
+- :math:`f` is the **objective function** to minimize (see :term:`Objective Function`).
 
 We seek to solve this problem for a distribution of contexts :math:`x \sim p`,
 using a trainable GNN model :math:`\hat{y}_\theta`, parameterized by :math:`\theta`.
-This leads to the following **Amortized Optimization** [1] problem:
+This leads to the following **Amortized Optimization** [Amos2022]_ problem:
 
 .. math::
 
@@ -48,7 +48,7 @@ This leads to the following **Amortized Optimization** [1] problem:
         x &\sim p & & \text{(1) Context sampling}\\
         \hat{y} &\gets \hat{y}_\theta(x) & & \text{(2) Decision inference} \\
         \hat{g} &\gets \nabla_y f(\hat{y};x) & & \text{(3) Gradient estimation} \\
-        \theta &\gets \theta - \alpha J_\theta[\hat{y}_\theta]^\top.\hat{g} & & \text{(4) Back-propagation}
+        \theta &\gets \theta - \alpha \text{J}_\theta[\hat{y}_\theta]^\top \cdot \hat{g} & & \text{(4) Back-propagation}
     \end{align}
 
 **EnerGNN** handles steps (2) and (4), which are independent of the use case, while
@@ -77,7 +77,7 @@ A general overview is provided below, and an in-depth guide is available in :doc
 Problem
 .......
 
-The :class:`~energnn.problem.Problem` class defines a single instance of the optimization problem.
+The **Problem** (:class:`~energnn.problem.Problem`) class defines a single instance of the optimization problem.
 It must implement:
 
 - :attr:`~energnn.problem.Problem.context_structure`: General structure of contexts :math:`x`.
@@ -93,8 +93,8 @@ It must implement:
 ProblemBatch
 ............
 
-For training, problems are grouped into a :class:`~energnn.problem.ProblemBatch`.
-The interface is the same as for :class:`~energnn.problem.Problem`, but contexts, decisions and
+For training, problems are grouped into a **Problem Batch** (:class:`~energnn.problem.ProblemBatch`).
+The interface is the same as for :term:`Problem`, but contexts, decisions and
 gradients are batched together.
 
 ProblemLoader
@@ -115,7 +115,7 @@ Data Representation using H2MG
 ------------------------------
 
 Contexts :math:`x`, decisions :math:`y`, and gradients :math:`\nabla_y f`
-are all represented as **H2MGs** (*Hyper Heterogeneous Multi Graphs*).
+are all represented as :term:`H2MGs <H2MG>` (*Hyper Heterogeneous Multi Graphs*).
 
 - **Hyper graphs.** Made of hyper-edges that can connect more than 2 entities.
 - **Heterogeneous graphs.** Multiple component types (e.g., lines, transformers, etc.).
@@ -127,11 +127,11 @@ are all represented as **H2MGs** (*Hyper Heterogeneous Multi Graphs*).
 .. image:: _static/energnn_h2mg_white.png
     :class: only-dark
 
-H2MGs are made of hyper-edges (*i.e.* objects), which are interconnected via addresses.
+H2MGs are made of **hyper-edges** (*i.e.* objects), which are interconnected via **addresses**.
 These addresses do not bear any numerical feature, and only serve as interface between hyper-edges, as illustrated
 by the figure above.
-All hyper-edges of the same class share the same feature and port keys.
-The order of an hyper-edge is the cardinality of its ports.
+All hyper-edges of the same class share the same feature and **port** keys.
+The order of an hyper-edge is the cardinality of its **ports**.
 
 In practice, a :class:`~energnn.graph.Graph` is a dictionary of :class:`~energnn.graph.HyperEdgeSet` objects.
 For computations with JAX, we use :class:`energnn.graph.JaxGraph`,

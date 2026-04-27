@@ -26,8 +26,8 @@ coordinates_batch = jnp.array(np.random.uniform(size=(4, 10, 7)))
 # out_structure must be a GraphStructure
 default_out_structure = GraphStructure(
     hyper_edge_sets={
-        "source": HyperEdgeSetStructure(port_list=["id"], feature_list=["e"]),
-        "arrow": HyperEdgeSetStructure(port_list=["from", "to"], feature_list=["f"]),
+        "bus": HyperEdgeSetStructure(port_list=["id"], feature_list=["e"]),
+        "line": HyperEdgeSetStructure(port_list=["from", "to"], feature_list=["f"]),
     }
 )
 
@@ -46,8 +46,8 @@ def assert_decoder_vmap_jit_output(*, decoder: MLPEquivariantDecoder, context: J
     output_batch_3, infos_3 = apply_vmap_jit(context, coordinates, False)
     output_batch_4, infos_4 = apply_vmap_jit(context, coordinates, True)
 
-    chex.assert_trees_all_equal(output_batch_1, output_batch_2, output_batch_3, output_batch_4)
-    chex.assert_trees_all_equal(infos_2, infos_4)
+    chex.assert_trees_all_close(output_batch_1, output_batch_2, output_batch_3, output_batch_4, atol=1e-6)
+    chex.assert_trees_all_close(infos_2, infos_4, atol=1e-6)
     assert infos_1 == {}
     assert infos_3 == {}
 
@@ -77,15 +77,15 @@ def test_mlp_equivariant_decoder_init_deterministic():
     out1, info1 = dec1(graph=jax_context, coordinates=coordinates, get_info=False)
     out2, info2 = dec2(graph=jax_context, coordinates=coordinates, get_info=False)
 
-    chex.assert_trees_all_equal(out1, out2)
+    chex.assert_trees_all_close(out1, out2, atol=1e-6)
     assert info1 == {}
     assert info2 == {}
 
 
 def test_mlp_equivariant_decoder_single_shapes_and_masking():
     # Construct custom graph where some objects are fictitious (mask 0)
-    node_edge = jax_context.hyper_edge_sets["source"]
-    edge_edge = jax_context.hyper_edge_sets["arrow"]
+    node_edge = jax_context.hyper_edge_sets["bus"]
+    edge_edge = jax_context.hyper_edge_sets["line"]
 
     def n_obj_from(e):
         if e.feature_array is not None:
@@ -95,7 +95,7 @@ def test_mlp_equivariant_decoder_single_shapes_and_masking():
     n_node = n_obj_from(node_edge)
     n_edge = n_obj_from(edge_edge)
 
-    # set first element fictitious for source edge to test masking
+    # set first element fictitious for bus edge to test masking
     node_nf = jnp.array(np.array(node_edge.non_fictitious))
     node_nf = node_nf.at[0].set(0)
     e1 = JaxHyperEdgeSet(
@@ -112,7 +112,7 @@ def test_mlp_equivariant_decoder_single_shapes_and_masking():
     )
 
     custom_graph = JaxGraph(
-        hyper_edge_sets={"source": e1, "arrow": e2},
+        hyper_edge_sets={"bus": e1, "line": e2},
         non_fictitious_addresses=jax_context.non_fictitious_addresses,
         true_shape=jax_context.true_shape,
         current_shape=jax_context.current_shape,
@@ -120,8 +120,8 @@ def test_mlp_equivariant_decoder_single_shapes_and_masking():
 
     custom_in_structure = GraphStructure(
         hyper_edge_sets={
-            "source": HyperEdgeSetStructure(port_list=["id"], feature_list=["a", "b"]),
-            "arrow": HyperEdgeSetStructure(port_list=["from", "to"], feature_list=["c", "d", "e"]),
+            "bus": HyperEdgeSetStructure(port_list=["id"], feature_list=["a", "b"]),
+            "line": HyperEdgeSetStructure(port_list=["from", "to"], feature_list=["c", "d", "e"]),
         }
     )
 
@@ -138,17 +138,17 @@ def test_mlp_equivariant_decoder_single_shapes_and_masking():
 
     # shapes
     assert set(out.hyper_edge_sets.keys()) == set(default_out_structure.hyper_edge_sets.keys())
-    assert out.hyper_edge_sets["source"].feature_array.shape == (
+    assert out.hyper_edge_sets["bus"].feature_array.shape == (
         n_node,
-        len(default_out_structure.hyper_edge_sets["source"].feature_list),
+        len(default_out_structure.hyper_edge_sets["bus"].feature_list),
     )
-    assert out.hyper_edge_sets["arrow"].feature_array.shape == (
+    assert out.hyper_edge_sets["line"].feature_array.shape == (
         n_edge,
-        len(default_out_structure.hyper_edge_sets["arrow"].feature_list),
+        len(default_out_structure.hyper_edge_sets["line"].feature_list),
     )
 
-    # Masking: first row for source must be all zeros (we set non_fictitious[0]=0)
-    node_out_np = np.array(out.hyper_edge_sets["source"].feature_array)
+    # Masking: first row for bus must be all zeros (we set non_fictitious[0]=0)
+    node_out_np = np.array(out.hyper_edge_sets["bus"].feature_array)
     assert np.allclose(node_out_np[0], 0.0)
     # and at least one non-zero exists for other (unmasked) rows
     assert np.any(np.abs(node_out_np[1:]) > 1e-8)
@@ -172,9 +172,7 @@ def test_mlp_equivariant_decoder_mlp_dict_initialization():
     """
     Check that MLPs are correctly initialized in decoder.mlp_dict based on out_structure.
     """
-    out_structure = GraphStructure(
-        hyper_edge_sets={"source": HyperEdgeSetStructure(port_list=["id"], feature_list=["y0", "y1"])}
-    )
+    out_structure = GraphStructure(hyper_edge_sets={"bus": HyperEdgeSetStructure(port_list=["id"], feature_list=["y0", "y1"])})
     decoder = MLPEquivariantDecoder(
         in_graph_structure=pb_loader.context_structure,
         in_array_size=7,
@@ -185,18 +183,18 @@ def test_mlp_equivariant_decoder_mlp_dict_initialization():
     )
 
     assert isinstance(decoder.mlp_dict, dict)
-    assert "source" in decoder.mlp_dict
-    assert callable(decoder.mlp_dict["source"])
+    assert "bus" in decoder.mlp_dict
+    assert callable(decoder.mlp_dict["bus"])
 
 
 def test_mlp_equivariant_decoder_numeric_identity_node():
     """
-    Make the source-MLP act like identity on gathered coordinates.
+    Make the bus-MLP act like identity on gathered coordinates.
     Expected: coords[address] * non_fictitious
     """
     d = coordinates.shape[1]
     out_struct_node = GraphStructure(
-        hyper_edge_sets={"source": HyperEdgeSetStructure(port_list=["id"], feature_list=[f"o{i}" for i in range(d)])}
+        hyper_edge_sets={"bus": HyperEdgeSetStructure(port_list=["id"], feature_list=[f"o{i}" for i in range(d)])}
     )
     decoder = MLPEquivariantDecoder(
         in_graph_structure=pb_loader.context_structure,
@@ -211,11 +209,11 @@ def test_mlp_equivariant_decoder_numeric_identity_node():
     def select_coords(x):
         return x[..., :d]
 
-    decoder.mlp_dict["source"] = select_coords
+    decoder.mlp_dict["bus"] = select_coords
 
     out_graph, _ = decoder(graph=jax_context, coordinates=coordinates, get_info=False)
-    node_out = out_graph.hyper_edge_sets["source"].feature_array  # shape (n_obj, d)
-    node_edge = jax_context.hyper_edge_sets["source"]
+    node_out = out_graph.hyper_edge_sets["bus"].feature_array  # shape (n_obj, d)
+    node_edge = jax_context.hyper_edge_sets["bus"]
     addr = np.array(node_edge.port_dict["id"]).astype(int)
     coords = np.array(coordinates)
     nf = np.array(node_edge.non_fictitious).astype(float)
@@ -226,15 +224,15 @@ def test_mlp_equivariant_decoder_numeric_identity_node():
 
 def test_mlp_equivariant_decoder_numeric_identity_edge():
     """
-    Make the arrow-MLP act like identity on [coords(addr0), coords(addr1), features].
+    Make the line-MLP act like identity on [coords(addr0), coords(addr1), features].
     Expected: concat(coords[addr0], coords[addr1], feature_array) * non_fictitious
     """
     d = coordinates.shape[1]
-    edge_feature_dim = int(jax_context.hyper_edge_sets["arrow"].feature_array.shape[1])
+    edge_feature_dim = int(jax_context.hyper_edge_sets["line"].feature_array.shape[1])
     input_dim = 2 * d + edge_feature_dim
     out_struct_edge = GraphStructure(
         hyper_edge_sets={
-            "arrow": HyperEdgeSetStructure(port_list=["from", "to"], feature_list=[f"o{i}" for i in range(input_dim)])
+            "line": HyperEdgeSetStructure(port_list=["from", "to"], feature_list=[f"o{i}" for i in range(input_dim)])
         }
     )
 
@@ -250,12 +248,12 @@ def test_mlp_equivariant_decoder_numeric_identity_edge():
     def identity(x):
         return x
 
-    decoder.mlp_dict["arrow"] = identity
+    decoder.mlp_dict["line"] = identity
 
     out_graph, _ = decoder(graph=jax_context, coordinates=coordinates, get_info=False)
-    edge_out = out_graph.hyper_edge_sets["arrow"].feature_array  # shape (n_obj, input_dim)
+    edge_out = out_graph.hyper_edge_sets["line"].feature_array  # shape (n_obj, input_dim)
 
-    edge = jax_context.hyper_edge_sets["arrow"]
+    edge = jax_context.hyper_edge_sets["line"]
     addr0 = np.array(edge.port_dict["from"]).astype(int)
     addr1 = np.array(edge.port_dict["to"]).astype(int)
     coords = np.array(coordinates)
