@@ -174,8 +174,8 @@ def test_tdigest_normalizer_apply_preserves_none_feature_edges(monkeypatch):
     )
     edge_with_feat = JaxHyperEdgeSet(
         port_dict=jax_context.hyper_edge_sets["line"].port_dict,
-        feature_array=jnp.ones((jax_context.hyper_edge_sets["line"].feature_array.shape[0], 2), dtype=jnp.float32),
-        feature_names={"f1": jnp.array(0), "f2": jnp.array(1)},
+        feature_array=jnp.ones((jax_context.hyper_edge_sets["line"].feature_array.shape[0], 1), dtype=jnp.float32),
+        feature_names={"susceptance": jnp.array(0)},
         non_fictitious=jax_context.hyper_edge_sets["line"].non_fictitious,
     )
     g = JaxGraph(
