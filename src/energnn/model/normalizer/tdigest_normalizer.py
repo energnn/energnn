@@ -408,6 +408,8 @@ class TDigestNormalizer(Normalizer):
                     max_centroids=self.max_centroids,
                     use_running_average=self.use_running_average,
                 )
+            else:
+                module_dict[key] = None
         return nnx.data(module_dict)
 
     def set_running_average(self, use: bool):

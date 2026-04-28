@@ -234,3 +234,39 @@ def test_mlp_encoder_numeric_identity():
         np.array(out.hyper_edge_sets["line"].feature_array), np.array(expected_line), rtol=0.0, atol=1e-6
     )
     np.testing.assert_allclose(np.array(out.hyper_edge_sets["bus"].feature_array), np.array(expected_bus), rtol=0.0, atol=1e-6)
+
+
+def test_encoder_apply_preserves_none_feature_edges(monkeypatch):
+    # Build graph with one edge having None features and another with features
+    node_edge_with_none = JaxHyperEdgeSet(
+        port_dict=jax_context.hyper_edge_sets["bus"].port_dict,
+        feature_array=None,
+        feature_names=None,
+        non_fictitious=jax_context.hyper_edge_sets["bus"].non_fictitious,
+    )
+    edge_with_feat = JaxHyperEdgeSet(
+        port_dict=jax_context.hyper_edge_sets["line"].port_dict,
+        feature_array=jnp.ones((jax_context.hyper_edge_sets["line"].feature_array.shape[0], 1), dtype=jnp.float32),
+        feature_names={"susceptance": jnp.array(0)},
+        non_fictitious=jax_context.hyper_edge_sets["line"].non_fictitious,
+    )
+    g = JaxGraph(
+        hyper_edge_sets={"bus": node_edge_with_none, "line": edge_with_feat},
+        non_fictitious_addresses=jax_context.non_fictitious_addresses,
+        true_shape=jax_context.true_shape,
+        current_shape=jax_context.current_shape,
+    )
+
+    in_structure = GraphStructure(
+        hyper_edge_sets={
+            "bus": HyperEdgeSetStructure(port_list=["id"], feature_list=None),
+            "line": HyperEdgeSetStructure(port_list=["from", "to"], feature_list=["susceptance"]),
+        }
+    )
+
+    d = 4
+    enc = MLPEncoder(in_structure=in_structure, hidden_sizes=[], out_size=d, activation=None, seed=123)
+    out_graph, _ = enc(graph=g, get_info=False)
+
+    # bus edge had None -> must remain None
+    assert out_graph.hyper_edge_sets["bus"].feature_array is None
