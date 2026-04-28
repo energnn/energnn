@@ -93,6 +93,8 @@ class MLPEncoder(Encoder):
                     final_activation=self.final_activation,
                     rngs=rngs,
                 )
+            else:
+                mlp_dict[key] = None
         return nnx.data(mlp_dict)
 
     def __call__(self, graph: JaxGraph, get_info: bool = False) -> tuple[JaxGraph, dict]:
