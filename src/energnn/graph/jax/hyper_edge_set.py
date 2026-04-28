@@ -286,16 +286,11 @@ class JaxHyperEdgeSet(dict):
         - Single mode: shape `(num_objects * num_features,)`
         - Batch mode:  shape `(batch_size, num_objects * num_features)`.
         """
-        if self.feature_names is not None:
-            if len(self.feature_array.shape) == 2:
-                return self.feature_array.reshape([-1], order="F")
-            elif len(self.feature_array.shape) == 3:
-                n_batch = self.feature_array.shape[0]
-                return self.feature_array.reshape([n_batch, -1], order="F")
-            else:
-                raise ValueError("Feature array should be of order 2 (single) or 3 (batch).")
-        else:
+        if self.feature_array is None:
             return None
+
+        shape = [self.n_batch, -1] if self.is_batch else -1
+        return self.feature_array.reshape(shape, order="F")
 
     @feature_flat_array.setter
     def feature_flat_array(self, array: jax.Array) -> None:
