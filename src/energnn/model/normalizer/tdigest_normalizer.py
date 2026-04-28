@@ -408,6 +408,8 @@ class TDigestNormalizer(Normalizer):
                     max_centroids=self.max_centroids,
                     use_running_average=self.use_running_average,
                 )
+            else:
+                module_dict[key] = None
         return nnx.data(module_dict)
 
     def set_running_average(self, use: bool):
@@ -445,6 +447,8 @@ class TDigestNormalizer(Normalizer):
             if hyper_edge_set.feature_array is not None:
                 if hyper_edge_set.feature_array.shape[-2] > 0:
                     array = normalizer(array, jnp.expand_dims(hyper_edge_set.non_fictitious, -1))
+            else:
+                array = None
             return JaxHyperEdgeSet(
                 feature_array=array,
                 feature_names=hyper_edge_set.feature_names,

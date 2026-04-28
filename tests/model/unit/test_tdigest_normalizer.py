@@ -9,6 +9,7 @@ import jax.numpy as jnp
 import numpy as np
 
 import energnn.model.normalizer.tdigest_normalizer as tdn
+from energnn.graph import GraphStructure, HyperEdgeSetStructure
 from energnn.graph.jax import JaxGraph, JaxHyperEdgeSet
 from energnn.model.normalizer.tdigest_normalizer import (
     TDigestModule,
@@ -184,8 +185,20 @@ def test_tdigest_normalizer_apply_preserves_none_feature_edges(monkeypatch):
         current_shape=jax_context.current_shape,
     )
 
+    in_structure = GraphStructure(
+        hyper_edge_sets={
+            "bus": HyperEdgeSetStructure(port_list=["id"], feature_list=None),
+            "line": HyperEdgeSetStructure(port_list=["from", "to"], feature_list=["susceptance"]),
+        }
+    )
+
     normalizer = TDigestNormalizer(
-        in_structure=pb_loader.context_structure, update_limit=1, n_breakpoints=3, max_centroids=8, use_running_average=False
+        in_structure=in_structure,
+        update_limit=1,
+        n_breakpoints=3,
+        max_centroids=8,
+        use_running_average=False,
+        # in_structure=pb_loader.context_structure, update_limit=1, n_breakpoints=3, max_centroids=8, use_running_average=False
     )
     # patch TDigestModule.__call__ to return input*2 (simulate normalization)
     monkeypatch.setattr(TDigestModule, "__call__", lambda self, x, nf: x * 2.0 * nf)
