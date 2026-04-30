@@ -159,6 +159,8 @@ class CenterReduceNormalizer(Normalizer):
                     epsilon=self.epsilon,
                     use_running_average=self.use_running_average,
                 )
+            else:
+                module_dict[key] = None
         return nnx.data(module_dict)
 
     def __call__(self, *, graph: JaxGraph, get_info: bool = False) -> tuple[JaxGraph, dict]:

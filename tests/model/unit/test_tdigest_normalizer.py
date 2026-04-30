@@ -9,6 +9,7 @@ import jax.numpy as jnp
 import numpy as np
 
 import energnn.model.normalizer.tdigest_normalizer as tdn
+from energnn.graph import GraphStructure, HyperEdgeSetStructure
 from energnn.graph.jax import JaxGraph, JaxHyperEdgeSet
 from energnn.model.normalizer.tdigest_normalizer import (
     TDigestModule,
@@ -173,8 +174,8 @@ def test_tdigest_normalizer_apply_preserves_none_feature_edges(monkeypatch):
     )
     edge_with_feat = JaxHyperEdgeSet(
         port_dict=jax_context.hyper_edge_sets["line"].port_dict,
-        feature_array=jnp.ones((jax_context.hyper_edge_sets["line"].feature_array.shape[0], 2), dtype=jnp.float32),
-        feature_names={"f1": jnp.array(0), "f2": jnp.array(1)},
+        feature_array=jnp.ones((jax_context.hyper_edge_sets["line"].feature_array.shape[0], 1), dtype=jnp.float32),
+        feature_names={"susceptance": jnp.array(0)},
         non_fictitious=jax_context.hyper_edge_sets["line"].non_fictitious,
     )
     g = JaxGraph(
@@ -184,8 +185,20 @@ def test_tdigest_normalizer_apply_preserves_none_feature_edges(monkeypatch):
         current_shape=jax_context.current_shape,
     )
 
+    in_structure = GraphStructure(
+        hyper_edge_sets={
+            "bus": HyperEdgeSetStructure(port_list=["id"], feature_list=None),
+            "line": HyperEdgeSetStructure(port_list=["from", "to"], feature_list=["susceptance"]),
+        }
+    )
+
     normalizer = TDigestNormalizer(
-        in_structure=pb_loader.context_structure, update_limit=1, n_breakpoints=3, max_centroids=8, use_running_average=False
+        in_structure=in_structure,
+        update_limit=1,
+        n_breakpoints=3,
+        max_centroids=8,
+        use_running_average=False,
+        # in_structure=pb_loader.context_structure, update_limit=1, n_breakpoints=3, max_centroids=8, use_running_average=False
     )
     # patch TDigestModule.__call__ to return input*2 (simulate normalization)
     monkeypatch.setattr(TDigestModule, "__call__", lambda self, x, nf: x * 2.0 * nf)
