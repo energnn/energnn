@@ -242,9 +242,9 @@ class HyperEdgeSet(dict):
         for k, v in self.feature_names.items():
             # The last axis holds features
             if self.is_batch:
-                result[k] = self.feature_array[..., int(v[0])]
+                result[k] = self.feature_array[..., np.array(v[0], int)]
             else:
-                result[k] = self.feature_array[..., int(v)]
+                result[k] = self.feature_array[..., np.array(v, int)]
         return result
 
     @property
