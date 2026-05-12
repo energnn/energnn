@@ -74,3 +74,52 @@ class RecurrentCoupler(Coupler):
     def log_solved():
         """Log a message indicating successful ODE solve."""
         logger.info("ODE solved")
+
+
+class VirtualAddressRecurrentCoupler(Coupler):
+    r"""TODO"""
+
+    def __init__(
+        self,
+        phi: MLP,
+        message_functions: list[MessagePassingFunction],
+        n_steps: int,
+        virtual_address_size: int,
+    ):
+        super().__init__()
+        self.phi = phi
+        self.message_functions = nnx.List(message_functions)
+        self.n_steps = n_steps
+        self.virtual_address_size = virtual_address_size
+
+        self.dt = 1 / self.n_steps
+
+    def __call__(self, graph: JaxGraph, get_info: bool = False) -> tuple[jax.Array, dict]:
+
+        def F(t, coordinates, graph, virtual_address_coordinates):
+            """Residual function."""
+            messages = []
+            for m in self.message_functions:
+                # TODO : append h_virtual_address to coordinates
+                message, info = m(graph=graph, coordinates=coordinates)
+                messages.append(message)
+            messages = jnp.concatenate(messages, axis=-1)
+            return self.phi(messages)
+
+        # TODO implement F_virtual
+
+        h = jnp.zeros([jnp.shape(graph.non_fictitious_addresses)[0], self.phi.out_size])
+        h_virtual_address = jnp.zeros(self.virtual_address_size)
+
+        dt = 1 / self.n_steps
+        for _ in range(self.n_steps):
+            h_old = h
+            h = h + dt * F(0, h, graph, h_virtual_address)
+            h_virtual_address = h_virtual_address + dt * F_virtual(0, h_old, graph, h_virtual_address)
+
+        return h, {}
+
+    @staticmethod
+    def log_solved():
+        """Log a message indicating successful ODE solve."""
+        logger.info("ODE solved")

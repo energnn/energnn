@@ -180,3 +180,84 @@ class IdentityMessagePassingFunction(MessagePassingFunction):
 
     def __call__(self, *, graph: JaxGraph, coordinates: jax.Array, get_info: bool = False) -> tuple[jax.Array, dict]:
         return coordinates, {}
+
+
+class GATv2MessagePassingFunction(MessagePassingFunction):
+    r"""
+
+    For each address :math:`a`, the output is defined as:
+
+    .. math::
+        s_{c, e, o} = s_\theta^{c, o}(h_e, x_e) \in \mathbb{R},
+        \alpha_{c, e, o} = exp(s_{c, e, o}) / ( \sum_{(c',e',o')\in \mathcal{N}_x(a)} s_{c', e', o'}) )
+        \psi_\theta(h,x)_a = \left( \sum_{(c,e,o)\in \mathcal{N}_x(a)} \alpha_{c, e, o} \xi^{c,o}_\theta(h_e, x_e)\right),
+
+    This can be implemented as:
+    .. math::
+        \psi_\theta(h,x)_a = \left( \sum_{(c,e,o)\in \mathcal{N}_x(a)} exp(s_{c, e, o}) \xi^{c,o}_\theta(h_e, x_e)\right) / ( \sum_{(c',e',o')\in \mathcal{N}_x(a)} s_{c', e', o'}) ),
+
+    """
+
+
+class MultiHeadQKVMessagePassingFunction(MessagePassingFunction):
+    r"""
+
+    Single head implementation :
+
+    .. math:
+        Q_{a} = Q_\theta^(h_a) \in \mathbb{R}^{d_{QK}},
+        K_{c, e, o} = K_\theta^{c, o}(h_e, x_e) \in \mathbb{R}^{d_{QK}},
+        V_{c, e, o} = V_\theta^{c, o}(h_e, x_e) \in \mathbb{R}^{d_{V}},
+        \psi_\theta(h,x)_a = \sum_{(c,e,o)\in \mathcal{N}_x(a)} V_{c, e, o} (K_{c, e, o}^\top . Q_{a})
+
+    This can be rephrased as:
+    .. math::
+        \psi_\theta(h,x)_a = ( \sum_{(c,e,o)\in \mathcal{N}_x(a)} V_{c, e, o} K_{c, e, o}^\top ). Q_{a}
+
+    Multi-head implementation can be seen as a loop over the equation above.
+
+    """
+
+
+class GlobalAggregationMessagePassingFunction(MessagePassingFunction):
+    r"""
+
+    .. math::
+        \psi_\theta(h,x)_a = \frac{1}{ \vert \mathcal{A}_x \vert }\sum_{a'\in \mathcal{A}_x} \psi_\theta(h_{a'})
+
+    Could also be implemented with the `min`, `max`, `sum` etc.
+    Or with attention weights!
+
+    .. math::
+        \alpha_{a'} = \exp(s_\theta(h_{a'}) / sum_{a'' \in \mathcal{A}_x} \exp(s_\theta(h_{a''}))
+        \psi_\theta(h,x)_a = \sum_{a'\in \mathcal{A}_x} \alpha_{a'} \psi_\theta(h_{a'})
+
+    Could be implemented in multi head.
+
+    """
+
+
+class PerformerMessagePassingFunction(MessagePassingFunction):
+    r"""
+
+    .. math::
+        Q_a = Q_\theta(h_a) \in \mathbb{R}^{d_{QK}},
+        K_a = K_\theta(h_a) \in \mathbb{R}^{d_{QK}},
+        \alpha_{a, a'} =
+        \psi_\theta(h,x)_a = \sum_{a' \in \mathcal{A}_x}  V_\theta(h_{a'}) K_{a'}^\top . Q_a
+
+    which could be rephrased as:
+
+    .. math::
+        \psi_\theta(h,x)_a = (\sum_{a' \in \mathcal{A}_x}  V_\theta(h_{a'}) K_{a'}^\top ) . Q_a
+
+    output = (V . K^\top) . Q
+
+    V de dim [n_V, n_address]
+    K de dim [n_QK, n_address]
+    Q de dim [n_QK, n_address]
+
+    V . K^\top est de dim [n_V, n_QK]
+    (V . K^\top) . Q est de dim [n_V, n_address]
+
+    """
