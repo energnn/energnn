@@ -10,7 +10,7 @@ import numpy as np
 
 import energnn.model.normalizer.tdigest_normalizer as tdn
 from energnn.graph import GraphStructure, HyperEdgeSetStructure
-from energnn.graph.jax import JaxGraph, JaxHyperEdgeSet
+from energnn.graph import Graph, HyperEdgeSet, JaxBackend
 from energnn.model.normalizer.tdigest_normalizer import (
     TDigestModule,
     TDigestNormalizer,
@@ -166,19 +166,19 @@ def test_tdigest_module_call_updates_and_maps_values():
 
 def test_tdigest_normalizer_apply_preserves_none_feature_edges(monkeypatch):
     # Build graph with one edge having None features and another with features
-    node_edge_with_none = JaxHyperEdgeSet(
+    node_edge_with_none = HyperEdgeSet(backend=JaxBackend(),
         port_dict=jax_context.hyper_edge_sets["bus"].port_dict,
         feature_array=None,
         feature_names=None,
         non_fictitious=jax_context.hyper_edge_sets["bus"].non_fictitious,
     )
-    edge_with_feat = JaxHyperEdgeSet(
+    edge_with_feat = HyperEdgeSet(backend=JaxBackend(),
         port_dict=jax_context.hyper_edge_sets["line"].port_dict,
         feature_array=jnp.ones((jax_context.hyper_edge_sets["line"].feature_array.shape[0], 1), dtype=jnp.float32),
         feature_names={"susceptance": jnp.array(0)},
         non_fictitious=jax_context.hyper_edge_sets["line"].non_fictitious,
     )
-    g = JaxGraph(
+    g = Graph(backend=JaxBackend(),
         hyper_edge_sets={"bus": node_edge_with_none, "line": edge_with_feat},
         non_fictitious_addresses=jax_context.non_fictitious_addresses,
         true_shape=jax_context.true_shape,

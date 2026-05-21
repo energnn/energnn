@@ -14,7 +14,7 @@ from flax.core.frozen_dict import freeze, unfreeze
 
 from energnn.gnn.coupler.coupling_function import CouplingFunction
 from energnn.gnn.coupler.solving_method import SolvingMethod
-from energnn.graph.jax import JaxGraph
+from energnn.graph import Graph
 
 # from energnn.gnn.coupler import Coupler
 from energnn.model.coupler import Coupler
@@ -98,7 +98,7 @@ def make_stub_solver_mock(coords_out):
     return m
 
 
-def assert_coupler_single(*, coupler: Coupler, graph: JaxGraph):
+def assert_coupler_single(*, coupler: Coupler, graph: Graph):
     output_3, infos_3 = coupler(graph=graph, get_info=False)
     output_4, infos_4 = coupler(graph=graph, get_info=True)
 
@@ -107,7 +107,7 @@ def assert_coupler_single(*, coupler: Coupler, graph: JaxGraph):
     return output_4, infos_4
 
 
-def assert_coupler_batch(*, coupler: Coupler, graph: JaxGraph):
+def assert_coupler_batch(*, coupler: Coupler, graph: Graph):
 
     def apply(coupler, graph, get_info):
         return coupler(graph, get_info=get_info)

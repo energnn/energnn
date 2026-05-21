@@ -12,8 +12,7 @@ from flax import nnx
 from flax.nnx import initializers
 from flax.typing import Initializer
 
-from energnn.graph import GraphStructure
-from energnn.graph.jax.graph import JaxGraph, JaxGraphShape, JaxHyperEdgeSet
+from energnn.graph import Graph, GraphShape, GraphStructure, HyperEdgeSet
 from energnn.model.utils import Activation, MLP, gather
 from .decoder import Decoder
 
@@ -131,7 +130,7 @@ class MLPEquivariantDecoder(EquivariantDecoder):
             )
         return nnx.data(mlp_dict)
 
-    def __call__(self, *, graph: JaxGraph, coordinates: jax.Array, get_info: bool = False) -> tuple[JaxGraph, dict]:
+    def __call__(self, *, graph: Graph, coordinates: jax.Array, get_info: bool = False) -> tuple[Graph, dict]:
         """Decode latent coordinates into an output graph.
 
         :param graph: Encoded graph providing context for decoding.
@@ -152,7 +151,8 @@ class MLPEquivariantDecoder(EquivariantDecoder):
             decoder_input = jnp.concatenate(decoder_input, axis=-1)
             decoder_output = mlp(decoder_input)
             decoder_output = decoder_output * jnp.expand_dims(hyper_edge_set.non_fictitious, -1)
-            return JaxHyperEdgeSet(
+            return HyperEdgeSet(
+                backend=hyper_edge_set._backend,
                 feature_array=decoder_output,
                 feature_names=feature_names,
                 non_fictitious=hyper_edge_set.non_fictitious,
@@ -165,20 +165,23 @@ class MLPEquivariantDecoder(EquivariantDecoder):
             if k in self.mlp_dict
         }
         hyper_edge_sets = jax.tree.map(apply_over_edge, edge_mlp_names_dict, is_leaf=(lambda x: isinstance(x, tuple)))
-        true_shape = JaxGraphShape(
+        true_shape = GraphShape(
+            backend=graph.true_shape._backend,
             hyper_edge_sets={
                 key: value for key, value in graph.true_shape.hyper_edge_sets.items() if key in self.feature_names_dict
             },
             addresses=jnp.array(0),
         )
-        current_shape = JaxGraphShape(
+        current_shape = GraphShape(
+            backend=graph.current_shape._backend,
             hyper_edge_sets={
                 key: value for key, value in graph.current_shape.hyper_edge_sets.items() if key in self.feature_names_dict
             },
             addresses=jnp.array(0),
         )
 
-        output_graph = JaxGraph(
+        output_graph = Graph(
+            backend=graph._backend,
             hyper_edge_sets=hyper_edge_sets,
             non_fictitious_addresses=jnp.array([]),
             true_shape=true_shape,

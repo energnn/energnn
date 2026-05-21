@@ -13,7 +13,7 @@ import optax
 import pytest
 from flax import nnx
 
-from energnn.graph import JaxGraph, JaxHyperEdgeSet
+from energnn.graph import Graph, HyperEdgeSet, JaxBackend
 from energnn.model import GNN, IdentityEncoder
 from energnn.problem import ProblemBatch
 from energnn.problem.example import LinearSystemProblemLoader
@@ -30,9 +30,9 @@ def create_tiny_model(context_structure):
     class SimpleDecoder(nnx.Module):
         def __call__(self, coordinates, graph, get_info=False):
             # No params here, just pass through
-            decision = JaxGraph(
+            decision = Graph(backend=JaxBackend(),
                 hyper_edge_sets={
-                    "bus": JaxHyperEdgeSet(
+                    "bus": HyperEdgeSet(backend=JaxBackend(),
                         port_dict=None,
                         feature_array=coordinates,
                         feature_names={"phase_angle": jnp.array(0)},

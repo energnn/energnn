@@ -9,7 +9,7 @@ from abc import ABC, abstractmethod
 import jax
 from flax import nnx
 
-from energnn.graph import JaxGraph
+from energnn.graph import Graph
 
 
 class Decoder(ABC, nnx.Module):
@@ -21,15 +21,15 @@ class Decoder(ABC, nnx.Module):
 
     @abstractmethod
     def __call__(
-        self, *, graph: JaxGraph, coordinates: jax.Array, get_info: bool = False
-    ) -> tuple[JaxGraph | jax.Array, dict]:
+        self, *, graph: Graph, coordinates: jax.Array, get_info: bool = False
+    ) -> tuple[Graph | jax.Array, dict]:
         """Decode latent coordinates into predictions.
 
         :param graph: Encoded graph providing context for decoding.
         :param coordinates: Latent coordinates array with shape (num_addresses, latent_dim).
         :param get_info: If True, returns additional info for tracking purpose.
         :return: A tuple containing:
-            - Either a new JaxGraph with prediction features or a global output array
+            - Either a new Graph with prediction features or a global output array
             - A dictionary with additional information if get_info=True, empty dict otherwise
         :raises NotImplementedError: If the subclass does not override this method.
         """

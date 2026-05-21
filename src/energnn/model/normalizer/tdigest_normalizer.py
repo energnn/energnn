@@ -15,8 +15,7 @@ from flax import nnx
 from jax import ShapeDtypeStruct
 from jax.experimental import io_callback
 
-from energnn.graph import GraphStructure
-from energnn.graph.jax import JaxGraph, JaxHyperEdgeSet
+from energnn.graph import Graph, GraphStructure, HyperEdgeSet
 from .normalizer import Normalizer
 
 
@@ -423,15 +422,15 @@ class TDigestNormalizer(Normalizer):
         for module in self.module_dict.values():
             module.use_running_average = use
 
-    def __call__(self, *, graph: JaxGraph, get_info: bool = False) -> tuple[JaxGraph, dict]:
+    def __call__(self, *, graph: Graph, get_info: bool = False) -> tuple[Graph, dict]:
         """
-        Apply normalization to hyper-edge sets within a JaxGraph context using TDigest modules. This method normalizes the
+        Apply normalization to hyper-edge sets within a Graph context using TDigest modules. This method normalizes the
         hyper-edge sets' feature arrays and updates the associated context graph accordingly.
 
-        :param graph: JaxGraph representing the graph structure containing hyper-edge sets with feature arrays
+        :param graph: Graph representing the graph structure containing hyper-edge sets with feature arrays
                       to be normalized.
         :param get_info: Boolean flag that indicates whether to return additional information about input and output graphs.
-        :return: A tuple containing the normalized JaxGraph and an optional dictionary holding quantile information
+        :return: A tuple containing the normalized Graph and an optional dictionary holding quantile information
                  about the input and output graphs.
         """
 
@@ -441,13 +440,14 @@ class TDigestNormalizer(Normalizer):
             if k in self.module_dict.keys()
         }
 
-        def apply_norm(edge_norm: tuple[JaxHyperEdgeSet, TDigestModule]) -> JaxHyperEdgeSet:
+        def apply_norm(edge_norm: tuple[HyperEdgeSet, TDigestModule]) -> HyperEdgeSet:
             hyper_edge_set, normalizer = edge_norm
             array = hyper_edge_set.feature_array
             if hyper_edge_set.feature_array is not None:
                 if hyper_edge_set.feature_array.shape[-2] > 0:
                     array = normalizer(array, jnp.expand_dims(hyper_edge_set.non_fictitious, -1))
-            return JaxHyperEdgeSet(
+            return HyperEdgeSet(
+                backend=hyper_edge_set._backend,
                 feature_array=array,
                 feature_names=hyper_edge_set.feature_names,
                 non_fictitious=hyper_edge_set.non_fictitious,
@@ -458,7 +458,8 @@ class TDigestNormalizer(Normalizer):
             apply_norm, hyper_edge_set_norm_dict, is_leaf=(lambda x: isinstance(x, tuple))
         )
 
-        normalized_context = JaxGraph(
+        normalized_context = Graph(
+            backend=graph._backend,
             hyper_edge_sets=normalized_hyper_edge_sets,
             non_fictitious_addresses=graph.non_fictitious_addresses,
             true_shape=graph.true_shape,

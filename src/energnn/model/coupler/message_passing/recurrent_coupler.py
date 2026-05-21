@@ -10,7 +10,7 @@ import jax
 import jax.numpy as jnp
 from flax import nnx
 
-from energnn.graph import JaxGraph
+from energnn.graph import Graph
 from energnn.model.utils import MLP
 from .message_passing_function import MessagePassingFunction
 from ..coupler import Coupler
@@ -51,7 +51,7 @@ class RecurrentCoupler(Coupler):
 
         self.dt = 1 / self.n_steps
 
-    def __call__(self, graph: JaxGraph, get_info: bool = False) -> tuple[jax.Array, dict]:
+    def __call__(self, graph: Graph, get_info: bool = False) -> tuple[jax.Array, dict]:
 
         def F(t, coordinates, graph):
             """Residual function."""

@@ -8,7 +8,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from energnn.graph.jax import JaxGraph
+from energnn.graph import Graph, JaxBackend
 from energnn.model.decoder.invariant_decoder import InvariantDecoder, MeanInvariantDecoder, SumInvariantDecoder
 from energnn.model.utils import MLP
 from energnn.problem.example import LinearSystemProblemLoader
@@ -22,7 +22,7 @@ coordinates = jnp.array(np.random.uniform(size=(10, 7)))
 coordinates_batch = jnp.array(np.random.uniform(size=(4, 10, 7)))
 
 
-def assert_vmap_jit_consistent(decoder: InvariantDecoder, ctx_batch: JaxGraph, coords_batch: jax.Array, rtol=1e-3, atol=1e-3):
+def assert_vmap_jit_consistent(decoder: InvariantDecoder, ctx_batch: Graph, coords_batch: jax.Array, rtol=1e-3, atol=1e-3):
     """
     Vmap over (batched) graphs and coordinates and compare jit vs non-jit and get_info variations.
     Works for nnx decoders that are already built in __init__ (no lazy RNG consumption on first call).
@@ -64,7 +64,7 @@ def test_sum_invariant_decoder_basic_and_masking():
     assert info == {}
 
     # mask all zeros stability: when mask is zero, numerator=0 -> phi(0) should be finite
-    ctx_masked = JaxGraph(
+    ctx_masked = Graph(backend=JaxBackend(),
         hyper_edge_sets=jax_context.hyper_edge_sets,
         true_shape=jax_context.true_shape,
         current_shape=jax_context.current_shape,
@@ -111,7 +111,7 @@ def test_mean_invariant_decoder_shape_and_mask_behavior():
     assert info == {}
 
     # all-zero mask => numerator=0 => phi(0) should be finite (and for identity phi returns 0)
-    ctx_all_zero = JaxGraph(
+    ctx_all_zero = Graph(backend=JaxBackend(),
         hyper_edge_sets=jax_context.hyper_edge_sets,
         true_shape=jax_context.true_shape,
         current_shape=jax_context.current_shape,

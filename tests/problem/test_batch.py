@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from energnn.graph import GraphStructure
-from energnn.graph.jax import JaxGraph, JaxHyperEdgeSet
+from energnn.graph import Graph, HyperEdgeSet, JaxBackend
 from energnn.problem.batch import ProblemBatch
 from energnn.problem.example import LinearSystemProblemLoader
 
@@ -100,13 +100,13 @@ def test_methods_return_tuple_and_info():
 )
 def test_get_decision_structure_conversions(feature_names, expected_values):
     """get_decision_structure should correctly convert various int-like types to native ints."""
-    edge = JaxHyperEdgeSet(
+    edge = HyperEdgeSet(backend=JaxBackend(),
         port_dict=None,
         feature_array=jnp.zeros((1, 2)),
         feature_names=feature_names,
         non_fictitious=jnp.ones((1,)),
     )
-    decision = JaxGraph(
+    decision = Graph(backend=JaxBackend(),
         hyper_edge_sets={"node": edge}, non_fictitious_addresses=jnp.array([]), true_shape=None, current_shape=None
     )
     pb = StubProblemBatch(decision=decision)

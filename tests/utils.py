@@ -9,7 +9,7 @@ import numpy as np
 
 def compare_batched_graphs(*graphs, rtol=1e-6, atol=1e-6):
     """
-    Compare a list of batched JaxGraph outputs.
+    Compare a list of batched Graph outputs.
 
     - Ensures same edge keys.
     - For each edge, ensures corresponding arrays have same shapes and are numerically close.

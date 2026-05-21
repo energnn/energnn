@@ -11,7 +11,7 @@ import numpy as np
 from flax import nnx
 
 from energnn.graph import GraphStructure, HyperEdgeSetStructure
-from energnn.graph.jax import JaxGraph, JaxHyperEdgeSet
+from energnn.graph import Graph, HyperEdgeSet, JaxBackend
 from energnn.model.coupler.message_passing.message_passing_function import (
     IdentityMessagePassingFunction,
     LocalSumMessagePassingFunction,
@@ -31,9 +31,9 @@ coordinates = jnp.array(np.random.uniform(size=(10, 7)))
 coordinates_batch = jnp.array(np.random.uniform(size=(4, 10, 7)))
 
 
-def _unbatch_graph(batched_graph: JaxGraph, coordinates_batch: jax.Array, idx: int = 0) -> JaxGraph:
+def _unbatch_graph(batched_graph: Graph, coordinates_batch: jax.Array, idx: int = 0) -> Graph:
     """
-    Extract a single graph from a batched JaxGraph by taking index `idx` on leading batch axis
+    Extract a single graph from a batched Graph by taking index `idx` on leading batch axis
     for arrays that have a leading batch dimension.
     """
     batch_size = int(coordinates_batch.shape[0])
@@ -66,14 +66,14 @@ def _unbatch_graph(batched_graph: JaxGraph, coordinates_batch: jax.Array, idx: i
                 else:
                     addr_s[aname] = aarr
 
-        edges[k] = JaxHyperEdgeSet(
+        edges[k] = HyperEdgeSet(backend=JaxBackend(),
             port_dict=addr_s,
             feature_array=fa_s,
             feature_names=e.feature_names,
             non_fictitious=nf_s,
         )
 
-    return JaxGraph(
+    return Graph(backend=JaxBackend(),
         hyper_edge_sets=edges,
         non_fictitious_addresses=batched_graph.non_fictitious_addresses,
         true_shape=batched_graph.true_shape,
@@ -104,7 +104,7 @@ def patch_all_mlps_to_identity(mf: LocalSumMessagePassingFunction):
 
 
 def compute_expected_local_sum(
-    graph: JaxGraph, coords: jnp.ndarray, mlp_tree_funcs: dict | None, final_activation, out_size: int | None = None
+    graph: Graph, coords: jnp.ndarray, mlp_tree_funcs: dict | None, final_activation, out_size: int | None = None
 ) -> jnp.ndarray:
     """
     Reproduce the LocalSumMessageFunction internal ops to compute expected accumulator.
@@ -141,7 +141,7 @@ def compute_expected_local_sum(
     return final_activation(acc)
 
 
-def _assert_vmap_jit_consistent(mf, ctx_batch: JaxGraph, coords_batch: jnp.ndarray, rtol=1e-6, atol=1e-6):
+def _assert_vmap_jit_consistent(mf, ctx_batch: Graph, coords_batch: jnp.ndarray, rtol=1e-6, atol=1e-6):
     """
     Ensure vmapped and vmapped+jit versions produce consistent outputs.
     Precondition: mf._build_missing_mlps must already have been called on a non-batched sample.
@@ -259,10 +259,10 @@ def test_non_fictitious_masking():
     n_obj = 3
     non_fict = jnp.array([1.0, 0.0, 1.0])  # middle object fictitious
 
-    edge = JaxHyperEdgeSet(
+    edge = HyperEdgeSet(backend=JaxBackend(),
         port_dict={"from": addr0, "to": addr1}, feature_array=None, feature_names=None, non_fictitious=non_fict
     )
-    small_context = JaxGraph(
+    small_context = Graph(backend=JaxBackend(),
         hyper_edge_sets={"line": edge},
         non_fictitious_addresses=jnp.ones((n_addr,)),
         true_shape=jax_context.true_shape,
@@ -322,10 +322,10 @@ def test_local_sum_numeric_identity_basic():
     addr0 = jnp.array([0, 1, 0])
     addr1 = jnp.array([1, 2, 3])
     n_obj = 3
-    edge = JaxHyperEdgeSet(
+    edge = HyperEdgeSet(backend=JaxBackend(),
         port_dict={"from": addr0, "to": addr1}, feature_array=None, feature_names=None, non_fictitious=jnp.ones((n_obj,))
     )
-    small_context = JaxGraph(
+    small_context = Graph(backend=JaxBackend(),
         hyper_edge_sets={"line": edge},
         non_fictitious_addresses=jnp.ones((n_addr,)),
         true_shape=jax_context.true_shape,
@@ -356,13 +356,13 @@ def test_local_sum_with_features_included():
     addr1 = jnp.array([1, 2])
     n_obj = 2
     feat = jnp.array([[0.1, 0.2], [0.3, 0.4]])
-    edge = JaxHyperEdgeSet(
+    edge = HyperEdgeSet(backend=JaxBackend(),
         port_dict={"from": addr0, "to": addr1},
         feature_array=feat,
         feature_names={"a": jnp.array(0), "b": jnp.array(1)},
         non_fictitious=jnp.ones((n_obj,)),
     )
-    g = JaxGraph(
+    g = Graph(backend=JaxBackend(),
         hyper_edge_sets={"line": edge},
         non_fictitious_addresses=jnp.ones((n_addr,)),
         true_shape=jax_context.true_shape,
@@ -392,11 +392,11 @@ def test_multiple_edges_and_ports_independent_processing():
     addr_a0 = jnp.array([0, 1, 2])
     addr_a1 = jnp.array([1, 2, 3])
     addr_b = jnp.array([0, 1, 3])
-    edge_a = JaxHyperEdgeSet(
+    edge_a = HyperEdgeSet(backend=JaxBackend(),
         port_dict={"from": addr_a0, "to": addr_a1}, feature_array=None, feature_names=None, non_fictitious=jnp.ones((3,))
     )
-    edge_b = JaxHyperEdgeSet(port_dict={"id": addr_b}, feature_array=None, feature_names=None, non_fictitious=jnp.ones((3,)))
-    g = JaxGraph(
+    edge_b = HyperEdgeSet(backend=JaxBackend(),port_dict={"id": addr_b}, feature_array=None, feature_names=None, non_fictitious=jnp.ones((3,)))
+    g = Graph(backend=JaxBackend(),
         hyper_edge_sets={"line": edge_a, "bus": edge_b},
         non_fictitious_addresses=jnp.ones((n_addr,)),
         true_shape=jax_context.true_shape,
@@ -473,7 +473,7 @@ def test_vmap_jit_safety_after_build():
 
 def test_empty_graph_returns_zeros():
     # graph with no edges
-    g = JaxGraph(hyper_edge_sets={}, non_fictitious_addresses=jnp.ones((5,)), true_shape=None, current_shape=None)
+    g = Graph(backend=JaxBackend(),hyper_edge_sets={}, non_fictitious_addresses=jnp.ones((5,)), true_shape=None, current_shape=None)
     mf = LocalSumMessagePassingFunction(
         in_graph_structure=pb_loader.context_structure,
         in_array_size=3,
@@ -493,10 +493,10 @@ def test_addresses_out_of_bounds_handling():
     coords = jnp.array([[0.0, 0.0], [1.0, 0.0]])
     addr_from = jnp.array([0, 10])  # 10 is out of bounds
     addr_to = jnp.array([0, 1])
-    edge = JaxHyperEdgeSet(
+    edge = HyperEdgeSet(backend=JaxBackend(),
         port_dict={"from": addr_from, "to": addr_to}, feature_array=None, feature_names=None, non_fictitious=jnp.ones((2,))
     )
-    g = JaxGraph(hyper_edge_sets={"line": edge}, non_fictitious_addresses=jnp.ones((2,)), true_shape=None, current_shape=None)
+    g = Graph(backend=JaxBackend(),hyper_edge_sets={"line": edge}, non_fictitious_addresses=jnp.ones((2,)), true_shape=None, current_shape=None)
     mf = LocalSumMessagePassingFunction(
         in_graph_structure=pb_loader.context_structure,
         in_array_size=coords.shape[1],

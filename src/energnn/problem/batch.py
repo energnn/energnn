@@ -6,7 +6,7 @@
 
 from abc import ABC, abstractmethod
 
-from energnn.graph import GraphStructure, JaxGraph
+from energnn.graph import Graph, GraphStructure
 
 
 class ProblemBatch(ABC):
@@ -30,7 +30,7 @@ class ProblemBatch(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def get_context(self, get_info: bool = False, step: int | None = None) -> tuple[JaxGraph, dict]:
+    def get_context(self, get_info: bool = False, step: int | None = None) -> tuple[Graph, dict]:
         """
         Retrieve the batch of context graphs :math:`x`.
 
@@ -45,7 +45,7 @@ class ProblemBatch(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def get_gradient(self, *, decision: JaxGraph, get_info: bool = False, step: int | None = None) -> tuple[JaxGraph, dict]:
+    def get_gradient(self, *, decision: Graph, get_info: bool = False, step: int | None = None) -> tuple[Graph, dict]:
         r"""
         Compute gradients :math:`\nabla_y f` for a batched of decision graphs :math:`y`.
 
@@ -61,7 +61,7 @@ class ProblemBatch(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def get_score(self, *, decision: JaxGraph, get_info: bool = False, step: int | None = None) -> tuple[list[float], dict]:
+    def get_score(self, *, decision: Graph, get_info: bool = False, step: int | None = None) -> tuple[list[float], dict]:
         """
         Evaluate a scalar `score` for each decision graph in the batch.
 

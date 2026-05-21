@@ -9,7 +9,7 @@ from abc import ABC, abstractmethod
 import jax
 from flax import nnx
 
-from energnn.graph import JaxGraph
+from energnn.graph import Graph
 
 
 class Coupler(nnx.Module, ABC):
@@ -20,7 +20,7 @@ class Coupler(nnx.Module, ABC):
     """
 
     @abstractmethod
-    def __call__(self, graph: JaxGraph, get_info: bool = False) -> tuple[jax.Array, dict]:
+    def __call__(self, graph: Graph, get_info: bool = False) -> tuple[jax.Array, dict]:
         """Compute latent coordinates from the input graph.
 
         :param graph: Input graph to process.
