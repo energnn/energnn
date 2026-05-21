@@ -404,7 +404,10 @@ def collate_hyper_edge_sets(hyper_edge_set_list: list[HyperEdgeSet]) -> HyperEdg
         xp.stack([e.non_fictitious for e in hyper_edge_set_list]) if first.non_fictitious is not None else None
     )
 
-    return cls(backend=backend, port_dict=port_dict, feature_array=feature_array, feature_names=feature_names, non_fictitious=non_fictitious)
+    return cls(
+        backend=backend, port_dict=port_dict, feature_array=feature_array,
+        feature_names=feature_names, non_fictitious=non_fictitious,
+    )
 
 
 def separate_hyper_edge_sets(hyper_edge_set_batch: HyperEdgeSet) -> list[HyperEdgeSet]:
@@ -474,7 +477,10 @@ def concatenate_hyper_edge_sets(hyper_edge_set_list: list[HyperEdgeSet]) -> Hype
     feature_names = first.feature_names
     non_fictitious = xp.concatenate([hes.non_fictitious for hes in hyper_edge_set_list])
 
-    return cls(backend=backend, port_dict=port_dict, feature_array=feature_array, feature_names=feature_names, non_fictitious=non_fictitious)
+    return cls(
+        backend=backend, port_dict=port_dict, feature_array=feature_array,
+        feature_names=feature_names, non_fictitious=non_fictitious,
+    )
 
 
 # ---------------------------------------------------------------------------

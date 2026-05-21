@@ -199,9 +199,15 @@ class LinearSystemProblemGenerator:
         # Use line for off-diagonal terms
         rows, cols = np.nonzero(np.triu(B, k=1))
         jax_backend = JaxBackend()
-        line = HyperEdgeSet.from_dict(backend=jax_backend, port_dict={"from": rows, "to": cols}, feature_dict={"susceptance": -B[rows, cols]})
-        bus_context = HyperEdgeSet.from_dict(backend=jax_backend, port_dict={"id": np.arange(n)}, feature_dict={"active_power_injection": P})
-        context = Graph.from_dict(backend=jax_backend, hyper_edge_set_dict={"line": line, "bus": bus_context}, n_addresses=jnp.array(n))
+        line = HyperEdgeSet.from_dict(
+            backend=jax_backend, port_dict={"from": rows, "to": cols}, feature_dict={"susceptance": -B[rows, cols]}
+        )
+        bus_context = HyperEdgeSet.from_dict(
+            backend=jax_backend, port_dict={"id": np.arange(n)}, feature_dict={"active_power_injection": P}
+        )
+        context = Graph.from_dict(
+            backend=jax_backend, hyper_edge_set_dict={"line": line, "bus": bus_context}, n_addresses=jnp.array(n)
+        )
 
         # Oracle
         # Use bus for the solution (phase angles)
@@ -230,7 +236,9 @@ class LinearSystemProblemGenerator:
             },
             addresses=jnp.array(self.n_max),
         )
-        max_oracle_shape = GraphShape(backend=jax_backend, hyper_edge_sets={"bus": jnp.array(self.n_max)}, addresses=jnp.array(self.n_max))
+        max_oracle_shape = GraphShape(
+            backend=jax_backend, hyper_edge_sets={"bus": jnp.array(self.n_max)}, addresses=jnp.array(self.n_max)
+        )
 
         [context.pad(target_shape=max_context_shape) for context in context_list]
         [oracle.pad(target_shape=max_oracle_shape) for oracle in oracle_list]

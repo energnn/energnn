@@ -52,7 +52,9 @@ class GraphShape(dict):
     # ------------------------------------------------------------------
 
     @classmethod
-    def from_dict(cls, hyper_edge_set_dict: dict[str, HyperEdgeSet], non_fictitious, backend: Backend | None = None) -> GraphShape:
+    def from_dict(
+        cls, hyper_edge_set_dict: dict[str, HyperEdgeSet], non_fictitious, backend: Backend | None = None
+    ) -> GraphShape:
         """
         Build a GraphShape from a hyper-edge set dictionary and a non-fictitious mask.
 
