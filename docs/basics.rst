@@ -134,8 +134,8 @@ All hyper-edges of the same class share the same feature and **port** keys.
 The order of an hyper-edge is the cardinality of its **ports**.
 
 In practice, a :class:`~energnn.graph.Graph` is a dictionary of :class:`~energnn.graph.HyperEdgeSet` objects.
-For computations with JAX, we use :class:`energnn.graph.JaxGraph`,
-which is an optimized version compatible with automatic differentiation.
+For computations with JAX, construct the graph with a :class:`~energnn.graph.JaxBackend` instance,
+which makes it compatible with automatic differentiation and JAX transformations.
 
 See the :doc:`tutorial_notebook` for an example of H2MG data.
 
