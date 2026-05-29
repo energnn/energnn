@@ -102,13 +102,27 @@ class Trainer:
 
         # Cache JIT-compiled wrappers to avoid NNX re-tracing overhead each step.
         # `get_info` is static because downstream code branches on its concrete value.
-        self._jit_apply = nnx.jit(self._apply_forward_vjp, static_argnames=("get_info",))
+        self._jit_apply_forward = nnx.jit(self._apply_forward, static_argnames=("get_info",))
+        self._jit_apply_backward = nnx.jit(self._apply_backward, static_argnames=("get_info",))
         self._jit_eval_forward = nnx.jit(self._eval_forward)
         self._jit_update_params = nnx.jit(_update_params_fn)
 
     @staticmethod
-    def _apply_forward_vjp(graphdef, params, rest, jax_context, get_info):
-        """Forward pass + VJP setup, designed to be JIT-compiled once and reused."""
+    def _apply_forward(graphdef, params, rest, jax_context, get_info):
+        """Forward pass, designed to be JIT-compiled once and reused."""
+        model = nnx.merge(graphdef, params, rest)
+        decision, _ = model.forward_batch(graph=jax_context, get_info=get_info)
+        _, _, rest_updated = nnx.split(model, nnx.Param, ...)
+        return decision, rest_updated
+
+    @staticmethod
+    def _apply_backward(graphdef, params, rest, jax_context, cotangent, get_info):
+        """Backward pass, designed to be JIT-compiled once and reused.
+
+        The VJP is rebuilt internally (linearizing around the same ``rest`` used at the
+        forward pass) so that the whole backward runs inside a single compiled function
+        instead of being dispatched op-by-op in eager mode.
+        """
 
         def f_forward(p, r):
             model = nnx.merge(graphdef, p, r)
@@ -116,8 +130,12 @@ class Trainer:
             _, _, r_updated = nnx.split(model, nnx.Param, ...)
             return decision, r_updated
 
-        (jax_decision, rest_updated), vjp_fn = jax.vjp(f_forward, params, rest)
-        return jax_decision, rest_updated, vjp_fn
+        (_, rest_updated), vjp_fn = jax.vjp(f_forward, params, rest)
+        # `rest` is non-trainable state (e.g. normalization buffers): no gradient flows
+        # through it, so its cotangent is a tree of zeros matching `rest_updated`.
+        rest_cotangent = jax.tree.map(jnp.zeros_like, rest_updated)
+        (grads_params, _) = vjp_fn((cotangent, rest_cotangent))
+        return grads_params
 
     @staticmethod
     def _eval_forward(model, context):
@@ -346,7 +364,9 @@ class Trainer:
             jax_context, infos["1_context"] = problem_batch.get_context(get_info=get_info, step=self.train_step)
 
             graphdef, params, rest = nnx.split(self.model, nnx.Param, ...)
-            jax_decision, rest_updated, vjp_fn = self._jit_apply(graphdef, params, rest, jax_context, get_info)
+
+            # Forward pass (JIT-compiled)
+            jax_decision, rest_updated = self._jit_apply_forward(graphdef, params, rest, jax_context, get_info)
 
             nnx.update(self.model, rest_updated)
             jax_gradient, infos["3_gradient"] = problem_batch.get_gradient(
@@ -354,9 +374,9 @@ class Trainer:
             )
             jax_cotangent = _cast_cotangent_to_primal_dtype(jax_gradient, jax_decision)
 
-            # Backward pass
-            rest_cotangent = jax.tree.map(jnp.zeros_like, rest_updated)
-            (grads_params, _) = vjp_fn((jax_cotangent, rest_cotangent))
+            # Backward pass (JIT-compiled). `rest` (pre-forward) is reused so the VJP is
+            # linearized around the same point as the forward pass.
+            grads_params = self._jit_apply_backward(graphdef, params, rest, jax_context, jax_cotangent, get_info)
 
             self._jit_update_params(self.optimizer, self.model, grads_params)
             infos["4_update"] = {}
