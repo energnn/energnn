@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Literal
 
 import flatdict
@@ -358,27 +359,50 @@ class Trainer:
         """
         with TaskLogger(logger, f"Training step {self.train_step}"):
 
+            # NOTE: JAX runs asynchronously, so timings are taken after `jax.block_until_ready`
+            # on the JAX outputs; otherwise we would only measure dispatch time, not compute.
+            _t = time.perf_counter()
+
+            def _tick(label, *outputs):
+                nonlocal _t
+                if outputs:
+                    jax.block_until_ready(outputs)
+                now = time.perf_counter()
+                print(f"[training_step {self.train_step}] {label}: {(now - _t) * 1e3:.3f} ms")
+                _t = now
+
             self.model.train()  # Set model to train mode
+            _tick("model.train()")
 
             infos = {}
             jax_context, infos["1_context"] = problem_batch.get_context(get_info=get_info, step=self.train_step)
+            _tick("get_context", jax_context)
 
             graphdef, params, rest = nnx.split(self.model, nnx.Param, ...)
+            _tick("nnx.split")
 
             # Forward pass (JIT-compiled)
             jax_decision, rest_updated = self._jit_apply_forward(graphdef, params, rest, jax_context, get_info)
+            _tick("forward (jit)", jax_decision, rest_updated)
 
             nnx.update(self.model, rest_updated)
+            _tick("nnx.update")
+
             jax_gradient, infos["3_gradient"] = problem_batch.get_gradient(
                 decision=jax_decision, get_info=get_info, step=self.train_step
             )
+            _tick("get_gradient (eager)", jax_gradient)
+
             jax_cotangent = _cast_cotangent_to_primal_dtype(jax_gradient, jax_decision)
+            _tick("cast_cotangent", jax_cotangent)
 
             # Backward pass (JIT-compiled). `rest` (pre-forward) is reused so the VJP is
             # linearized around the same point as the forward pass.
             grads_params = self._jit_apply_backward(graphdef, params, rest, jax_context, jax_cotangent, get_info)
+            _tick("backward (jit)", grads_params)
 
             self._jit_update_params(self.optimizer, self.model, grads_params)
+            _tick("update_params (jit)", nnx.state(self.model, nnx.Param))
             infos["4_update"] = {}
 
         # Flatten and numpify infos
