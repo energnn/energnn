@@ -4,6 +4,7 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 # SPDX-License-Identifier: MPL-2.0
 
+import concurrent.futures
 from functools import partial
 from typing import Any, Sequence
 
@@ -18,36 +19,215 @@ from jax.experimental import io_callback
 from energnn.graph import Graph, GraphStructure, HyperEdgeSet
 from .normalizer import Normalizer
 
+# Global pool to avoid overhead of creating it on each call
+_POOL = concurrent.futures.ThreadPoolExecutor()
+
+
+def _merge_single_feature_quantiles(pf: np.ndarray, qf: np.ndarray) -> np.ndarray:
+    """Helper to merge quantiles for a single feature."""
+    vals, inv, counts = np.unique(qf, return_inverse=True, return_counts=True)
+    sum_p_per_unique = np.zeros_like(vals, dtype=np.float64)
+    np.add.at(sum_p_per_unique, inv, pf)
+    avg_p_per_unique = sum_p_per_unique / counts
+    return avg_p_per_unique[inv].astype(np.float32)
+
 
 def _merge_equal_quantiles_host(p: np.ndarray, q: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """
     Resolves equal-quantile conflicts by averaging probabilities for identical quantile values.
-
-    When some adjacent quantiles in `q` are equal (zero slope), this function
-    computes a merged probability vector per feature so the piecewise-linear CDF
-    remains bijective (strictly monotone in the probability coordinate). The
-    algorithm groups identical quantile values per column and averages the
-    corresponding probabilities.
-
-    :param p: Probability grid as a 2-D array of shape (K, F) (values in [0,1]).
-    :param q: Quantiles matrix of shape (K, F).
-        Each column q[:, f] contains quantiles for feature f.
-    :return: Tuple (p_merged, q_merged) where both have shape (K, F) and p_merged
-        contains the merged/averaged probabilities per unique quantile value
-        per feature, and q_merged is equal to `q` (cast to float32).
+    Parallelized version using the global ThreadPoolExecutor.
     """
     K, F = q.shape
-    p_out = np.zeros((K, F), dtype=np.float32)
     q_out = q.astype(np.float32)
-    for f in range(F):
-        qf = q_out[:, f]
-        pf = p[:, f]
-        vals, inv, counts = np.unique(qf, return_inverse=True, return_counts=True)
-        sum_p_per_unique = np.zeros_like(vals, dtype=np.float64)
-        np.add.at(sum_p_per_unique, inv, pf)
-        avg_p_per_unique = sum_p_per_unique / counts
-        p_out[:, f] = avg_p_per_unique[inv].astype(np.float32)
+
+    # Parallelize over features if F is large enough to justify the overhead
+    if F > 16:
+        futures = [_POOL.submit(_merge_single_feature_quantiles, p[:, f], q_out[:, f]) for f in range(F)]
+        results = [f.result() for f in futures]
+    else:
+        results = [_merge_single_feature_quantiles(p[:, f], q_out[:, f]) for f in range(F)]
+
+    p_out = np.stack(results, axis=1)
     return p_out, q_out
+
+
+def _update_single_feature(
+    feature_array: np.ndarray,
+    _max_centroids: int,
+    _min: float,
+    _max: float,
+    _c_m: np.ndarray,
+    _c_c: np.ndarray,
+) -> tuple[int, float, float, list[tuple[float, float]]]:
+    """Update TDigest for a single feature."""
+    valid_mask = _c_c > 0
+    ms = _c_m[valid_mask].tolist()
+    cs = _c_c[valid_mask].tolist()
+
+    tdigest_dict = {
+        "max_centroids": _max_centroids,
+        "min": 0.0 if np.isnan(_min) else _min,
+        "max": 0.0 if np.isnan(_max) else _max,
+        "centroids": [{"m": m, "c": c} for m, c in zip(ms, cs)],
+    }
+
+    tdigest = TDigest.from_dict(tdigest_dict)
+
+    if feature_array.size > 0:
+        tdigest.batch_update(feature_array)
+
+    return tdigest.max_centroids, tdigest.min(), tdigest.max(), tdigest.centroids
+
+
+def _quantiles_single_feature(
+    _max_centroids: int,
+    _min: float,
+    _max: float,
+    _c_m: np.ndarray,
+    _c_c: np.ndarray,
+    p_list: np.ndarray,
+) -> np.ndarray:
+    """Extract quantiles for a single feature from its state."""
+    valid_mask = _c_c > 0
+    ms = _c_m[valid_mask].tolist()
+    cs = _c_c[valid_mask].tolist()
+
+    tdigest_dict = {
+        "max_centroids": _max_centroids,
+        "min": 0.0 if np.isnan(_min) else _min,
+        "max": 0.0 if np.isnan(_max) else _max,
+        "centroids": [{"m": m, "c": c} for m, c in zip(ms, cs)],
+    }
+    tdigest = TDigest.from_dict(tdigest_dict)
+    return np.array([tdigest.quantile(p) for p in p_list], dtype=np.float32)
+
+
+def _update_tdigest_host(
+    max_centroids: Sequence[int],
+    min_val: Sequence[float],
+    max_val: Sequence[float],
+    centroids_m: np.ndarray,
+    centroids_c: np.ndarray,
+    array: np.ndarray,
+    mask: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Host-side callback to update T-Digest state only."""
+    if array.ndim == 3:
+        B, N, F = array.shape
+        array = array.reshape(B * N, F)
+        mask = mask.reshape(B * N, 1)
+    else:
+        N, F = array.shape
+
+    mask = mask.flatten().astype(bool)
+    array = array[mask]
+
+    n_features = array.shape[-1]
+    max_c_limit = centroids_m.shape[0]
+
+    if n_features > 16:
+        futures = [
+            _POOL.submit(
+                _update_single_feature,
+                array[:, i],
+                int(max_centroids[i]),
+                float(min_val[i]),
+                float(max_val[i]),
+                centroids_m[:, i],
+                centroids_c[:, i],
+            )
+            for i in range(n_features)
+        ]
+        results = [f.result() for f in futures]
+    else:
+        results = [
+            _update_single_feature(
+                array[:, i],
+                int(max_centroids[i]),
+                float(min_val[i]),
+                float(max_val[i]),
+                centroids_m[:, i],
+                centroids_c[:, i],
+            )
+            for i in range(n_features)
+        ]
+
+    new_max_centroids = np.zeros(n_features, dtype=np.int32)
+    new_min_array = np.zeros(n_features, dtype=np.float32)
+    new_max_array = np.zeros(n_features, dtype=np.float32)
+    new_c_m_matrix = np.zeros((max_c_limit, n_features), dtype=np.float32)
+    new_c_c_matrix = np.zeros((max_c_limit, n_features), dtype=np.float32)
+
+    for i, (m_c, mi, ma, cents) in enumerate(results):
+        new_max_centroids[i] = m_c
+        new_min_array[i] = mi
+        new_max_array[i] = ma
+
+        num_cents = len(cents)
+        if num_cents > 0:
+            ms, cs = zip(*cents)
+            actual_num = min(num_cents, max_c_limit)
+            new_c_m_matrix[:actual_num, i] = ms[:actual_num]
+            new_c_c_matrix[:actual_num, i] = cs[:actual_num]
+
+    return new_max_centroids, new_min_array, new_max_array, new_c_m_matrix, new_c_c_matrix
+
+
+def _compute_quantiles_host(
+    max_centroids: np.ndarray,
+    min_val: np.ndarray,
+    max_val: np.ndarray,
+    centroids_m: np.ndarray,
+    centroids_c: np.ndarray,
+    p_grid: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Pure host-side callback to compute xp and fp from state."""
+    # p_grid is (F, K) or just K (if same for all)
+    # We assume p_grid is (K,) or (F, K)
+    K = p_grid.shape[-1]
+    n_features = centroids_m.shape[1]
+    if p_grid.ndim == 1:
+        p_list = p_grid
+        p_matrix = np.tile(p_list, (n_features, 1))
+    else:
+        p_list = p_grid[0]  # Just for internal single feature use if needed
+        p_matrix = p_grid
+
+    if n_features > 16:
+        futures = [
+            _POOL.submit(
+                _quantiles_single_feature,
+                int(max_centroids[i]),
+                float(min_val[i]),
+                float(max_val[i]),
+                centroids_m[:, i],
+                centroids_c[:, i],
+                p_matrix[i],
+            )
+            for i in range(n_features)
+        ]
+        new_q_matrix = np.stack([f.result() for f in futures], axis=0)  # (F, K)
+    else:
+        new_q_matrix = np.stack(
+            [
+                _quantiles_single_feature(
+                    int(max_centroids[i]),
+                    float(min_val[i]),
+                    float(max_val[i]),
+                    centroids_m[:, i],
+                    centroids_c[:, i],
+                    p_matrix[i],
+                )
+                for i in range(n_features)
+            ],
+            axis=0,
+        )
+
+    p_merged, q_merged = _merge_equal_quantiles_host(p_matrix.T, new_q_matrix.T)
+    new_xp = q_merged.astype(np.float32)
+    new_fp = (-1.0 + 2.0 * p_merged).astype(np.float32)
+
+    return new_fp, new_xp
 
 
 def _ingest_new_data(
@@ -61,191 +241,85 @@ def _ingest_new_data(
     array: np.ndarray,
     mask: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """
-    Host-side callback to update T-Digest statistics using the fastdigest library.
-
-    This function processes a batch of data, updates the underlying T-Digest structures,
-    and extracts new interpolation points (xp, fp) for the normalization.
-
-    :param max_centroids: Maximum number of centroids allowed for each feature.
-    :param min_val: Current minimum value for each feature.
-    :param max_val: Current maximum value for each feature.
-    :param centroids_m: Centroid means for each feature.
-    :param centroids_c: Centroid counts for each feature.
-    :param fp: Interpolation probabilities (mapped to [-1, 1]).
-    :param xp: Interpolation quantiles.
-    :param array: New data batch of shape (N, F) or (B, N, F).
-    :param mask: Mask for valid data.
-    :return: Updated state variables for the TDigest modules.
-    """
-    # Variables are individual numpy arrays
-    # array has shape (N, F) or (B, N, F)
-    # mask has shape (N, 1) or (B, N, 1)
-
-    if array.ndim == 3:
-        # Batched: (B, N, F)
-        B, N, F = array.shape
-        array = array.reshape(B * N, F)
-        mask = mask.reshape(B * N, 1)
-    else:
-        N, F = array.shape
-
-    # Apply mask
-    mask = mask.flatten().astype(bool)
-    array = array[mask]
-
-    n_features = array.shape[-1]
-    K = fp.shape[0]
-
-    new_max_centroids = []
-    new_min_list = []
-    new_max_list = []
-    new_c_c_list = []
-    new_c_m_list = []
-    new_p_matrix = []
-    new_q_matrix = []
-
-    for i in range(n_features):
-        feature_array = array[:, i]
-        _max_centroids = int(max_centroids[i])
-        _min = float(min_val[i])
-        _max = float(max_val[i])
-        _c_m = centroids_m[:, i]
-        _c_c = centroids_c[:, i]
-
-        tdigest_dict = {
-            "max_centroids": _max_centroids,
-            "min": _min,
-            "max": _max,
-            "centroids": [{"m": float(m), "c": float(c)} for m, c in zip(_c_m, _c_c) if c > 0.0],
-        }
-
-        # Handle NaNs from initialization
-        if np.isnan(tdigest_dict["min"]):
-            tdigest_dict["min"] = 0.0
-        if np.isnan(tdigest_dict["max"]):
-            tdigest_dict["max"] = 0.0
-
-        tdigest = TDigest.from_dict(tdigest_dict)
-        if len(feature_array) > 0:
-            tdigest.batch_update(np.array(feature_array))
-
-        new_tdigest_dict = tdigest.to_dict()
-
-        new_max_centroids.append(new_tdigest_dict["max_centroids"])
-        new_min_list.append(new_tdigest_dict["min"])
-        new_max_list.append(new_tdigest_dict["max"])
-
-        c_c = np.array([centroid["c"] for centroid in new_tdigest_dict["centroids"]])
-        c_c = np.pad(c_c, (0, _max_centroids - len(c_c)), mode="constant", constant_values=0.0)
-        new_c_c_list.append(c_c)
-        c_m = np.array([centroid["m"] for centroid in new_tdigest_dict["centroids"]])
-        c_m = np.pad(c_m, (0, _max_centroids - len(c_m)), mode="constant", constant_values=0.0)
-        new_c_m_list.append(c_m)
-
-        p_list = np.linspace(0, 1, K)
-        q_list = [tdigest.quantile(float(p)) for p in p_list]
-        new_p_matrix.append(p_list)
-        new_q_matrix.append(np.asarray(q_list))
-
-    new_p_matrix = np.stack(new_p_matrix, axis=0)  # (F, K)
-    new_q_matrix = np.stack(new_q_matrix, axis=0)  # (F, K)
-
-    p_merged, q_merged = _merge_equal_quantiles_host(new_p_matrix.T, new_q_matrix.T)
-    new_xp = q_merged.astype(np.float32)
-    new_fp = (-1.0 + 2.0 * p_merged).astype(np.float32)
-
-    return (
-        np.array(new_max_centroids, dtype=np.int32),
-        np.array(new_min_list, dtype=np.float32),
-        np.array(new_max_list, dtype=np.float32),
-        np.stack(new_c_m_list, axis=1).astype(np.float32),
-        np.stack(new_c_c_list, axis=1).astype(np.float32),
-        new_fp,
-        new_xp,
+    """Legacy wrapper for tests and backward compatibility."""
+    new_max_c, new_min, new_max, new_c_m, new_c_c = _update_tdigest_host(
+        max_centroids, min_val, max_val, centroids_m, centroids_c, array, mask
     )
+    K = fp.shape[0]
+    p_grid = np.linspace(0, 1, K)
+    new_fp, new_xp = _compute_quantiles_host(new_max_c, new_min, new_max, new_c_m, new_c_c, p_grid)
+    return new_max_c, new_min, new_max, new_c_m, new_c_c, new_fp, new_xp
 
 
-@partial(jax.custom_vjp, nondiff_argnums=(4, 5, 6))
-def _tdigest_apply(
+@partial(jax.custom_vjp, nondiff_argnums=(3, 4))
+def _tdigest_update(
     array: jax.Array,
     non_fictitious: jax.Array,
-    should_update: jax.Array,
     module_state: tuple[jax.Array, ...],
     in_size: int,
     max_centroids: int,
-    n_breakpoints: int,
 ) -> tuple[jax.Array, ...]:
-    """
-    Applies normalization and optionally updates T-Digest statistics.
-    This function is wrapped in custom_vjp to handle the non-differentiable io_callback.
-    """
-    (
+    """Updates T-Digest state using IO callback."""
+    (max_centroids_val, min_val, max_val, centroids_m, centroids_c, _, _) = module_state
+
+    result_shapes = (
+        ShapeDtypeStruct((in_size,), jnp.int32),  # max_centroids
+        ShapeDtypeStruct((in_size,), jnp.float32),  # min
+        ShapeDtypeStruct((in_size,), jnp.float32),  # max
+        ShapeDtypeStruct((max_centroids, in_size), jnp.float32),  # centroids_m
+        ShapeDtypeStruct((max_centroids, in_size), jnp.float32),  # centroids_c
+    )
+
+    return io_callback(
+        _update_tdigest_host,
+        result_shapes,
         max_centroids_val,
         min_val,
         max_val,
         centroids_m,
         centroids_c,
-        fp,
-        xp,
-    ) = module_state
-
-    def update_fn(array: jax.Array, non_fictitious: jax.Array) -> tuple[jax.Array, ...]:
-        result_shapes = (
-            ShapeDtypeStruct((in_size,), jnp.int32),  # max_centroids
-            ShapeDtypeStruct((in_size,), jnp.float32),  # min
-            ShapeDtypeStruct((in_size,), jnp.float32),  # max
-            ShapeDtypeStruct((max_centroids, in_size), jnp.float32),  # centroids_m
-            ShapeDtypeStruct((max_centroids, in_size), jnp.float32),  # centroids_c
-            ShapeDtypeStruct((n_breakpoints, in_size), jnp.float32),  # fp
-            ShapeDtypeStruct((n_breakpoints, in_size), jnp.float32),  # xp
-        )
-
-        return io_callback(
-            _ingest_new_data,
-            result_shapes,
-            max_centroids_val,
-            min_val,
-            max_val,
-            centroids_m,
-            centroids_c,
-            fp,
-            xp,
-            array,
-            non_fictitious,
-        )
-
-    new_vars = jax.lax.cond(
-        should_update,
-        lambda a, m: update_fn(a, m),
-        lambda a, m: (max_centroids_val, min_val, max_val, centroids_m, centroids_c, fp, xp),
         array,
         non_fictitious,
     )
-    return new_vars
 
 
-def _tdigest_apply_fwd(
-    array: jax.Array,
-    non_fictitious: jax.Array,
-    should_update: jax.Array,
-    module_state: tuple[jax.Array, ...],
-    in_size: int,
-    max_centroids: int,
-    n_breakpoints: int,
-) -> tuple[tuple[jax.Array, ...], tuple[jax.Array, ...]]:
-    new_vars = _tdigest_apply(array, non_fictitious, should_update, module_state, in_size, max_centroids, n_breakpoints)
-    return (new_vars), (array, non_fictitious, new_vars[6], new_vars[5])
+def _tdigest_update_fwd(array, non_fictitious, module_state, in_size, max_centroids):
+    new_state = _tdigest_update(array, non_fictitious, module_state, in_size, max_centroids)
+    return new_state, (array, non_fictitious)
 
 
-def _tdigest_apply_bwd(
-    in_size: int, max_centroids: int, n_breakpoints: int, res: tuple[jax.Array, ...], grads: Any
-) -> tuple[jax.Array, ...]:
-    array, non_fictitious, xp, fp = res
-    return 0 * array, None, None, None
+def _tdigest_update_bwd(in_size, max_centroids, res, grads):
+    array, non_fictitious = res
+    return 0 * array, None, None
 
 
-_tdigest_apply.defvjp(_tdigest_apply_fwd, _tdigest_apply_bwd)
+_tdigest_update.defvjp(_tdigest_update_fwd, _tdigest_update_bwd)
+
+
+def _tdigest_get_quantiles(
+    state: tuple[jax.Array, ...],
+    p_grid: jax.Array,
+) -> tuple[jax.Array, jax.Array]:
+    """Retrieves xp and fp from state using a pure callback."""
+    (max_centroids_val, min_val, max_val, centroids_m, centroids_c) = state
+    n_breakpoints = p_grid.shape[-1]
+    in_size = max_centroids_val.shape[0]
+
+    result_shapes = (
+        ShapeDtypeStruct((n_breakpoints, in_size), jnp.float32),  # fp
+        ShapeDtypeStruct((n_breakpoints, in_size), jnp.float32),  # xp
+    )
+
+    return jax.pure_callback(
+        _compute_quantiles_host,
+        result_shapes,
+        max_centroids_val,
+        min_val,
+        max_val,
+        centroids_m,
+        centroids_c,
+        p_grid,
+    )
 
 
 class TDigestModule(nnx.Module):
@@ -294,16 +368,18 @@ class TDigestModule(nnx.Module):
         """
         Normalizes the input array using the current T-Digest state.
 
-        If in training mode and under the update limit, it also triggers a state update.
-
-        :param array: Input array of shape (..., in_size).
-        :param non_fictitious: Mask for valid (non-fictitious) items.
-        :return: Normalized array of the same shape as input.
+        Asynchronous update: Normalization uses the state from the PREVIOUS call,
+        while the current batch is used to update the state for the NEXT call.
         """
         is_training = not self.use_running_average
         should_update = is_training & (self.updates[...] < self.update_limit)[0]
 
+        # 1. Use CURRENT xp/fp for normalization (potentially from previous step)
+        xp = self.xp_var[...]
+        fp = self.fp_var[...]
+
         if is_training:
+            # 2. Trigger ASYNCHRONOUS update with current data
             module_state = (
                 self.max_centroids_var[...],
                 self.min_var[...],
@@ -314,29 +390,31 @@ class TDigestModule(nnx.Module):
                 self.xp_var[...],
             )
 
-            new_vars = _tdigest_apply(
+            # We split update and quantile extraction
+            new_state = jax.lax.cond(
+                should_update,
+                lambda a, m: _tdigest_update(a, m, module_state, self.in_size, self.max_centroids),
+                lambda a, m: module_state[:5],
                 array,
                 non_fictitious,
-                should_update,
-                module_state,
-                self.in_size,
-                self.max_centroids,
-                self.n_breakpoints,
             )
 
-            # Update state variables (side effects)
+            # Extract new quantiles from new state (pure callback)
+            # This can happen in parallel with the forward pass calculation below
+            p_grid = jnp.linspace(0, 1, self.n_breakpoints)
+            new_fp, new_xp = _tdigest_get_quantiles(new_state, p_grid)
+
+            # 3. Update state variables for NEXT call
             self.updates[...] = jnp.where(should_update, self.updates[...] + 1, self.updates[...])
-            self.max_centroids_var[...] = jax.lax.stop_gradient(new_vars[0])
-            self.min_var[...] = jax.lax.stop_gradient(new_vars[1])
-            self.max_var[...] = jax.lax.stop_gradient(new_vars[2])
-            self.centroids_m_var[...] = jax.lax.stop_gradient(new_vars[3])
-            self.centroids_c_var[...] = jax.lax.stop_gradient(new_vars[4])
-            self.fp_var[...] = jax.lax.stop_gradient(new_vars[5])
-            self.xp_var[...] = jax.lax.stop_gradient(new_vars[6])
+            self.max_centroids_var[...] = jax.lax.stop_gradient(new_state[0])
+            self.min_var[...] = jax.lax.stop_gradient(new_state[1])
+            self.max_var[...] = jax.lax.stop_gradient(new_state[2])
+            self.centroids_m_var[...] = jax.lax.stop_gradient(new_state[3])
+            self.centroids_c_var[...] = jax.lax.stop_gradient(new_state[4])
+            self.fp_var[...] = jax.lax.stop_gradient(new_fp)
+            self.xp_var[...] = jax.lax.stop_gradient(new_xp)
 
-        xp = self.xp_var[...]
-        fp = self.fp_var[...]
-
+        # 4. Perform normalization with "old" xp/fp
         def forward_local(x_feat, xp_feat, fp_feat):
             EPS = 1e-6
             interp_term = jnp.interp(x_feat, xp_feat, fp_feat)
