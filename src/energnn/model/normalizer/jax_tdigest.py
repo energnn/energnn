@@ -73,7 +73,7 @@ def _compress_sorted(
             term_sqrt = jnp.sqrt(jnp.maximum(q_b * (1.0 - q_b), 0.0))
             q_limit = one_minus_cos_delta_div_2 + q_b * cos_delta + term_sqrt * sin_delta
 
-            should_merge = (q_p <= q_limit + 1e-15) | (k_idx >= K_int - 1)
+            should_merge = (curr_w == 0) | (q_p <= q_limit + 1e-15) | (k_idx >= K_int - 1)
 
             cond = (w > 0) & (~should_merge)
             new_state = (
