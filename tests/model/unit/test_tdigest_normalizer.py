@@ -17,9 +17,6 @@ from energnn.model.normalizer.tdigest_normalizer import (
 )
 from energnn.problem.example import LinearSystemProblemLoader
 
-# TDigestNormalizer relies on float64 for better precision.
-jax.config.update("jax_enable_x64", True)
-
 # make deterministic
 np.random.seed(0)
 
@@ -44,7 +41,7 @@ def test_tdigest_module_init():
 
 def test_tdigest_module_update():
     in_size = 2
-    module = TDigestModule(in_size=in_size, update_limit=5, n_breakpoints=10, max_centroids=10, use_running_average=False)
+    module = TDigestModule(in_size=in_size, update_limit=3, n_breakpoints=10, max_centroids=10, use_running_average=False)
 
     # First update
     x = jnp.array([[1.0, 10.0], [2.0, 20.0], [3.0, 30.0]])
@@ -56,35 +53,41 @@ def test_tdigest_module_update():
     assert not jnp.allclose(module.xp_var[...], jnp.tile(jnp.linspace(-1.0, 1.0, 10)[:, None], (1, in_size)))
 
     # Multiple updates until limit
-    for _ in range(10):
+    for _ in range(5):
         module(x, mask)
 
-    assert module.updates[...] == 5  # Should stop at update_limit
+    assert module.updates[...] == 3  # Should stop at update_limit
 
 
 def test_tdigest_module_normalization_range():
-    in_size = 1
-    module = TDigestModule(in_size=in_size, update_limit=100, n_breakpoints=50, max_centroids=100, use_running_average=False)
+    jax.config.update("jax_enable_x64", True)
+    try:
+        in_size = 1
+        module = TDigestModule(
+            in_size=in_size, update_limit=100, n_breakpoints=50, max_centroids=100, use_running_average=False
+        )
 
-    # Train on a normal distribution
-    key = jax.random.PRNGKey(0)
-    data = jax.random.normal(key, (1000, 1))
-    mask = jnp.ones((1000, 1))
+        # Train on a normal distribution
+        key = jax.random.PRNGKey(0)
+        data = jax.random.normal(key, (1000, 1))
+        mask = jnp.ones((1000, 1))
 
-    # Several updates to converge
-    for _ in range(5):
-        module(data, mask)
+        # Several updates to converge
+        for _ in range(5):
+            module(data, mask)
 
-    # Test normalization
-    test_data = jnp.array([[-3.0], [0.0], [3.0]])
-    norm_out = module(test_data, jnp.ones((3, 1)))
+        # Test normalization
+        test_data = jnp.array([[-3.0], [0.0], [3.0]])
+        norm_out = module(test_data, jnp.ones((3, 1)))
 
-    # Values should be roughly in [-1, 1] for data within the seen distribution
-    # Median (0.0) should be around 0.0
-    assert jnp.abs(norm_out[1, 0]) < 0.1
-    # Extremes should be close to -1 and 1
-    assert norm_out[0, 0] < -0.8
-    assert norm_out[2, 0] > 0.8
+        # Values should be roughly in [-1, 1] for data within the seen distribution
+        # Median (0.0) should be around 0.0
+        assert jnp.abs(norm_out[1, 0]) < 0.1
+        # Extremes should be close to -1 and 1
+        assert norm_out[0, 0] < -0.95
+        assert norm_out[2, 0] > 0.95
+    finally:
+        jax.config.update("jax_enable_x64", False)
 
 
 def test_tdigest_module_inference_mode():
