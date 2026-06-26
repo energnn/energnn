@@ -10,13 +10,13 @@ from abc import ABC, abstractmethod
 
 from flax import nnx
 
-from energnn.graph import JaxGraph
+from energnn.graph import Graph
 
 
 class Encoder(nnx.Module, ABC):
 
     @abstractmethod
-    def __call__(self, graph: JaxGraph, get_info: bool = False) -> tuple[JaxGraph, dict]:
+    def __call__(self, graph: Graph, get_info: bool = False) -> tuple[Graph, dict]:
         """Encode the input graph into a graph with the same hyper-edge set classes and features.
 
         :param graph: Input graph to encode.
@@ -36,7 +36,7 @@ class IdentityEncoder(Encoder):
         \tilde{x} = x
     """
 
-    def __call__(self, graph: JaxGraph, get_info: bool = False) -> tuple[JaxGraph, dict]:
+    def __call__(self, graph: Graph, get_info: bool = False) -> tuple[Graph, dict]:
         """Apply the identity encoder and return the input graph without changes.
 
         :param context: Input graph to encode.

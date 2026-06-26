@@ -4,20 +4,18 @@ Graph
 
 .. currentmodule:: energnn.graph
 
-In this package, the classes :class:`Graph` and :class:`JaxGraph` are the core data representation.
-There are used to represent contexts :math:`x` (*i.e* input data),
+In this package, the class :class:`Graph` is the core data representation.
+It is used to represent contexts :math:`x` (*i.e* input data),
 decisions :math:`y` (*i.e.* output data), and gradients :math:`\nabla_y f`.
-A :class:`Graph` (resp :class:`JaxGraph`) is composed of multiple :class:`HyperEdgeSet` (resp :class:`JaxHyperEdgeSet`),
+A :class:`Graph` is composed of multiple :class:`HyperEdgeSet` objects,
 each defined by a series of ports and features.
 
-The class :class:`Graph` or :class:`JaxGraph` can represent both a single graph instance or a batch of
-graphs. 
-
+The class :class:`Graph` can represent both a single graph instance or a batch of
+graphs. The backend (NumPy or JAX) is controlled by passing a :class:`NumpyBackend` or
+:class:`JaxBackend` instance at construction time.
 
 .. note::
-    :class:`JaxGraph` (resp :class:`JaxHyperEdgeSet`, resp :class:`JaxGraphShape`) is the Jax implementation
-    of :class:`Graph` (resp :class:`HyperEdgeSet`, resp :class:`GraphShape`) which is based on numpy.
-    Here is a typical instance of :class:`Graph` or :class:`JaxGraph`.
+    Here is a typical instance of :class:`Graph`.
 
     .. code:: python
 
@@ -64,22 +62,6 @@ Graph
     Graph.offset_addresses
     Graph.quantiles
 
-
-.. autoclass:: JaxGraph
-   :no-members:
-   :show-inheritance:
-
-.. autosummary::
-   :toctree: _autosummary
-   :nosignatures:
-
-    JaxGraph.tree_flatten
-    JaxGraph.tree_unflatten
-    JaxGraph.feature_flat_array
-    JaxGraph.from_numpy_graph
-    JaxGraph.to_numpy_graph
-    JaxGraph.quantiles
-
 HyperEdgeSet
 ============
 
@@ -106,21 +88,6 @@ HyperEdgeSet
     HyperEdgeSet.offset_addresses
 
 
-.. autoclass:: JaxHyperEdgeSet
-   :no-members:
-   :show-inheritance:
-
-.. autosummary::
-   :toctree: _autosummary
-   :nosignatures:
-
-    JaxHyperEdgeSet.tree_flatten
-    JaxHyperEdgeSet.tree_unflatten
-    JaxHyperEdgeSet.feature_flat_array
-    JaxHyperEdgeSet.from_numpy_hyper_edge_set
-    JaxHyperEdgeSet.to_numpy_hyper_edge_set
-
-
 GraphShape
 ==========
 
@@ -141,20 +108,6 @@ GraphShape
     GraphShape.is_single
     GraphShape.is_batch
     GraphShape.n_batch
-
-
-.. autoclass:: JaxGraphShape
-   :no-members:
-   :show-inheritance:
-
-.. autosummary::
-   :toctree: _autosummary
-   :nosignatures:
-
-    JaxGraphShape.tree_flatten
-    JaxGraphShape.tree_unflatten
-    JaxGraphShape.from_numpy_shape
-    JaxGraphShape.to_numpy_shape
 
 
 Graph, hyper-edge set, and shape manipulation functions

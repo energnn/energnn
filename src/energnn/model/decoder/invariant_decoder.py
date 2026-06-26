@@ -11,7 +11,7 @@ from abc import ABC, abstractmethod
 import jax
 import jax.numpy as jnp
 
-from energnn.graph import JaxGraph
+from energnn.graph import Graph
 from energnn.model.utils import MLP
 from .decoder import Decoder
 
@@ -24,7 +24,7 @@ class InvariantDecoder(Decoder, ABC):
     """
 
     @abstractmethod
-    def __call__(self, *, graph: JaxGraph, coordinates: jax.Array, get_info: bool = False) -> tuple[jax.Array, dict]:
+    def __call__(self, *, graph: Graph, coordinates: jax.Array, get_info: bool = False) -> tuple[jax.Array, dict]:
         """Decode latent coordinates into a global decision vector.
 
         :param graph: Input graph to decode.
@@ -54,7 +54,7 @@ class SumInvariantDecoder(InvariantDecoder):
         self.psi = psi
         self.phi = phi
 
-    def __call__(self, *, graph: JaxGraph, coordinates: jax.Array, get_info: bool = False) -> tuple[jax.Array, dict]:
+    def __call__(self, *, graph: Graph, coordinates: jax.Array, get_info: bool = False) -> tuple[jax.Array, dict]:
         h = self.psi(coordinates)
         h = h * jnp.expand_dims(graph.non_fictitious_addresses, -1)
         h = jnp.sum(h, axis=0)
@@ -80,7 +80,7 @@ class MeanInvariantDecoder(InvariantDecoder):
         self.psi = psi
         self.phi = phi
 
-    def __call__(self, *, graph: JaxGraph, coordinates: jax.Array, get_info: bool = False) -> tuple[jax.Array, dict]:
+    def __call__(self, *, graph: Graph, coordinates: jax.Array, get_info: bool = False) -> tuple[jax.Array, dict]:
         numerator = self.psi(coordinates)
         numerator = numerator * jnp.expand_dims(graph.non_fictitious_addresses, -1)
         numerator = jnp.sum(numerator, axis=0)

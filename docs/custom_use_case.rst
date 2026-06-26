@@ -84,9 +84,9 @@ You must implement the following properties:
 And the following methods:
 
 - :meth:`~energnn.problem.Problem.get_context`: Returns the **context** graph :math:`x`,
-  instantiated as a :class:`~energnn.graph.JaxGraph`,
+  instantiated as a :class:`~energnn.graph.Graph`,
 - :meth:`~energnn.problem.Problem.get_gradient`: Computes :math:`\nabla_y f(y;x)` for a given **decision** :math:`y`,
-  instantiated as a :class:`~energnn.graph.JaxGraph`,
+  instantiated as a :class:`~energnn.graph.Graph`,
 - :meth:`~energnn.problem.Problem.get_score`: Computes :math:`f(y;x)` for a given **decision** :math:`y` as a :code:`float`.
 
 **Tracking relevant quantities**:
@@ -95,8 +95,8 @@ If :code:`True`, these methods return optional dictionaries that are passed to y
 It's useful for debugging and tracking, but not necessary in your first implementation.
 
 **Data representation**:
-Contexts, decisions and gradients are all instantiated as :class:`~energnn.graph.JaxGraph`, which is a version of
-:class:`~energnn.graph.Graph` designed to work seamlessly with JAX.
+Contexts, decisions and gradients are all instantiated as :class:`~energnn.graph.Graph`.
+Pass a :class:`~energnn.graph.JaxBackend` instance at construction time to use JAX arrays.
 
 **Decoupling gradients and score**:
 You can use different objective functions in :meth:`~energnn.problem.Problem.get_score`
@@ -111,13 +111,13 @@ improvement for a decision.
 
     from typing import Any
     import jax.numpy as jnp
-    from energnn.graph import Graph, JaxGraph, GraphStructure
+    from energnn.graph import Graph, GraphStructure
     from energnn.problem import Problem
 
     class MyProblem(Problem):
         def __init__(self, path: Any):
             # Implement your own data import, and store relevant state data
-            self.context, self.state: tuple[JaxGraph, Any] = self._import_from_pypowsybl(path)
+            self.context, self.state: tuple[Graph, Any] = self._import_from_pypowsybl(path)
 
         @property
         def context_structure(self) -> GraphStructure:
@@ -127,15 +127,15 @@ improvement for a decision.
         def decision_structure(self) -> GraphStructure:
             return DECISION_STRUCTURE
 
-        def get_context(self, get_info: bool = False) -> tuple[JaxGraph, dict[str, Any]]:
+        def get_context(self, get_info: bool = False) -> tuple[Graph, dict[str, Any]]:
             return self.context, {}
 
-        def get_gradient(self, *, decision: JaxGraph, get_info: bool = False) -> tuple[JaxGraph, dict[str, Any]]:
+        def get_gradient(self, *, decision: Graph, get_info: bool = False) -> tuple[Graph, dict[str, Any]]:
             # Implement your own gradient estimation method
-            grad: JaxGraph = self._estimate_gradient(decision, self.state)
+            grad: Graph = self._estimate_gradient(decision, self.state)
             return grad, {}
 
-        def get_score(self, *, decision: JaxGraph, get_info: bool = False) -> tuple[float, dict[str, Any]]:
+        def get_score(self, *, decision: Graph, get_info: bool = False) -> tuple[float, dict[str, Any]]:
             # Implement your own score estimation method
             grad: float = self._estimate_score(decision, self.state)
             return grad, {}
@@ -218,7 +218,7 @@ The following :class:`~energnn.problem.ProblemBatch` implementation assumes that
 
     from typing import Any
     from energnn.problem import ProblemBatch, Problem
-    from energnn.graph import JaxGraph, Graph, GraphStructure, collate_graphs
+    from energnn.graph import Graph, GraphStructure, JaxBackend, collate_graphs
 
     class MyBatch(ProblemBatch):
         def __init__(self, path_list: list[str], max_shape: GraphShape):
@@ -227,27 +227,26 @@ The following :class:`~energnn.problem.ProblemBatch` implementation assumes that
 
             # Get all contexts, pad them and collate them together.
             context_list, _ = zip([pb.get_context() for pb in self.problems])
-            np_context_list = [context.to_numpy_graph() for context in context_list]
-            [np_context.pad(max_shape) for np_context in np_context_list]
-            np_context_batch = collate_graphs(np_context_list)
-            self.context_batch = JaxGraph.from_numpy_graph(np_context_batch)
+            [context.pad(max_shape) for context in context_list]
+            context_batch = collate_graphs(context_list)
+            self.context_batch = Graph.from_numpy_graph(context_batch)
 
         @property
         def context_structure(self) -> GraphStructure:
             return CONTEXT_STRUCTURE
-        
+
         @property
         def decision_structure(self) -> GraphStructure:
             return DECISION_STRUCTURE
 
-        def get_context(self, get_info: bool = False) -> tuple[JaxGraph, dict[str, Any]]:
+        def get_context(self, get_info: bool = False) -> tuple[Graph, dict[str, Any]]:
             return self.context_batch, {}
 
-        def get_gradient(self, *, decision: JaxGraph, get_info: bool = False) -> tuple[JaxGraph, dict[str, Any]]:
+        def get_gradient(self, *, decision: Graph, get_info: bool = False) -> tuple[Graph, dict[str, Any]]:
             batch_grad = self._compute_batch_grad(decision, self.problem_list)
             return batch_grad, {}
 
-        def get_score(self, *, decision: JaxGraph, get_info: bool = False) -> tuple[list[float], dict[str, Any]]:
+        def get_score(self, *, decision: Graph, get_info: bool = False) -> tuple[list[float], dict[str, Any]]:
             score_list = self._compute_score_list(decision, self.problem_list)
             return score_list, {}
 
@@ -291,12 +290,11 @@ Interface Checklist
 When implementing your custom use case, ensure these requirements are met:
 
 - ``context_structure`` and ``decision_structure`` properties are defined.
-- ``get_context()`` returns a :class:`energnn.graph.JaxGraph`.
-- ``get_gradient()`` returns a :class:`energnn.graph.JaxGraph` with the same topology as the decision.
+- ``get_context()`` returns a :class:`energnn.graph.Graph`.
+- ``get_gradient()`` returns a :class:`energnn.graph.Graph` with the same topology as the decision.
 - ``get_score()`` returns a scalar (for :class:`~energnn.problem.Problem`)
   or a list of scalars (for :class:`~energnn.problem.ProblemBatch`).
-- Graphs are correctly converted between :class:`~energnn.graph.Graph` (NumPy-based, useful for building/collating)
-  and :class:`~energnn.graph.JaxGraph` (JAX-based, used by the models).
+- Graphs intended for JAX model inference are built with :class:`~energnn.graph.JaxBackend`.
 
 Summary
 -------

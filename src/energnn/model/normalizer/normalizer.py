@@ -8,7 +8,7 @@ from abc import ABC, abstractmethod
 
 from flax import nnx
 
-from energnn.graph import JaxGraph
+from energnn.graph import Graph
 
 
 class Normalizer(nnx.Module, ABC):
@@ -19,7 +19,7 @@ class Normalizer(nnx.Module, ABC):
     """
 
     @abstractmethod
-    def __call__(self, graph: JaxGraph, get_info: bool = False) -> tuple[JaxGraph, dict]:
+    def __call__(self, graph: Graph, get_info: bool = False) -> tuple[Graph, dict]:
         """Normalize the input graph features.
 
         :param graph: Input graph to normalize.

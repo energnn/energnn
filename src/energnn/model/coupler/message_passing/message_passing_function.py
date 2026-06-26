@@ -12,7 +12,7 @@ from flax import nnx
 from flax.nnx import initializers
 from flax.typing import Initializer
 
-from energnn.graph import GraphStructure, JaxGraph
+from energnn.graph import GraphStructure, Graph
 from energnn.model.utils import Activation, MLP, gather, scatter_add
 
 
@@ -20,7 +20,7 @@ class MessagePassingFunction(nnx.Module, ABC):
     r"""Interface for a message function :math:`\xi_\theta` in a GNN message passing scheme."""
 
     @abstractmethod
-    def __call__(self, graph: JaxGraph, coordinates: jax.Array, get_info: bool = False) -> tuple[jax.Array, dict]:
+    def __call__(self, graph: Graph, coordinates: jax.Array, get_info: bool = False) -> tuple[jax.Array, dict]:
         """Should take as input a tuple (graph, coordinates) and return new coordinates."""
         raise NotImplementedError
 
@@ -127,7 +127,7 @@ class LocalSumMessagePassingFunction(MessagePassingFunction):
                         )
         return nnx.data(mlp_tree)
 
-    def __call__(self, *, graph: JaxGraph, coordinates: jax.Array, get_info: bool = False) -> tuple[jax.Array, dict]:
+    def __call__(self, *, graph: Graph, coordinates: jax.Array, get_info: bool = False) -> tuple[jax.Array, dict]:
 
         def sum_over_edges(_accumulator, edge_mlp_tuple):
             """Sums the output of class and port specific MLPs through ports of all hyper-edge sets in the graph."""
@@ -178,5 +178,5 @@ class IdentityMessagePassingFunction(MessagePassingFunction):
     def __init__(self):
         pass
 
-    def __call__(self, *, graph: JaxGraph, coordinates: jax.Array, get_info: bool = False) -> tuple[jax.Array, dict]:
+    def __call__(self, *, graph: Graph, coordinates: jax.Array, get_info: bool = False) -> tuple[jax.Array, dict]:
         return coordinates, {}

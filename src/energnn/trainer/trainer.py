@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Literal
 
 import flatdict
@@ -340,25 +341,57 @@ class Trainer:
         """
         with TaskLogger(logger, f"Training step {self.train_step}"):
 
+            t_start = time.perf_counter()
             self.model.train()  # Set model to train mode
+            logger.info(f"[training_step {self.train_step}] model.train(): {(time.perf_counter() - t_start) * 1000:.3f} ms")
 
             infos = {}
+            t_start = time.perf_counter()
             jax_context, infos["1_context"] = problem_batch.get_context(get_info=get_info, step=self.train_step)
+            jax.block_until_ready(jax_context)
+            logger.info(f"[training_step {self.train_step}] get_context: {(time.perf_counter() - t_start) * 1000:.3f} ms")
 
+            t_start = time.perf_counter()
             graphdef, params, rest = nnx.split(self.model, nnx.Param, ...)
-            jax_decision, rest_updated, vjp_fn = self._jit_apply(graphdef, params, rest, jax_context, get_info)
+            logger.info(f"[training_step {self.train_step}] nnx.split: {(time.perf_counter() - t_start) * 1000:.3f} ms")
 
+            t_start = time.perf_counter()
+            jax_decision, rest_updated, vjp_fn = self._jit_apply(graphdef, params, rest, jax_context, get_info)
+            jax.block_until_ready(jax_decision)
+            logger.info(f"[training_step {self.train_step}] forward: {(time.perf_counter() - t_start) * 1000:.3f} ms")
+
+            t_start = time.perf_counter()
             nnx.update(self.model, rest_updated)
+            logger.info(f"[training_step {self.train_step}] nnx.update: {(time.perf_counter() - t_start) * 1000:.3f} ms")
+
+            t_start = time.perf_counter()
             jax_gradient, infos["3_gradient"] = problem_batch.get_gradient(
                 decision=jax_decision, get_info=get_info, step=self.train_step
             )
+            jax.block_until_ready(jax_gradient)
+            logger.info(f"[training_step {self.train_step}] get_gradient: {(time.perf_counter() - t_start) * 1000:.3f} ms")
+
+            t_start = time.perf_counter()
             jax_cotangent = _cast_cotangent_to_primal_dtype(jax_gradient, jax_decision)
+            jax.block_until_ready(jax_cotangent)
+            logger.info(f"[training_step {self.train_step}] cast_cotangent: {(time.perf_counter() - t_start) * 1000:.3f} ms")
 
             # Backward pass
+            t_start = time.perf_counter()
             rest_cotangent = jax.tree.map(jnp.zeros_like, rest_updated)
-            (grads_params, _) = vjp_fn((jax_cotangent, rest_cotangent))
+            jax.block_until_ready(rest_cotangent)
+            logger.info(f"[training_step {self.train_step}] rest_cotangent: {(time.perf_counter() - t_start) * 1000:.3f} ms")
 
+            t_start = time.perf_counter()
+            (grads_params, _) = vjp_fn((jax_cotangent, rest_cotangent))
+            jax.block_until_ready(grads_params)
+            logger.info(f"[training_step {self.train_step}] vjp_fn: {(time.perf_counter() - t_start) * 1000:.3f} ms")
+
+            t_start = time.perf_counter()
             self._jit_update_params(self.optimizer, self.model, grads_params)
+            jax.block_until_ready(nnx.state(self.model))
+            logger.info(f"[training_step {self.train_step}] update_params: {(time.perf_counter() - t_start) * 1000:.3f} ms")
+
             infos["4_update"] = {}
 
         # Flatten and numpify infos

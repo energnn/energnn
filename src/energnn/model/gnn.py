@@ -7,7 +7,7 @@
 import jax
 from flax import nnx
 
-from energnn.graph import JaxGraph
+from energnn.graph import Graph
 from .coupler import Coupler
 from .decoder import Decoder
 from .encoder import Encoder
@@ -37,7 +37,7 @@ class GNN(nnx.Module):
         self.coupler = coupler
         self.decoder = decoder
 
-    def __call__(self, graph: JaxGraph, get_info: bool = False) -> tuple[JaxGraph | jax.Array, dict]:
+    def __call__(self, graph: Graph, get_info: bool = False) -> tuple[Graph | jax.Array, dict]:
         """
         Processes a given graph through a sequence of steps: normalization, encoding, coupling,
         and decoding. The method applies a series of transformations to the input graph and
@@ -56,7 +56,7 @@ class GNN(nnx.Module):
         output, info["decoding"] = self.decoder(coordinates=latent_coordinates, graph=encoded_graph, get_info=get_info)
         return output, info
 
-    def forward_batch(self, *, graph: JaxGraph, get_info: bool = False) -> tuple[JaxGraph | jax.Array, dict]:
+    def forward_batch(self, *, graph: Graph, get_info: bool = False) -> tuple[Graph | jax.Array, dict]:
         """Applies the model to a batch of graphs.
 
         Only the encoder, coupler, and decoder modules are vmapped, while the normalization module is not.

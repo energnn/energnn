@@ -6,7 +6,7 @@
 
 from abc import ABC, abstractmethod
 
-from energnn.graph import GraphStructure, JaxGraph
+from energnn.graph import Graph, GraphStructure
 
 
 class Problem(ABC):
@@ -36,7 +36,7 @@ class Problem(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def get_context(self, get_info: bool = False, step: int | None = None) -> tuple[JaxGraph, dict]:
+    def get_context(self, get_info: bool = False, step: int | None = None) -> tuple[Graph, dict]:
         """
         Retrieve the context graph math:`x` of the problem instance.
 
@@ -54,7 +54,7 @@ class Problem(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def get_gradient(self, *, decision: JaxGraph, get_info: bool = False, step: int | None = None) -> tuple[JaxGraph, dict]:
+    def get_gradient(self, *, decision: Graph, get_info: bool = False, step: int | None = None) -> tuple[Graph, dict]:
         r"""
         Compute the gradient graph :math:`\nabla_y f` for a given decision :math:`y`.
 
@@ -72,7 +72,7 @@ class Problem(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def get_score(self, *, decision: JaxGraph, get_info: bool = False, step: int | None = None) -> tuple[float, dict]:
+    def get_score(self, *, decision: Graph, get_info: bool = False, step: int | None = None) -> tuple[float, dict]:
         """Should return a scalar `score` that evaluates the decision graph :math:`y`.
 
         :param decision: The decision graph to evaluate.

@@ -11,8 +11,7 @@ from flax import nnx
 from flax.nnx import initializers
 from flax.typing import Initializer
 
-from energnn.graph import GraphStructure
-from energnn.graph.jax import JaxGraph, JaxHyperEdgeSet
+from energnn.graph import Graph, GraphStructure, HyperEdgeSet
 from energnn.model.utils import Activation, MLP
 from .encoder import Encoder
 
@@ -97,7 +96,7 @@ class MLPEncoder(Encoder):
                 mlp_dict[key] = None
         return nnx.data(mlp_dict)
 
-    def __call__(self, graph: JaxGraph, get_info: bool = False) -> tuple[JaxGraph, dict]:
+    def __call__(self, graph: Graph, get_info: bool = False) -> tuple[Graph, dict]:
         """
         Apply the class-specific MLPs to the input graph and return the encoded graph.
 
@@ -121,7 +120,7 @@ class MLPEncoder(Encoder):
             if k in self.mlp_dict.keys()
         }
 
-        def apply_mlp(edge_mlp: tuple[JaxHyperEdgeSet, MLP]) -> JaxHyperEdgeSet:
+        def apply_mlp(edge_mlp: tuple[HyperEdgeSet, MLP]) -> HyperEdgeSet:
             """Apply the MLP to the edge."""
             hyper_edge_set, mlp = edge_mlp
             if hyper_edge_set.feature_array is not None:
@@ -129,7 +128,8 @@ class MLPEncoder(Encoder):
                 feature_array, feature_names = mlp(hyper_edge_set.feature_array) * mask, self.feature_names
             else:
                 feature_array, feature_names = None, None
-            return JaxHyperEdgeSet(
+            return HyperEdgeSet(
+                backend=hyper_edge_set._backend,
                 feature_array=feature_array,
                 feature_names=feature_names,
                 non_fictitious=hyper_edge_set.non_fictitious,
@@ -138,7 +138,8 @@ class MLPEncoder(Encoder):
 
         encoded_hyper_edge_sets = jax.tree.map(apply_mlp, edge_mlp_dict, is_leaf=(lambda x: isinstance(x, tuple)))
 
-        encoded_context = JaxGraph(
+        encoded_context = Graph(
+            backend=graph._backend,
             hyper_edge_sets=encoded_hyper_edge_sets,
             non_fictitious_addresses=graph.non_fictitious_addresses,
             true_shape=graph.true_shape,

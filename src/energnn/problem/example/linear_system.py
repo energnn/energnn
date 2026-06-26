@@ -12,7 +12,7 @@ import numpy as np
 from omegaconf import DictConfig
 
 from energnn.graph import GraphStructure, HyperEdgeSetStructure
-from energnn.graph.jax import JaxGraph, JaxGraphShape, JaxHyperEdgeSet, collate_graphs_jax
+from energnn.graph import Graph, GraphShape, HyperEdgeSet, JaxBackend, collate_graphs
 from ..batch import ProblemBatch
 from ..loader import ProblemLoader
 from ..problem import Problem
@@ -31,7 +31,7 @@ LINEAR_SYSTEM_DECISION_STRUCTURE = GraphStructure(
 class LinearSystemProblemBatch(ProblemBatch):
     __test__ = False
 
-    def __init__(self, *, context: JaxGraph, oracle: JaxGraph):
+    def __init__(self, *, context: Graph, oracle: Graph):
         self.context = context
         self.oracle = oracle
 
@@ -48,30 +48,30 @@ class LinearSystemProblemBatch(ProblemBatch):
     def context_structure(self) -> GraphStructure:
         return LINEAR_SYSTEM_CONTEXT_STRUCTURE
 
-    def get_context(self, get_info: bool = False, step: int | None = None) -> tuple[JaxGraph, dict]:
+    def get_context(self, get_info: bool = False, step: int | None = None) -> tuple[Graph, dict]:
         """Returns the context :class:`Graph` :math:`x`."""
         return deepcopy(self.context), {}
 
-    def get_oracle(self, get_info: bool = False) -> tuple[JaxGraph, dict]:
+    def get_oracle(self, get_info: bool = False) -> tuple[Graph, dict]:
         r"""Returns the ground truth :class:`Graph` :math:`y^{\star}(x)`."""
         return deepcopy(self.oracle), {}
 
-    def get_zero_decision(self, get_info: bool = False) -> tuple[JaxGraph, dict]:
+    def get_zero_decision(self, get_info: bool = False) -> tuple[Graph, dict]:
         """Returns a decision filled with zeros."""
         return deepcopy(self.zero_decision), {}
 
     def get_gradient(
-        self, decision: JaxGraph, cfg: DictConfig | None = None, get_info: bool = False, step: int | None = None
-    ) -> tuple[JaxGraph, dict]:
+        self, decision: Graph, cfg: DictConfig | None = None, get_info: bool = False, step: int | None = None
+    ) -> tuple[Graph, dict]:
         r"""Returns the gradient :class:`Graph` :math:`\nabla_y f(y;x) = y - y^{\star}(x)`."""
         # gradient = decision.to_numpy_graph()
         gradient = deepcopy(decision)
         gradient.feature_flat_array = gradient.feature_flat_array - self.oracle.feature_flat_array
-        # jax_gradient = JaxGraph.from_numpy_graph(gradient)
+        # jax_gradient = Graph.from_numpy_graph(gradient)
         return gradient, {}
 
     def get_score(
-        self, decision: JaxGraph, cfg: DictConfig | None = None, get_info: bool = False, step: int | None = None
+        self, decision: Graph, cfg: DictConfig | None = None, get_info: bool = False, step: int | None = None
     ) -> tuple[list[float], dict]:
         """Returns the mean-squared error of the decision :class:`Graph` with regard to the oracle :class:`Graph`."""
         # gradient = decision.to_numpy_graph()
@@ -87,7 +87,7 @@ class LinearSystemProblemBatch(ProblemBatch):
 class LinearSystemProblem(Problem):
     __test__ = False
 
-    def __init__(self, *, context: JaxGraph, oracle: JaxGraph):
+    def __init__(self, *, context: Graph, oracle: Graph):
         self.context = context
         self.oracle = oracle
 
@@ -103,30 +103,30 @@ class LinearSystemProblem(Problem):
     def context_structure(self) -> GraphStructure:
         return LINEAR_SYSTEM_CONTEXT_STRUCTURE
 
-    def get_context(self, get_info: bool = False, step: int | None = None) -> tuple[JaxGraph, dict]:
+    def get_context(self, get_info: bool = False, step: int | None = None) -> tuple[Graph, dict]:
         """Returns the context :class:`Graph` :math:`x`."""
         return deepcopy(self.context), {}
 
-    def get_oracle(self, get_info: bool = False) -> tuple[JaxGraph, dict]:
+    def get_oracle(self, get_info: bool = False) -> tuple[Graph, dict]:
         r"""Returns the ground truth :class:`Graph` :math:`y^{\star}(x)`."""
         return deepcopy(self.oracle), {}
 
-    def get_zero_decision(self, get_info: bool = False) -> tuple[JaxGraph, dict]:
+    def get_zero_decision(self, get_info: bool = False) -> tuple[Graph, dict]:
         """Returns a decision filled with zeros."""
         return deepcopy(self.zero_decision), {}
 
     def get_gradient(
-        self, decision: JaxGraph, cfg: DictConfig | None = None, get_info: bool = False, step: int | None = None
-    ) -> tuple[JaxGraph, dict]:
+        self, decision: Graph, cfg: DictConfig | None = None, get_info: bool = False, step: int | None = None
+    ) -> tuple[Graph, dict]:
         r"""Returns the gradient :class:`Graph` :math:`\nabla_y f(y;x) = y - y^{\star}(x)`."""
         # gradient = decision.to_numpy_graph()
         gradient = deepcopy(decision)
         gradient.feature_flat_array = gradient.feature_flat_array - self.oracle.feature_flat_array
-        # jax_gradient = JaxGraph.from_numpy_graph(gradient)
+        # jax_gradient = Graph.from_numpy_graph(gradient)
         return gradient, {}
 
     def get_score(
-        self, decision: JaxGraph, cfg: DictConfig | None = None, get_info: bool = False, step: int | None = None
+        self, decision: Graph, cfg: DictConfig | None = None, get_info: bool = False, step: int | None = None
     ) -> tuple[float, dict]:
         """Returns the mean-squared error of the decision :class:`Graph` with regard to the oracle :class:`Graph`."""
         # gradient = decision.to_numpy_graph()
@@ -198,14 +198,21 @@ class LinearSystemProblemGenerator:
         # Context
         # Use line for off-diagonal terms
         rows, cols = np.nonzero(np.triu(B, k=1))
-        line = JaxHyperEdgeSet.from_dict(port_dict={"from": rows, "to": cols}, feature_dict={"susceptance": -B[rows, cols]})
-        bus_context = JaxHyperEdgeSet.from_dict(port_dict={"id": np.arange(n)}, feature_dict={"active_power_injection": P})
-        context = JaxGraph.from_dict(hyper_edge_set_dict={"line": line, "bus": bus_context}, n_addresses=jnp.array(n))
+        jax_backend = JaxBackend()
+        line = HyperEdgeSet.from_dict(
+            backend=jax_backend, port_dict={"from": rows, "to": cols}, feature_dict={"susceptance": -B[rows, cols]}
+        )
+        bus_context = HyperEdgeSet.from_dict(
+            backend=jax_backend, port_dict={"id": np.arange(n)}, feature_dict={"active_power_injection": P}
+        )
+        context = Graph.from_dict(
+            backend=jax_backend, hyper_edge_set_dict={"line": line, "bus": bus_context}, n_addresses=jnp.array(n)
+        )
 
         # Oracle
         # Use bus for the solution (phase angles)
-        bus_oracle = JaxHyperEdgeSet.from_dict(port_dict=None, feature_dict={"phase_angle": theta})
-        oracle = JaxGraph.from_dict(hyper_edge_set_dict={"bus": bus_oracle}, n_addresses=jnp.array(n))
+        bus_oracle = HyperEdgeSet.from_dict(backend=jax_backend, port_dict=None, feature_dict={"phase_angle": theta})
+        oracle = Graph.from_dict(backend=jax_backend, hyper_edge_set_dict={"bus": bus_oracle}, n_addresses=jnp.array(n))
 
         return LinearSystemProblem(context=context, oracle=oracle)
 
@@ -220,19 +227,23 @@ class LinearSystemProblemGenerator:
             context_list.append(context)
             oracle_list.append(oracle)
 
-        max_context_shape = JaxGraphShape(
+        jax_backend = JaxBackend()
+        max_context_shape = GraphShape(
+            backend=jax_backend,
             hyper_edge_sets={
                 "line": jnp.array(self.n_max * (self.n_max - 1) // 2),
                 "bus": jnp.array(self.n_max),
             },
             addresses=jnp.array(self.n_max),
         )
-        max_oracle_shape = JaxGraphShape(hyper_edge_sets={"bus": jnp.array(self.n_max)}, addresses=jnp.array(self.n_max))
+        max_oracle_shape = GraphShape(
+            backend=jax_backend, hyper_edge_sets={"bus": jnp.array(self.n_max)}, addresses=jnp.array(self.n_max)
+        )
 
         [context.pad(target_shape=max_context_shape) for context in context_list]
         [oracle.pad(target_shape=max_oracle_shape) for oracle in oracle_list]
-        context_batch = collate_graphs_jax(context_list)
-        oracle_batch = collate_graphs_jax(oracle_list)
+        context_batch = collate_graphs(context_list)
+        oracle_batch = collate_graphs(oracle_list)
 
         return LinearSystemProblemBatch(context=context_batch, oracle=oracle_batch)
 
