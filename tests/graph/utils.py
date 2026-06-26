@@ -38,7 +38,7 @@ def make_simple_edge(n_obj: int = 2, backend=None):
     )
 
 
-def make_graph_with_registry(n_addresses: int = 4, n_obj: int = 2, backend=None):
+def make_graph_with_n_addresses(n_addresses: int = 4, n_obj: int = 2, backend=None):
     if backend is None:
         backend = NumpyBackend()
     edge = make_simple_edge(n_obj=n_obj, backend=backend)
@@ -84,7 +84,5 @@ def assert_graphs_equal(g1: Graph, g2: Graph):
     for k in g1.hyper_edge_sets:
         assert_edges_equal(g1.hyper_edge_sets[k], g2.hyper_edge_sets[k])
     for k in g1.true_shape.hyper_edge_sets:
-        np.testing.assert_allclose(
-            np.array(g1.true_shape.hyper_edge_sets[k]), np.array(g2.true_shape.hyper_edge_sets[k])
-        )
+        np.testing.assert_allclose(np.array(g1.true_shape.hyper_edge_sets[k]), np.array(g2.true_shape.hyper_edge_sets[k]))
     np.testing.assert_allclose(np.array(g1.true_shape.addresses), np.array(g2.true_shape.addresses))

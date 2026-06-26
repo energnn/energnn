@@ -132,13 +132,13 @@ class Graph(dict):
         )
 
     @classmethod
-    def from_numpy_graph(cls, graph: Graph, device=None, dtype: str = "float32") -> Graph:
+    def to_jax_backend(cls, graph: Graph, device=None, dtype: str = "float32") -> Graph:
         """Convert a NumPy-backed Graph to a JAX-backed one."""
         from energnn.graph.backend import JaxBackend
 
         return graph.to_backend(JaxBackend(device=device, dtype=dtype))
 
-    def to_numpy_graph(self) -> Graph:
+    def to_numpy_backend(self) -> Graph:
         """Convert this Graph to a NumPy-backed one."""
         return self.to_backend(NumpyBackend())
 

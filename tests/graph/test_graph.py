@@ -19,7 +19,7 @@ from energnn.graph.graph import (
 )
 from energnn.graph.hyper_edge_set import HyperEdgeSet
 from energnn.graph.shape import GraphShape
-from tests.graph.utils import assert_graphs_equal, make_graph_with_registry, make_simple_edge
+from tests.graph.utils import assert_graphs_equal, make_graph_with_n_addresses, make_simple_edge
 
 
 # ---------------------------------------------------------------------------
@@ -28,7 +28,7 @@ from tests.graph.utils import assert_graphs_equal, make_graph_with_registry, mak
 
 
 def test_from_dict_and_basic_props(backend):
-    g = make_graph_with_registry(n_addresses=5, n_obj=3, backend=backend)
+    g = make_graph_with_n_addresses(n_addresses=5, n_obj=3, backend=backend)
     assert isinstance(g.true_shape, GraphShape)
     assert isinstance(g.current_shape, GraphShape)
     assert g.is_single is True
@@ -37,13 +37,13 @@ def test_from_dict_and_basic_props(backend):
 
 
 def test_backend_stored_correctly(backend):
-    g = make_graph_with_registry(n_addresses=4, n_obj=2, backend=backend)
+    g = make_graph_with_n_addresses(n_addresses=4, n_obj=2, backend=backend)
     assert g._backend == backend
 
 
 def test_is_batch_detection_after_collation(backend):
-    g1 = make_graph_with_registry(n_addresses=3, n_obj=2, backend=backend)
-    g2 = make_graph_with_registry(n_addresses=3, n_obj=2, backend=backend)
+    g1 = make_graph_with_n_addresses(n_addresses=3, n_obj=2, backend=backend)
+    g2 = make_graph_with_n_addresses(n_addresses=3, n_obj=2, backend=backend)
     batch = collate_graphs([g1, g2])
     assert batch.is_batch is True
     assert batch.is_single is False
@@ -51,8 +51,8 @@ def test_is_batch_detection_after_collation(backend):
 
 
 def test_collate_preserves_subclass_type(backend):
-    g1 = make_graph_with_registry(n_addresses=3, n_obj=2, backend=backend)
-    g2 = make_graph_with_registry(n_addresses=3, n_obj=2, backend=backend)
+    g1 = make_graph_with_n_addresses(n_addresses=3, n_obj=2, backend=backend)
+    g2 = make_graph_with_n_addresses(n_addresses=3, n_obj=2, backend=backend)
     batch = collate_graphs([g1, g2])
     assert type(batch) is type(g1)
 
@@ -72,7 +72,7 @@ def test_feature_flat_array_getter_and_setter(backend):
 
 
 def test_pad_and_unpad_graph(backend):
-    g = make_graph_with_registry(n_addresses=5, n_obj=2, backend=backend)
+    g = make_graph_with_n_addresses(n_addresses=5, n_obj=2, backend=backend)
     xp = backend.xp
     target_edges = {k: xp.array(int(v) + 3) for k, v in g.current_shape.hyper_edge_sets.items()}
     target_addresses = xp.array(int(g.current_shape.addresses) + 4)
@@ -103,7 +103,7 @@ def test_count_connected_components(backend):
 
 
 def test_offset_addresses(backend):
-    g1 = make_graph_with_registry(n_addresses=4, n_obj=2, backend=backend)
+    g1 = make_graph_with_n_addresses(n_addresses=4, n_obj=2, backend=backend)
     orig = {k: np.array(v).copy() for k, v in g1.hyper_edge_sets["etype"].port_dict.items()}
     g1.offset_addresses(10)
     for k in orig:
@@ -126,8 +126,8 @@ def test_quantiles_single(backend):
 
 
 def test_collate_and_separate_graphs_roundtrip(backend):
-    g1 = make_graph_with_registry(n_addresses=4, n_obj=2, backend=backend)
-    g2 = make_graph_with_registry(n_addresses=4, n_obj=2, backend=backend)
+    g1 = make_graph_with_n_addresses(n_addresses=4, n_obj=2, backend=backend)
+    g2 = make_graph_with_n_addresses(n_addresses=4, n_obj=2, backend=backend)
     batch = collate_graphs([g1, g2])
     separated = separate_graphs(batch)
     assert isinstance(separated, list)
@@ -137,8 +137,8 @@ def test_collate_and_separate_graphs_roundtrip(backend):
 
 
 def test_concatenate_graphs(backend):
-    g1 = make_graph_with_registry(n_addresses=4, n_obj=2, backend=backend)
-    g2 = make_graph_with_registry(n_addresses=3, n_obj=3, backend=backend)
+    g1 = make_graph_with_n_addresses(n_addresses=4, n_obj=2, backend=backend)
+    g2 = make_graph_with_n_addresses(n_addresses=3, n_obj=3, backend=backend)
     cat = concatenate_graphs([g1, g2])
     assert len(cat.non_fictitious_addresses) == len(g1.non_fictitious_addresses) + len(g2.non_fictitious_addresses)
     assert int(cat.true_shape.addresses) == int(g1.true_shape.addresses) + int(g2.true_shape.addresses)
@@ -168,7 +168,7 @@ def test_get_statistics(backend):
 
 
 def test_to_backend_conversion(backend):
-    g = make_graph_with_registry(n_addresses=4, n_obj=2, backend=backend)
+    g = make_graph_with_n_addresses(n_addresses=4, n_obj=2, backend=backend)
     other = NumpyBackend() if isinstance(backend, JaxBackend) else JaxBackend()
     converted = g.to_backend(other)
     assert converted._backend == other
@@ -179,10 +179,10 @@ def test_to_backend_conversion(backend):
 
 
 def test_numpy_jax_roundtrip():
-    np_g = make_graph_with_registry(n_addresses=5, n_obj=4, backend=NumpyBackend())
-    jax_g = Graph.from_numpy_graph(np_g)
+    np_g = make_graph_with_n_addresses(n_addresses=5, n_obj=4, backend=NumpyBackend())
+    jax_g = Graph.to_jax_backend(np_g)
     assert isinstance(jax_g._backend, JaxBackend)
-    np_round = jax_g.to_numpy_graph()
+    np_round = jax_g.to_numpy_backend()
     assert isinstance(np_round._backend, NumpyBackend)
     assert_graphs_equal(np_g, np_round)
 
@@ -210,8 +210,8 @@ def test_jax_from_numpy_graph_types():
     """Graph.to_backend(JaxBackend) returns a Graph whose arrays are jax arrays."""
     import jax.numpy as jnp
 
-    np_g = make_graph_with_registry(n_addresses=5, n_obj=4, backend=NumpyBackend())
-    jg = Graph.from_numpy_graph(np_g, dtype="float32")
+    np_g = make_graph_with_n_addresses(n_addresses=5, n_obj=4, backend=NumpyBackend())
+    jg = Graph.to_jax_backend(np_g, dtype="float32")
     assert isinstance(jg, Graph)
     assert isinstance(jg.hyper_edge_sets["etype"], HyperEdgeSet)
     assert isinstance(jg.true_shape, GraphShape)
@@ -223,12 +223,12 @@ def test_jax_pytree_flatten_unflatten():
     """Graph with JaxBackend survives JAX tree_flatten / tree_unflatten."""
     import jax
 
-    np_g = make_graph_with_registry(n_addresses=4, n_obj=3, backend=NumpyBackend())
+    np_g = make_graph_with_n_addresses(n_addresses=4, n_obj=3, backend=NumpyBackend())
     jg = np_g.to_backend(JaxBackend())
     leaves, treedef = jax.tree_util.tree_flatten(jg)
     recon = jax.tree_util.tree_unflatten(treedef, leaves)
     assert isinstance(recon, Graph)
-    np_round = recon.to_numpy_graph()
+    np_round = recon.to_numpy_backend()
     assert_graphs_equal(np_g, np_round)
 
 
@@ -236,7 +236,7 @@ def test_jax_jit_identity():
     """Graph with JaxBackend can be passed through jax.jit."""
     import jax
 
-    np_g = make_graph_with_registry(n_addresses=4, n_obj=2, backend=NumpyBackend())
+    np_g = make_graph_with_n_addresses(n_addresses=4, n_obj=2, backend=NumpyBackend())
     jg = np_g.to_backend(JaxBackend())
 
     @jax.jit
