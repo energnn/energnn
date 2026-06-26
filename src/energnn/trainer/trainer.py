@@ -22,7 +22,7 @@ from tqdm import tqdm
 
 from energnn.graph import Graph
 from energnn.model import GNN
-from energnn.problem import ProblemBatch, ProblemLoader
+from energnn.problem import ProblemBatch, ProblemLoader, UnsupervisedProblemBatch, SupervisedProblemBatch
 from energnn.tracker import Tracker
 from .utils import TaskLogger
 
@@ -364,14 +364,24 @@ class Trainer:
             nnx.update(self.model, rest_updated)
             logger.info(f"[training_step {self.train_step}] nnx.update: {(time.perf_counter() - t_start) * 1000:.3f} ms")
 
-            t_start = time.perf_counter()
-            jax_gradient, infos["3_gradient"] = problem_batch.get_gradient(
-                decision=jax_decision, get_info=get_info, step=self.train_step
-            )
-            jax.block_until_ready(jax_gradient)
-            logger.info(f"[training_step {self.train_step}] get_gradient: {(time.perf_counter() - t_start) * 1000:.3f} ms")
+            if isinstance(problem_batch, UnsupervisedProblemBatch):
+                t_start = time.perf_counter()
+                jax_gradient, infos["3_gradient"] = problem_batch.get_gradient(
+                    decision=jax_decision, get_info=get_info, step=self.train_step
+                )
+                jax.block_until_ready(jax_gradient)
+                logger.info(f"[training_step {self.train_step}] get_gradient: {(time.perf_counter() - t_start) * 1000:.3f} ms")
 
-            t_start = time.perf_counter()
+                t_start = time.perf_counter()
+            elif isinstance(problem_batch, SupervisedProblemBatch):
+                # Placeholder for supervised loss integration
+                raise NotImplementedError(
+                    "Supervised learning with explicit targets requires a loss function in the Trainer, "
+                    "which is not yet implemented. Use UnsupervisedProblemBatch for now."
+                )
+            else:
+                raise TypeError(f"Problem batch type {type(problem_batch)} not supported for training.")
+
             jax_cotangent = _cast_cotangent_to_primal_dtype(jax_gradient, jax_decision)
             jax.block_until_ready(jax_cotangent)
             logger.info(f"[training_step {self.train_step}] cast_cotangent: {(time.perf_counter() - t_start) * 1000:.3f} ms")

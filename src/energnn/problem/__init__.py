@@ -5,8 +5,17 @@
 # SPDX-License-Identifier: MPL-2.0
 
 from . import example
-from .batch import ProblemBatch
+from .batch import ProblemBatch, SupervisedProblemBatch, UnsupervisedProblemBatch
 from .loader import ProblemLoader
-from .problem import Problem
+from .problem import Problem, SupervisedProblem, UnsupervisedProblem
 
-__all__ = ["Problem", "ProblemBatch", "ProblemLoader", "example"]
+__all__ = [
+    "Problem",
+    "SupervisedProblem",
+    "UnsupervisedProblem",
+    "ProblemBatch",
+    "SupervisedProblemBatch",
+    "UnsupervisedProblemBatch",
+    "ProblemLoader",
+    "example",
+]

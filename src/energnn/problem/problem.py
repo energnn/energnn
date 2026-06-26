@@ -14,8 +14,7 @@ class Problem(ABC):
     Base abstract class for graph-based optimization or learning problems.
 
     Subclasses must implement methods to retrieve the problem context graph,
-    an initial zero decision graph, compute gradients, evaluate score,
-    and provide problem metadata.
+    evaluate scores, and provide problem metadata.
 
     Notes:
         - All returned Graph objects must adhere to the energnn.graph.Graph API.
@@ -47,24 +46,6 @@ class Problem(ABC):
         :param step: Training step number passed by the trainer. Useful for scheduling.
         :return: A tuple containing:
             - **Graph**: The context graph object.
-            - **dict**: A dictionary of additional information (empty if `get_info=False`).
-
-        :raises NotImplementedError: If the subclass does not override this constructor.
-        """
-        raise NotImplementedError
-
-    @abstractmethod
-    def get_gradient(self, *, decision: Graph, get_info: bool = False, step: int | None = None) -> tuple[Graph, dict]:
-        r"""
-        Compute the gradient graph :math:`\nabla_y f` for a given decision :math:`y`.
-
-        The gradient guides optimization algorithms such as gradient descent.
-
-        :param decision: A decision graph at which to evaluate the gradient.
-        :param get_info: Flag indicating if additional information should be returned for tracking purpose.
-        :param step: Training step number passed by the trainer. Useful for scheduling.
-        :return: A tuple containing:
-            - **Graph**: The gradient graph with the same structure as decision.
             - **dict**: A dictionary of additional information (empty if `get_info=False`).
 
         :raises NotImplementedError: If the subclass does not override this constructor.
@@ -110,4 +91,57 @@ class Problem(ABC):
     @abstractmethod
     def decision_structure(self) -> GraphStructure:
         """Should define the structure of all decision graphs."""
+        raise NotImplementedError
+
+
+class UnsupervisedProblem(ABC, Problem):
+    """
+    Base class for unsupervised learning or optimization problems.
+
+    This class focuses on problems where the objective is defined by a gradient
+    of a cost function with respect to the decision variables.
+    """
+
+    @abstractmethod
+    def get_gradient(self, *, decision: JaxGraph, get_info: bool = False, step: int | None = None) -> tuple[JaxGraph, dict]:
+        r"""
+        Compute the gradient graph :math:`\nabla_y f` for a given decision :math:`y`.
+
+        The gradient guides optimization algorithms such as gradient descent.
+
+        :param decision: A decision graph at which to evaluate the gradient.
+        :param get_info: Flag indicating if additional information should be returned for tracking purpose.
+        :param step: Training step number passed by the trainer. Useful for scheduling.
+        :return: A tuple containing:
+            - **Graph**: The gradient graph with the same structure as decision.
+            - **dict**: A dictionary of additional information (empty if `get_info=False`).
+
+        :raises NotImplementedError: If the subclass does not override this constructor.
+        """
+        raise NotImplementedError
+
+
+class SupervisedProblem(ABC, Problem):
+    """
+    Base class for supervised learning problems.
+
+    This class focuses on problems where a ground truth target (oracle) is available.
+    """
+
+    @abstractmethod
+    def get_target(self, get_info: bool = False, step: int | None = None) -> tuple[JaxGraph, dict]:
+        """
+        Retrieve the target graph :math:`y^*` of the problem instance.
+
+        The target graph contains the ground truth label or optimal decision
+        associated with the context graph.
+
+        :param get_info: Flag indicating if additional information should be returned for tracking purpose.
+        :param step: Training step number passed by the trainer. Useful for scheduling.
+        :return: A tuple containing:
+            - **Graph**: The target graph object.
+            - **dict**: A dictionary of additional information (empty if `get_info=False`).
+
+        :raises NotImplementedError: If the subclass does not override this constructor.
+        """
         raise NotImplementedError
