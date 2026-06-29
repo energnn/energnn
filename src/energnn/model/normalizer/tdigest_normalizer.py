@@ -52,16 +52,16 @@ class TDigestModule(nnx.Module):
         self.digest = nnx.Variable(jax.vmap(init_digest)(jnp.arange(self.in_size)))
 
         # Grid for interpolation
-        self.p_grid = jnp.linspace(0.0, 1.0, self.n_breakpoints, dtype=jnp.float64)
+        self.p_grid = jnp.linspace(0.0, 1.0, self.n_breakpoints, dtype=jnp.float32)
         self.fp = self.p_grid * 2.0 - 1.0
         self.dfp_left = self.fp[1] - self.fp[0]
         self.dfp_right = self.fp[-1] - self.fp[-2]
         self.xp_var = nnx.Variable(
-            jnp.tile(jnp.linspace(-1.0, 1.0, self.n_breakpoints, dtype=jnp.float64)[:, None], (1, self.in_size))
+            jnp.tile(jnp.linspace(-1.0, 1.0, self.n_breakpoints, dtype=jnp.float32)[:, None], (1, self.in_size))
         )
 
         # Slopes for extrapolation [left, right]
-        self.slopes_var = nnx.Variable(jnp.ones((2, self.in_size), dtype=jnp.float64))
+        self.slopes_var = nnx.Variable(jnp.ones((2, self.in_size), dtype=jnp.float32))
 
     @property
     def min_var(self):
@@ -73,6 +73,8 @@ class TDigestModule(nnx.Module):
 
     def _update_digest(self, array: jax.Array, mask: jax.Array):
         """Pure JAX implementation of T-Digest update."""
+        array = array.astype(jnp.float32)
+        mask = mask.astype(jnp.float32)
 
         # Update Digest and Grid in a single vmap
         def update_and_get_xp(d, x, w, p):

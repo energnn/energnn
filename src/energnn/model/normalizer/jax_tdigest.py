@@ -11,24 +11,22 @@ from typing import Sequence, Union
 import jax
 import jax.numpy as jnp
 
-jax.config.update("jax_enable_x64", True)
-
 ArrayLike = Union[float, Sequence[float], jnp.ndarray]
 FloatArray = jnp.ndarray
 
 
-def _as_1d_float64(x: ArrayLike) -> FloatArray:
-    arr = jnp.asarray(x, dtype=jnp.float64)
+def _as_1d_float32(x: ArrayLike) -> FloatArray:
+    arr = jnp.asarray(x, dtype=jnp.float32)
     return jnp.ravel(arr)
 
 
 def _split_weights(x: FloatArray, w: ArrayLike | None) -> FloatArray:
     if w is None:
-        return jnp.ones_like(x, dtype=jnp.float64)
+        return jnp.ones_like(x, dtype=jnp.float32)
 
-    w_arr = jnp.asarray(w, dtype=jnp.float64)
+    w_arr = jnp.asarray(w, dtype=jnp.float32)
     if w_arr.ndim == 0:
-        return jnp.full_like(x, float(w_arr), dtype=jnp.float64)
+        return jnp.full_like(x, float(w_arr), dtype=jnp.float32)
 
     w_arr = jnp.ravel(w_arr)
     if w_arr.shape[0] != x.shape[0]:
@@ -44,7 +42,7 @@ def _compress_sorted(
     # centroids: (N, 2) [mean, weight]
     # returns: (internal_capacity, 2)
 
-    K = float(max_centroids)
+    K = jnp.array(max_centroids, dtype=jnp.float32)
     K_int = internal_capacity
 
     values = centroids[:, 0]
@@ -54,13 +52,13 @@ def _compress_sorted(
     sorted_m = values[order]
     sorted_c = weights[order]
 
-    total_w = jnp.maximum(jnp.sum(sorted_c), 1e-12)
+    total_w = jnp.maximum(jnp.sum(sorted_c), jnp.array(1e-7, dtype=jnp.float32))
 
     # Constants for optimized k-function logic (k1 scale function)
-    delta = jnp.pi / K
+    delta = jnp.array(jnp.pi, dtype=jnp.float32) / K
     cos_delta = jnp.cos(delta)
     sin_delta = jnp.sin(delta)
-    one_minus_cos_delta_div_2 = (1.0 - cos_delta) / 2.0
+    one_minus_cos_delta_div_2 = (jnp.array(1.0, dtype=jnp.float32) - cos_delta) / jnp.array(2.0, dtype=jnp.float32)
 
     def compute_cluster_ids(c_arr, tw):
         def body(state, w):
@@ -70,10 +68,10 @@ def _compress_sorted(
             q_p = (q_base + curr_w + w) / tw
 
             # Safe sqrt for q near 0 or 1
-            term_sqrt = jnp.sqrt(jnp.maximum(q_b * (1.0 - q_b), 0.0))
+            term_sqrt = jnp.sqrt(jnp.maximum(q_b * (jnp.array(1.0, dtype=jnp.float32) - q_b), 0.0))
             q_limit = one_minus_cos_delta_div_2 + q_b * cos_delta + term_sqrt * sin_delta
 
-            should_merge = (curr_w == 0) | (q_p <= q_limit + 1e-15) | (k_idx >= K_int - 1)
+            should_merge = (curr_w == 0) | (q_p <= q_limit + jnp.array(1e-7, dtype=jnp.float32)) | (k_idx >= K_int - 1)
 
             cond = (w > 0) & (~should_merge)
             new_state = (
@@ -83,7 +81,7 @@ def _compress_sorted(
             )
             return new_state, new_state[2]
 
-        init_state = (0.0, 0.0, 0)
+        init_state = (jnp.array(0.0, dtype=jnp.float32), jnp.array(0.0, dtype=jnp.float32), 0)
         _, ids = jax.lax.scan(body, init_state, c_arr)
         return ids
 
@@ -92,7 +90,9 @@ def _compress_sorted(
     new_c = jax.ops.segment_sum(sorted_c, cluster_ids, num_segments=K_int)
     new_m_weighted = jax.ops.segment_sum(sorted_m * sorted_c, cluster_ids, num_segments=K_int)
 
-    new_m = jnp.where(new_c > 0, new_m_weighted / jnp.maximum(new_c, 1e-12), -1e40)
+    new_m = jnp.where(
+        new_c > 0, new_m_weighted / jnp.maximum(new_c, jnp.array(1e-7, dtype=jnp.float32)), jnp.array(-1e30, dtype=jnp.float32)
+    )
     new_m = jnp.maximum.accumulate(new_m)
 
     return jnp.stack([new_m, new_c], axis=-1)
@@ -110,8 +110,11 @@ class JaxTDigest:
         capacity = int(1.5 * max_centroids)
         return cls(
             max_centroids=max_centroids,
-            centroids=jnp.stack([jnp.full((capacity,), -1e40), jnp.zeros((capacity,))], axis=-1),
-            stats=jnp.array([0.0, jnp.inf, -jnp.inf], dtype=jnp.float64),
+            centroids=jnp.stack(
+                [jnp.full((capacity,), jnp.array(-1e30, dtype=jnp.float32)), jnp.zeros((capacity,), dtype=jnp.float32)],
+                axis=-1,
+            ),
+            stats=jnp.array([0.0, jnp.inf, -jnp.inf], dtype=jnp.float32),
         )
 
     def tree_flatten(self):
@@ -149,17 +152,17 @@ class JaxTDigest:
         new_centroids = _compress_sorted(combined, self.max_centroids, self.internal_capacity)
 
         new_mass = jnp.sum(w) + self.mass
-        new_min = jnp.minimum(self.min_value, jnp.min(jnp.where(w > 0, x, jnp.inf)))
-        new_max = jnp.maximum(self.max_value, jnp.max(jnp.where(w > 0, x, -jnp.inf)))
+        new_min = jnp.minimum(self.min_value, jnp.min(jnp.where(w > 0, x, jnp.array(jnp.inf, dtype=jnp.float32))))
+        new_max = jnp.maximum(self.max_value, jnp.max(jnp.where(w > 0, x, jnp.array(-jnp.inf, dtype=jnp.float32))))
 
         return JaxTDigest(
             max_centroids=self.max_centroids,
             centroids=new_centroids,
-            stats=jnp.stack([new_mass, new_min, new_max]),
+            stats=jnp.stack([new_mass, new_min, new_max]).astype(jnp.float32),
         )
 
     def batch_update(self, x: ArrayLike, w: ArrayLike | None = None) -> "JaxTDigest":
-        x_arr = _as_1d_float64(x)
+        x_arr = _as_1d_float32(x)
         if x_arr.size == 0:
             return self
 
@@ -167,7 +170,7 @@ class JaxTDigest:
         return self._merge_unsorted(x_arr, w_arr)
 
     def quantile_vec(self, q: ArrayLike) -> FloatArray:
-        q_arr = jnp.asarray(q, dtype=jnp.float64)
+        q_arr = jnp.asarray(q, dtype=jnp.float32)
         if q_arr.size == 0:
             return q_arr
 
@@ -175,7 +178,9 @@ class JaxTDigest:
         weights = self.centroids[:, 1]
 
         cum = jnp.cumsum(weights)
-        mid_q = (cum - 0.5 * weights) / jnp.maximum(self.mass, 1e-12)
+        mid_q = (cum - jnp.array(0.5, dtype=jnp.float32) * weights) / jnp.maximum(
+            self.mass, jnp.array(1e-7, dtype=jnp.float32)
+        )
 
         res = jnp.interp(q_arr, mid_q, means, left=self.min_value, right=self.max_value)
 
@@ -186,7 +191,7 @@ class JaxTDigest:
         return res
 
     def cdf_vec(self, x: ArrayLike) -> FloatArray:
-        x_arr = _as_1d_float64(x)
+        x_arr = _as_1d_float32(x)
         if x_arr.size == 0:
             return x_arr
 
@@ -194,7 +199,9 @@ class JaxTDigest:
         weights = self.centroids[:, 1]
 
         cum = jnp.cumsum(weights)
-        mid_q = (cum - 0.5 * weights) / jnp.maximum(self.mass, 1e-12)
+        mid_q = (cum - jnp.array(0.5, dtype=jnp.float32) * weights) / jnp.maximum(
+            self.mass, jnp.array(1e-7, dtype=jnp.float32)
+        )
 
         res = jnp.interp(x_arr, means, mid_q, left=0.0, right=1.0)
         res = jnp.where(self.mass == 0, jnp.nan, res)
