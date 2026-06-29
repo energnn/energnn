@@ -9,8 +9,7 @@ import jax.numpy as jnp
 import numpy as np
 
 import energnn.model.normalizer.tdigest_normalizer as tdn
-from energnn.graph import GraphStructure, HyperEdgeSetStructure
-from energnn.graph.jax import JaxGraph, JaxHyperEdgeSet
+from energnn.graph import GraphStructure, HyperEdgeSetStructure, Graph, HyperEdgeSet, JaxBackend
 from energnn.model.normalizer.tdigest_normalizer import (
     TDigestModule,
     TDigestNormalizer,
@@ -149,7 +148,7 @@ def test_tdigest_normalizer_call():
     # Call normalizer
     norm_graph, info = normalizer(graph=jax_context, get_info=True)
 
-    assert isinstance(norm_graph, JaxGraph)
+    assert isinstance(norm_graph, Graph)
     assert "input_graph" in info
     assert "output_graph" in info
 
@@ -184,23 +183,30 @@ def test_tdigest_normalizer_multi_sets():
     normalizer = TDigestNormalizer(struct, update_limit=10)
 
     # Create a dummy graph
-    h1 = JaxHyperEdgeSet(
+    h1 = HyperEdgeSet(
+        backend=JaxBackend(),
         feature_array=jnp.array([[1.0], [2.0]]),
         feature_names=["f1"],
         non_fictitious=jnp.array([True, True]),
         port_dict={"p1": jnp.array([0, 1])},
     )
-    h2 = JaxHyperEdgeSet(
+    h2 = HyperEdgeSet(
+        backend=JaxBackend(),
         feature_array=jnp.array([[10.0, 100.0]]),
         feature_names=["f2", "f3"],
         non_fictitious=jnp.array([True]),
         port_dict={"p2": jnp.array([0])},
     )
-    h3 = JaxHyperEdgeSet(
-        feature_array=None, feature_names=None, non_fictitious=jnp.array([True]), port_dict={"p3": jnp.array([0])}
+    h3 = HyperEdgeSet(
+        backend=JaxBackend(),
+        feature_array=None,
+        feature_names=None,
+        non_fictitious=jnp.array([True]),
+        port_dict={"p3": jnp.array([0])},
     )
 
-    graph = JaxGraph(
+    graph = Graph(
+        backend=JaxBackend(),
         hyper_edge_sets={"s1": h1, "s2": h2, "s3": h3},
         non_fictitious_addresses=jnp.array([0, 1]),
         true_shape=None,  # Not used here
@@ -220,13 +226,19 @@ def test_tdigest_normalizer_update_limit():
     struct = GraphStructure(hyper_edge_sets={"s1": HyperEdgeSetStructure(port_list=["p1"], feature_list=["f1"])})
     normalizer = TDigestNormalizer(struct, update_limit=2)
 
-    h1 = JaxHyperEdgeSet(
+    h1 = HyperEdgeSet(
         feature_array=jnp.array([[1.0]]),
         feature_names=["f1"],
         non_fictitious=jnp.array([True]),
         port_dict={"p1": jnp.array([0])},
     )
-    graph = JaxGraph(hyper_edge_sets={"s1": h1}, non_fictitious_addresses=jnp.array([0]), true_shape=None, current_shape=None)
+    graph = Graph(
+        backend=JaxBackend(),
+        hyper_edge_sets={"s1": h1},
+        non_fictitious_addresses=jnp.array([0]),
+        true_shape=None,
+        current_shape=None,
+    )
 
     # Call 3 times
     normalizer(graph=graph)
