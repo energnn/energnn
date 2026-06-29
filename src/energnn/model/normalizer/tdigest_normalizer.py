@@ -123,9 +123,9 @@ class TDigestModule(nnx.Module):
 
         if is_training:
             self.updates[...] += jnp.where(did_update, 1, 0)
-            self.digest.set_value(new_digest)
-            self.xp_var[...] = new_xp
-            self.slopes_var[...] = new_sl
+            self.digest.set_value(jax.tree.map(jax.lax.stop_gradient, new_digest))
+            self.xp_var[...] = jax.lax.stop_gradient(new_xp)
+            self.slopes_var[...] = jax.lax.stop_gradient(new_sl)
 
         # Normalize with current (potentially updated) state
         xp = self.xp_var[...]
