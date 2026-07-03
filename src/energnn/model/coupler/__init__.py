@@ -6,18 +6,28 @@
 
 from .coupler import Coupler
 from .message_passing import (
+    GATv2MessagePassingFunction,
+    GlobalAggregationMessagePassingFunction,
+    MultiHeadQKVMessagePassingFunction,
+    PerformerMessagePassingFunction,
     IdentityMessagePassingFunction,
     LocalSumMessagePassingFunction,
     MessagePassingFunction,
     NODECoupler,
     RecurrentCoupler,
+    VirtualAddressRecurrentCoupler,
 )
 
 __all__ = [
     "Coupler",
     "NODECoupler",
+    "GATv2MessagePassingFunction",
+    "GlobalAggregationMessagePassingFunction",
+    "MultiHeadQKVMessagePassingFunction",
+    "PerformerMessagePassingFunction",
     "IdentityMessagePassingFunction",
     "LocalSumMessagePassingFunction",
     "MessagePassingFunction",
     "RecurrentCoupler",
+    "VirtualAddressRecurrentCoupler",
 ]
