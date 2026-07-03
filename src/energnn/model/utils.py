@@ -122,3 +122,22 @@ def scatter_add(*, accumulator: jax.Array, increment: jax.Array, addresses: jax.
     :returns: Updated accumulator array after adding increments.
     """
     return accumulator.at[addresses.astype(int)].add(increment, mode="drop")
+
+
+def scatter_max(*, accumulator: jax.Array, increment: jax.Array, addresses: jax.Array) -> jax.Array:
+    """
+    Scatter_max combines an accumulator with elementwise max at specified indices.
+
+    For each destination index :math:`a = \\text{addresses}[i]`, the accumulator
+    entry is updated to :math:`\\max(\\text{accumulator}[a], \\text{increment}[i])`.
+    Out-of-bounds indices are silently dropped via JAX's ``mode='drop'``.
+
+    Used by attention message functions to compute a per-receiver maximum of
+    scalar logits prior to numerically-stable softmax (max-subtraction trick).
+
+    :param accumulator: Array initialised to a sentinel low value (e.g. ``-inf``).
+    :param increment: Values to max-reduce into the accumulator.
+    :param addresses: Integer indices specifying the destination of each increment.
+    :returns: Updated accumulator array after applying elementwise max.
+    """
+    return accumulator.at[addresses.astype(int)].max(increment, mode="drop")
