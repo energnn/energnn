@@ -73,7 +73,7 @@ class ProblemBatch(ABC):
         raise NotImplementedError
 
 
-class UnsupervisedProblemBatch(ABC, ProblemBatch):
+class UnsupervisedProblemBatch(ProblemBatch):
     """
     Base class for unsupervised learning or optimization problems on batches.
 
@@ -82,7 +82,7 @@ class UnsupervisedProblemBatch(ABC, ProblemBatch):
     """
 
     @abstractmethod
-    def get_gradient(self, *, decision: JaxGraph, get_info: bool = False, step: int | None = None) -> tuple[JaxGraph, dict]:
+    def get_gradient(self, *, decision: Graph, get_info: bool = False, step: int | None = None) -> tuple[Graph, dict]:
         r"""
         Compute gradients :math:`\nabla_y f` for a batch of decision graphs :math:`y`.
 
@@ -101,7 +101,7 @@ class UnsupervisedProblemBatch(ABC, ProblemBatch):
         raise NotImplementedError
 
 
-class SupervisedProblemBatch(ABC, ProblemBatch):
+class SupervisedProblemBatch(ProblemBatch):
     """
     Base class for supervised learning problems on batches.
 
@@ -110,7 +110,7 @@ class SupervisedProblemBatch(ABC, ProblemBatch):
     """
 
     @abstractmethod
-    def get_target(self, get_info: bool = False) -> tuple[JaxGraph, dict]:
+    def get_target(self, get_info: bool = False) -> tuple[Graph, dict]:
         """
         Retrieve the target graphs :math:`y^*` of the problem batch.
 

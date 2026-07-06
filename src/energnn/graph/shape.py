@@ -125,9 +125,7 @@ class GraphShape(dict):
         backend = a._backend
         xp = backend.xp
         classes = set(list(a.hyper_edge_sets.keys()) + list(b.hyper_edge_sets.keys()))
-        hes_max = {
-            c: xp.maximum(a.hyper_edge_sets.get(c, -xp.inf), b.hyper_edge_sets.get(c, -xp.inf)) for c in classes
-        }
+        hes_max = {c: xp.maximum(a.hyper_edge_sets.get(c, -xp.inf), b.hyper_edge_sets.get(c, -xp.inf)) for c in classes}
         addresses = xp.maximum(a.addresses, b.addresses)
         return cls(backend=backend, hyper_edge_sets=hes_max, addresses=addresses)
 
@@ -136,9 +134,7 @@ class GraphShape(dict):
         """Return the element-wise sum of two GraphShape objects."""
         backend = a._backend
         classes = set(list(a.hyper_edge_sets.keys()) + list(b.hyper_edge_sets.keys()))
-        hes_sum = {
-            c: a.hyper_edge_sets.get(c, 0) + b.hyper_edge_sets.get(c, 0) for c in classes
-        }
+        hes_sum = {c: a.hyper_edge_sets.get(c, 0) + b.hyper_edge_sets.get(c, 0) for c in classes}
         addresses = a.addresses + b.addresses
         return cls(backend=backend, hyper_edge_sets=hes_sum, addresses=addresses)
 

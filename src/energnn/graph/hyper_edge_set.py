@@ -134,13 +134,9 @@ class HyperEdgeSet(dict):
     def to_backend(self, new_backend: Backend) -> HyperEdgeSet:
         """Return a copy of this ``HyperEdgeSet`` with arrays converted to ``new_backend``."""
         port_dict_b = (
-            {k: new_backend.from_numpy(np.array(v)) for k, v in self.port_dict.items()}
-            if self.port_dict is not None
-            else None
+            {k: new_backend.from_numpy(np.array(v)) for k, v in self.port_dict.items()} if self.port_dict is not None else None
         )
-        feature_array_b = (
-            new_backend.from_numpy(np.array(self.feature_array)) if self.feature_array is not None else None
-        )
+        feature_array_b = new_backend.from_numpy(np.array(self.feature_array)) if self.feature_array is not None else None
         feature_names_b = (
             {k: new_backend.from_numpy(np.array(v)) for k, v in self.feature_names.items()}
             if self.feature_names is not None
@@ -400,13 +396,14 @@ def collate_hyper_edge_sets(hyper_edge_set_list: list[HyperEdgeSet]) -> HyperEdg
         if first.port_dict is not None
         else None
     )
-    non_fictitious = (
-        xp.stack([e.non_fictitious for e in hyper_edge_set_list]) if first.non_fictitious is not None else None
-    )
+    non_fictitious = xp.stack([e.non_fictitious for e in hyper_edge_set_list]) if first.non_fictitious is not None else None
 
     return cls(
-        backend=backend, port_dict=port_dict, feature_array=feature_array,
-        feature_names=feature_names, non_fictitious=non_fictitious,
+        backend=backend,
+        port_dict=port_dict,
+        feature_array=feature_array,
+        feature_names=feature_names,
+        non_fictitious=non_fictitious,
     )
 
 
@@ -478,8 +475,11 @@ def concatenate_hyper_edge_sets(hyper_edge_set_list: list[HyperEdgeSet]) -> Hype
     non_fictitious = xp.concatenate([hes.non_fictitious for hes in hyper_edge_set_list])
 
     return cls(
-        backend=backend, port_dict=port_dict, feature_array=feature_array,
-        feature_names=feature_names, non_fictitious=non_fictitious,
+        backend=backend,
+        port_dict=port_dict,
+        feature_array=feature_array,
+        feature_names=feature_names,
+        non_fictitious=non_fictitious,
     )
 
 

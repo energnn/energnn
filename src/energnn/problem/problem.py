@@ -94,7 +94,7 @@ class Problem(ABC):
         raise NotImplementedError
 
 
-class UnsupervisedProblem(ABC, Problem):
+class UnsupervisedProblem(Problem):
     """
     Base class for unsupervised learning or optimization problems.
 
@@ -103,7 +103,7 @@ class UnsupervisedProblem(ABC, Problem):
     """
 
     @abstractmethod
-    def get_gradient(self, *, decision: JaxGraph, get_info: bool = False, step: int | None = None) -> tuple[JaxGraph, dict]:
+    def get_gradient(self, *, decision: Graph, get_info: bool = False, step: int | None = None) -> tuple[Graph, dict]:
         r"""
         Compute the gradient graph :math:`\nabla_y f` for a given decision :math:`y`.
 
@@ -121,7 +121,7 @@ class UnsupervisedProblem(ABC, Problem):
         raise NotImplementedError
 
 
-class SupervisedProblem(ABC, Problem):
+class SupervisedProblem(Problem):
     """
     Base class for supervised learning problems.
 
@@ -129,7 +129,7 @@ class SupervisedProblem(ABC, Problem):
     """
 
     @abstractmethod
-    def get_target(self, get_info: bool = False, step: int | None = None) -> tuple[JaxGraph, dict]:
+    def get_target(self, get_info: bool = False, step: int | None = None) -> tuple[Graph, dict]:
         """
         Retrieve the target graph :math:`y^*` of the problem instance.
 
