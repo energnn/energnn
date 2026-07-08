@@ -22,7 +22,7 @@ from tqdm import tqdm
 
 from energnn.graph import Graph
 from energnn.model import GNN
-from energnn.problem import ProblemBatch, ProblemLoader, UnsupervisedProblemBatch, SupervisedProblemBatch
+from energnn.problem import ProblemBatch, ProblemLoader, SelfSupervisedProblemBatch, SupervisedProblemBatch
 from energnn.tracker import Tracker
 from .utils import TaskLogger
 
@@ -106,6 +106,24 @@ class Trainer:
         self._jit_apply = nnx.jit(self._apply_forward_vjp, static_argnames=("get_info",))
         self._jit_eval_forward = nnx.jit(self._eval_forward)
         self._jit_update_params = nnx.jit(_update_params_fn)
+        self._jit_supervised_update = nnx.jit(self._apply_supervised_update, static_argnames=("get_info",))
+
+    @staticmethod
+    def _apply_supervised_update(model, optimizer, jax_context, problem_batch, get_info, step):
+        """Supervised update using nnx.value_and_grad, designed to be JIT-compiled once and reused."""
+
+        def loss_fn(model):
+            # Forward pass
+            decision, forward_info = model.forward_batch(graph=jax_context, get_info=get_info)
+            # Loss computation
+            loss, loss_info = problem_batch.get_loss(decision=decision, get_info=get_info, step=step)
+            # Auxiliary information
+            aux = {"forward": forward_info, "loss": loss_info, "decision": decision}
+            return loss, aux
+
+        (loss_val, aux), grads = nnx.value_and_grad(loss_fn, has_aux=True)(model)
+        optimizer.update(model, grads)
+        return loss_val, aux["decision"], {"forward": aux["forward"], "loss": aux["loss"]}
 
     @staticmethod
     def _apply_forward_vjp(graphdef, params, rest, jax_context, get_info):
@@ -331,13 +349,13 @@ class Trainer:
 
         return mean_score, infos
 
-    def training_step(self, problem_batch: ProblemBatch, get_info: bool) -> dict:
+    def self_supervised_training_step(self, problem_batch: SelfSupervisedProblemBatch, get_info: bool) -> dict:
         """
-        Performs a training step to update model parameters.
+        Performs a self-supervised training step to update model parameters using a gradient function.
 
-        :param problem_batch: A batch of problems for training.
+        :param problem_batch: A batch of self-supervised problems for training.
         :param get_info: Whether to compute information or not.
-        :return: A dictionary of information about the training step, or list of dictionaries.
+        :return: A dictionary of information about the training step.
         """
         with TaskLogger(logger, f"Training step {self.train_step}"):
 
@@ -364,23 +382,14 @@ class Trainer:
             nnx.update(self.model, rest_updated)
             logger.info(f"[training_step {self.train_step}] nnx.update: {(time.perf_counter() - t_start) * 1000:.3f} ms")
 
-            if isinstance(problem_batch, UnsupervisedProblemBatch):
-                t_start = time.perf_counter()
-                jax_gradient, infos["3_gradient"] = problem_batch.get_gradient(
-                    decision=jax_decision, get_info=get_info, step=self.train_step
-                )
-                jax.block_until_ready(jax_gradient)
-                logger.info(f"[training_step {self.train_step}] get_gradient: {(time.perf_counter() - t_start) * 1000:.3f} ms")
+            t_start = time.perf_counter()
+            jax_gradient, infos["3_gradient"] = problem_batch.get_gradient(
+                decision=jax_decision, get_info=get_info, step=self.train_step
+            )
+            jax.block_until_ready(jax_gradient)
+            logger.info(f"[training_step {self.train_step}] get_gradient: {(time.perf_counter() - t_start) * 1000:.3f} ms")
 
-                t_start = time.perf_counter()
-            elif isinstance(problem_batch, SupervisedProblemBatch):
-                # Placeholder for supervised loss integration
-                raise NotImplementedError(
-                    "Supervised learning with explicit targets requires a loss function in the Trainer, "
-                    "which is not yet implemented. Use UnsupervisedProblemBatch for now."
-                )
-            else:
-                raise TypeError(f"Problem batch type {type(problem_batch)} not supported for training.")
+            t_start = time.perf_counter()
 
             jax_cotangent = _cast_cotangent_to_primal_dtype(jax_gradient, jax_decision)
             jax.block_until_ready(jax_cotangent)
@@ -403,6 +412,63 @@ class Trainer:
             logger.info(f"[training_step {self.train_step}] update_params: {(time.perf_counter() - t_start) * 1000:.3f} ms")
 
             infos["4_update"] = {}
+
+            return infos
+
+    def supervised_training_step(self, problem_batch: SupervisedProblemBatch, get_info: bool) -> dict:
+        """
+        Performs a supervised training step to update model parameters using a loss function.
+
+        :param problem_batch: A batch of supervised problems for training.
+        :param get_info: Whether to compute information or not.
+        :return: A dictionary of information about the training step.
+        """
+        with TaskLogger(logger, f"Supervised training step {self.train_step}"):
+            self.model.train()  # Set model to train mode
+
+            infos = {}
+            t_start = time.perf_counter()
+            jax_context, infos["1_context"] = problem_batch.get_context(get_info=get_info, step=self.train_step)
+            jax.block_until_ready(jax_context)
+            logger.info(
+                f"[supervised_training_step {self.train_step}] get_context: {(time.perf_counter() - t_start) * 1000:.3f} ms"
+            )
+
+            t_start = time.perf_counter()
+            # Perform supervised update using the JIT-compiled method
+            loss_val, jax_decision, step_infos = self._jit_supervised_update(
+                self.model, self.optimizer, jax_context, problem_batch, get_info, self.train_step
+            )
+            jax.block_until_ready(loss_val)
+            logger.info(
+                f"[supervised_training_step {self.train_step}] jit_update: {(time.perf_counter() - t_start) * 1000:.3f} ms"
+            )
+
+            infos["2_forward"] = step_infos["forward"]
+            infos["3_loss"] = step_infos["loss"]
+            infos["3_loss"]["total"] = loss_val
+            infos["4_update"] = {}
+
+            return infos
+
+    def training_step(self, problem_batch: ProblemBatch, get_info: bool) -> dict:
+        """
+        Performs a training step to update model parameters.
+
+        :param problem_batch: A batch of problems for training.
+        :param get_info: Whether to compute information or not.
+        :return: A dictionary of information about the training step, or list of dictionaries.
+        """
+        if isinstance(problem_batch, SupervisedProblemBatch):
+            infos = self.supervised_training_step(problem_batch, get_info)
+
+        elif isinstance(problem_batch, SelfSupervisedProblemBatch):
+            infos = self.self_supervised_training_step(problem_batch, get_info)
+
+        else:
+            raise TypeError(
+                f"problem_batch must be SupervisedProblemBatch or SelfSupervisedProblemBatch, got {type(problem_batch)}"
+            )
 
         # Flatten and numpify infos
         infos = flatdict.FlatDict(infos, delimiter="/")
