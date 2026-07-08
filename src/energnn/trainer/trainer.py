@@ -359,9 +359,7 @@ class Trainer:
         """
         with TaskLogger(logger, f"Training step {self.train_step}"):
 
-            t_start = time.perf_counter()
             self.model.train()  # Set model to train mode
-            logger.info(f"[training_step {self.train_step}] model.train(): {(time.perf_counter() - t_start) * 1000:.3f} ms")
 
             infos = {}
             t_start = time.perf_counter()
@@ -424,6 +422,7 @@ class Trainer:
         :return: A dictionary of information about the training step.
         """
         with TaskLogger(logger, f"Supervised training step {self.train_step}"):
+
             self.model.train()  # Set model to train mode
 
             infos = {}

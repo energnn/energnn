@@ -6,13 +6,14 @@
 #
 from unittest.mock import MagicMock
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
 
 from energnn.graph import GraphStructure
 from energnn.graph import Graph, HyperEdgeSet
-from energnn.problem.problem import Problem
+from energnn.problem.problem import Problem, SelfSupervisedProblem, SupervisedProblem
 
 
 def make_dummy_edge_mock(feature_names, feature_array=None):
@@ -28,8 +29,8 @@ def make_dummy_graph_mock(edges: dict):
     return m
 
 
-class StubProblem(Problem):
-    """Base stub implementation for testing Problem interface."""
+class StubProblem(SelfSupervisedProblem):
+    """Base stub implementation for testing SelfSupervisedProblem interface."""
 
     def __init__(self):
         pass
@@ -48,10 +49,10 @@ class StubProblem(Problem):
     def get_zero_decision(self, get_info=False):
         return make_dummy_graph_mock(edges={}), {}
 
-    def get_gradient(self, *, decision, get_info=False, cfg=None):
+    def get_gradient(self, *, decision, get_info=False, step: int | None = None):
         return decision, {}
 
-    def get_score(self, *, decision, get_info=False, cfg=None):
+    def get_score(self, *, decision, get_info=False, step: int | None = None):
         return 0.0, {}
 
     def get_metadata(self):
@@ -62,7 +63,7 @@ class StubProblem(Problem):
 
     def get_decision_structure(self) -> dict:
         """Standard implementation pattern for get_decision_structure."""
-        zero_decision, _ = self.get_zero_decision(get_info=False)
+        zero_decision = make_dummy_graph_mock(edges={})
         structure = {}
         for edge_key, edge in zero_decision.hyper_edge_sets.items():
             if edge.feature_names is not None:
@@ -74,6 +75,10 @@ def test_problem_is_abstract():
     """Problem is abstract: instantiating it directly should raise TypeError."""
     with pytest.raises(TypeError):
         Problem()
+    with pytest.raises(TypeError):
+        SelfSupervisedProblem()
+    with pytest.raises(TypeError):
+        SupervisedProblem()
 
 
 @pytest.mark.parametrize(
@@ -87,9 +92,14 @@ def test_get_decision_structure_conversions(feature_names, expected_values):
     """get_decision_structure should correctly convert various int-like types to native ints."""
 
     class P(StubProblem):
-        def get_zero_decision(self, get_info=False):
+        def get_decision_structure(self) -> dict:
             edge = make_dummy_edge_mock(feature_names=feature_names)
-            return make_dummy_graph_mock(edges={"node": edge}), {}
+            zero_decision = make_dummy_graph_mock(edges={"node": edge})
+            structure = {}
+            for edge_key, edge in zero_decision.hyper_edge_sets.items():
+                if edge.feature_names is not None:
+                    structure[edge_key] = {name: int(idx) for name, idx in edge.feature_names.items()}
+            return structure
 
     p = P()
     ds = p.get_decision_structure()
@@ -103,9 +113,14 @@ def test_get_decision_structure_invalid_feature_value_raises():
     """If a feature name value cannot be converted to int, get_decision_structure should raise."""
 
     class P(StubProblem):
-        def get_zero_decision(self, get_info=False):
+        def get_decision_structure(self) -> dict:
             edge = make_dummy_edge_mock(feature_names={"bad": "not-an-int"})
-            return make_dummy_graph_mock(edges={"node": edge}), {}
+            zero_decision = make_dummy_graph_mock(edges={"node": edge})
+            structure = {}
+            for edge_key, edge in zero_decision.hyper_edge_sets.items():
+                if edge.feature_names is not None:
+                    structure[edge_key] = {name: int(idx) for name, idx in edge.feature_names.items()}
+            return structure
 
     p = P()
     with pytest.raises((TypeError, ValueError)):
@@ -116,17 +131,12 @@ def test_get_methods_return_tuple_and_info():
     """Check each abstract method returns (Graph, dict) or (float, dict) and handles get_info flag."""
 
     class P(StubProblem):
-        def get_context(self, get_info=False):
+        def get_context(self, get_info=False, step=None):
             g = make_dummy_graph_mock(edges={"c": make_dummy_edge_mock(feature_names={"x": 0})})
             info = {"cinfo": True} if get_info else {}
             return g, info
 
-        def get_zero_decision(self, get_info=False):
-            g = make_dummy_graph_mock(edges={"d": make_dummy_edge_mock(feature_names={"y": 0})})
-            info = {"dinfo": 1} if get_info else {}
-            return g, info
-
-        def get_gradient(self, *, decision, get_info=False, cfg=None):
+        def get_gradient(self, *, decision, get_info=False, step=None):
             keys = list(decision.hyper_edge_sets.keys())
             g = make_dummy_graph_mock(
                 {k: make_dummy_edge_mock(feature_names=decision.hyper_edge_sets[k].feature_names) for k in keys}
@@ -134,7 +144,7 @@ def test_get_methods_return_tuple_and_info():
             info = {"ginfo": "ok"} if get_info else {}
             return g, info
 
-        def get_score(self, *, decision, get_info=False, cfg=None):
+        def get_score(self, *, decision, get_info=False, step=None):
             metric = 3.14
             info = {"minfo": "m"} if get_info else {}
             return metric, info
@@ -147,15 +157,11 @@ def test_get_methods_return_tuple_and_info():
     _, info1 = p.get_context(get_info=True)
     assert info1 == {"cinfo": True}
 
-    zd, zd_info = p.get_zero_decision(get_info=False)
-    assert isinstance(zd, Graph)
-    assert zd_info == {}
-
-    grad, g_info = p.get_gradient(decision=zd, get_info=True)
+    grad, g_info = p.get_gradient(decision=ctx, get_info=True)
     assert isinstance(grad, Graph)
     assert g_info == {"ginfo": "ok"}
 
-    metric, m_info = p.get_score(decision=zd, get_info=True)
+    metric, m_info = p.get_score(decision=ctx, get_info=True)
     assert isinstance(metric, float)
     assert m_info == {"minfo": "m"}
 
@@ -168,7 +174,7 @@ def test_get_gradient_structure_matches_decision():
             d_edge = make_dummy_edge_mock(feature_names={"a": 0, "b": 1}, feature_array=jnp.zeros((2, 3)))
             return make_dummy_graph_mock(edges={"node": d_edge}), {}
 
-        def get_gradient(self, *, decision, get_info=False, cfg=None):
+        def get_gradient(self, *, decision, get_info=False, step=None):
             ke = list(decision.hyper_edge_sets.keys())[0]
             shape = decision.hyper_edge_sets[ke].feature_array.shape
             g_edge = make_dummy_edge_mock(
@@ -200,31 +206,30 @@ def test_save_writes_file(tmp_path):
 
 
 def test_integration_minimal_pipeline():
-    """Integration: context -> zero_decision -> gradient -> score with numeric checks."""
+    """Integration: context -> gradient -> score with numeric checks."""
 
     class P(StubProblem):
-        def get_context(self, get_info=False):
+        def get_context(self, get_info=False, step=None):
             edge = make_dummy_edge_mock(feature_names={"x": 0}, feature_array=jnp.array([[1.0, 2.0]]))
             return make_dummy_graph_mock(edges={"c": edge}), {}
 
-        def get_zero_decision(self, get_info=False):
-            d_edge = make_dummy_edge_mock(feature_names={"f0": 1}, feature_array=jnp.array([[1.0], [2.0]]))
-            return make_dummy_graph_mock(edges={"node": d_edge}), {}
-
-        def get_gradient(self, *, decision, get_info=False, cfg=None):
+        def get_gradient(self, *, decision, get_info=False, step=None):
             g = {}
             for k, e in decision.hyper_edge_sets.items():
                 g[k] = make_dummy_edge_mock(feature_names=e.feature_names, feature_array=2.0 * e.feature_array)
             return make_dummy_graph_mock(edges=g), {}
 
-        def get_score(self, *, decision, get_info=False, cfg=None):
+        def get_score(self, *, decision, get_info=False, step=None):
             total = 0.0
             for e in decision.hyper_edge_sets.values():
                 total += float(jnp.sum(e.feature_array**2))
             return total, {}
 
     p = P()
-    decision, _ = p.get_zero_decision()
+    # Create a dummy decision
+    edge = make_dummy_edge_mock(feature_names={"f0": 1}, feature_array=jnp.array([[1.0], [2.0]]))
+    decision = make_dummy_graph_mock(edges={"node": edge})
+
     grad, _ = p.get_gradient(decision=decision)
     # gradient should be twice decision
     for k in grad.hyper_edge_sets:
@@ -234,3 +239,55 @@ def test_integration_minimal_pipeline():
     metric, _ = p.get_score(decision=decision)
     # for decision [[1],[2]] metric = 1^2 + 2^2 = 5.0
     assert pytest.approx(metric, rel=1e-6) == 1.0**2 + 2.0**2
+
+
+def test_supervised_problem_interface():
+    """Test the SupervisedProblem interface."""
+
+    class P(SupervisedProblem):
+        def __init__(self, val=1.0):
+            self.val = val
+
+        @property
+        def context_structure(self) -> GraphStructure:
+            return GraphStructure(hyper_edge_sets={})
+
+        @property
+        def decision_structure(self) -> GraphStructure:
+            return GraphStructure(hyper_edge_sets={})
+
+        def get_context(self, get_info=False, step=None):
+            return make_dummy_graph_mock(edges={}), {}
+
+        def get_score(self, *, decision, get_info=False, step=None):
+            return 0.0, {}
+
+        def get_loss(self, *, decision, get_info=False, step=None):
+            return self.val, {"info": "loss"}
+
+        def save(self, *, path: str) -> None:
+            pass
+
+    p = P(val=42.0)
+    loss, info = p.get_loss(decision=make_dummy_graph_mock(edges={}), get_info=True)
+    assert loss == 42.0
+    assert info == {"info": "loss"}
+
+
+def test_problem_pytree_registration():
+    """Test that Problem subclasses are correctly registered as JAX PyTrees."""
+
+    class MyProblem(StubProblem):
+        def __init__(self, a, b):
+            self.a = a
+            self.b = b
+
+    p = MyProblem(a=1.0, b=jnp.array([2.0, 3.0]))
+    leaves, treedef = jax.tree_util.tree_flatten(p)
+
+    assert 1.0 in leaves
+
+    p2 = jax.tree_util.tree_unflatten(treedef, leaves)
+    assert isinstance(p2, MyProblem)
+    assert p2.a == p.a
+    np.testing.assert_allclose(p2.b, p.b)

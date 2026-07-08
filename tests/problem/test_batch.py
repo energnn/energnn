@@ -5,7 +5,7 @@ import pytest
 
 from energnn.graph import GraphStructure
 from energnn.graph import Graph, HyperEdgeSet, JaxBackend
-from energnn.problem.batch import ProblemBatch
+from energnn.problem.batch import ProblemBatch, SelfSupervisedProblemBatch, SupervisedProblemBatch
 from energnn.problem.example import LinearSystemProblemLoader
 
 
@@ -21,7 +21,7 @@ def pb_batch(pb_loader):
     return next(iter(pb_loader))
 
 
-class StubProblemBatch(ProblemBatch):
+class StubProblemBatch(SelfSupervisedProblemBatch):
     """Minimal concrete ProblemBatch for testing the base interface."""
 
     def __init__(self, context=None, decision=None):
@@ -36,15 +36,15 @@ class StubProblemBatch(ProblemBatch):
     def decision_structure(self) -> GraphStructure:
         return GraphStructure(hyper_edge_sets={})
 
-    def get_context(self, get_info: bool = False):
+    def get_context(self, get_info: bool = False, step: int | None = None):
         info = {"cinfo": True} if get_info else {}
         return self.context, info
 
-    def get_gradient(self, *, decision, get_info: bool = False):
+    def get_gradient(self, *, decision, get_info: bool = False, step: int | None = None):
         info = {"ginfo": "ok"} if get_info else {}
         return decision, info
 
-    def get_score(self, *, decision, get_info: bool = False):
+    def get_score(self, *, decision, get_info: bool = False, step: int | None = None):
         info = {"minfo": "m"} if get_info else {}
         return [0.0], info
 
@@ -85,7 +85,7 @@ def test_methods_return_tuple_and_info():
     _, info = pb.get_gradient(decision=dummy_graph, get_info=True)
     assert info == {"ginfo": "ok"}
 
-    # get_metrics
+    # get_score
     score, info = pb.get_score(decision=dummy_graph, get_info=True)
     assert isinstance(score, list)
     assert info == {"minfo": "m"}
@@ -100,14 +100,19 @@ def test_methods_return_tuple_and_info():
 )
 def test_get_decision_structure_conversions(feature_names, expected_values):
     """get_decision_structure should correctly convert various int-like types to native ints."""
-    edge = HyperEdgeSet(backend=JaxBackend(),
+    edge = HyperEdgeSet(
+        backend=JaxBackend(),
         port_dict=None,
         feature_array=jnp.zeros((1, 2)),
         feature_names=feature_names,
         non_fictitious=jnp.ones((1,)),
     )
-    decision = Graph(backend=JaxBackend(),
-        hyper_edge_sets={"node": edge}, non_fictitious_addresses=jnp.array([]), true_shape=None, current_shape=None
+    decision = Graph(
+        backend=JaxBackend(),
+        hyper_edge_sets={"node": edge},
+        non_fictitious_addresses=jnp.array([]),
+        true_shape=None,
+        current_shape=None,
     )
     pb = StubProblemBatch(decision=decision)
 
@@ -117,22 +122,51 @@ def test_get_decision_structure_conversions(feature_names, expected_values):
         assert isinstance(val, int)
 
 
-def test_get_gradient_shapes_match_decision(pb_batch):
-    """get_gradient must return a gradient Graph with the same edge keys and shapes as the decision input."""
-    # pb_batch fixture is already a valid LinearSystemProblemBatch (concrete ProblemBatch)
-    ctx, _ = pb_batch.get_context()
+def test_supervised_problem_batch_interface():
+    """Test the SupervisedProblemBatch interface."""
 
-    # Use oracle as a valid decision to test gradient computation
-    oracle, _ = pb_batch.get_oracle()
-    grad, _ = pb_batch.get_gradient(decision=oracle, get_info=False)
+    class P(SupervisedProblemBatch):
+        def __init__(self, val=1.0):
+            self.val = val
 
-    # Check edge keys and shapes
-    assert set(oracle.hyper_edge_sets.keys()) == set(grad.hyper_edge_sets.keys())
+        @property
+        def context_structure(self) -> GraphStructure:
+            return GraphStructure(hyper_edge_sets={})
 
-    for key in oracle.hyper_edge_sets:
-        dec_arr = oracle.hyper_edge_sets[key].feature_array
-        grad_arr = grad.hyper_edge_sets[key].feature_array
-        if dec_arr is not None:
-            assert dec_arr.shape == grad_arr.shape
-        else:
-            assert grad_arr is None
+        @property
+        def decision_structure(self) -> GraphStructure:
+            return GraphStructure(hyper_edge_sets={})
+
+        def get_context(self, get_info=False, step=None):
+            return {}, {}
+
+        def get_score(self, *, decision, get_info=False, step=None):
+            return [0.0], {}
+
+        def get_loss(self, *, decision, get_info=False, step=None):
+            return self.val, {"info": "loss"}
+
+    p = P(val=42.0)
+    loss, info = p.get_loss(decision={}, get_info=True)
+    assert loss == 42.0
+    assert info == {"info": "loss"}
+
+
+def test_problem_batch_pytree_registration():
+    """Test that ProblemBatch subclasses are correctly registered as JAX PyTrees."""
+
+    class MyProblemBatch(StubProblemBatch):
+        def __init__(self, a, b):
+            super().__init__()
+            self.a = a
+            self.b = b
+
+    p = MyProblemBatch(a=1.0, b=jnp.array([2.0, 3.0]))
+    leaves, treedef = jax.tree_util.tree_flatten(p)
+
+    assert 1.0 in leaves
+
+    p2 = jax.tree_util.tree_unflatten(treedef, leaves)
+    assert isinstance(p2, MyProblemBatch)
+    assert p2.a == p.a
+    np.testing.assert_allclose(p2.b, p.b)
