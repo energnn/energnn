@@ -5,6 +5,9 @@
 # SPDX-License-Identifier: MPL-2.0
 
 from abc import ABC, abstractmethod
+from typing import Any
+
+from jax.tree_util import register_pytree_node_class
 
 from energnn.graph import Graph, GraphStructure
 
@@ -18,6 +21,11 @@ class ProblemBatch(ABC):
     and provide metadata about the graph structures.
     """
 
+    def __init_subclass__(cls, **kwargs):
+        """Automatically register subclasses as JAX PyTrees."""
+        super().__init_subclass__(**kwargs)
+        register_pytree_node_class(cls)
+
     @abstractmethod
     def __init__(self):
         """
@@ -28,6 +36,24 @@ class ProblemBatch(ABC):
         :raises NotImplementedError: If not overridden in subclass.
         """
         raise NotImplementedError
+
+    def tree_flatten(self) -> tuple[tuple[Any, ...], Any]:
+        """
+        Flatten the ProblemBatch into a list of children and auxiliary data for JAX.
+        By default, all items in __dict__ are considered children.
+        """
+        # We filter out attributes that might not be JAX-compatible if necessary,
+        # but usually Graph objects are fine.
+        children = tuple(self.__dict__.values())
+        aux_data = tuple(self.__dict__.keys())
+        return children, aux_data
+
+    @classmethod
+    def tree_unflatten(cls, aux_data: tuple[str, ...], children: tuple[Any, ...]) -> "ProblemBatch":
+        """Reconstruct the ProblemBatch from children and auxiliary data."""
+        instance = cls.__new__(cls)
+        instance.__dict__.update(zip(aux_data, children))
+        return instance
 
     @abstractmethod
     def get_context(self, get_info: bool = False, step: int | None = None) -> tuple[Graph, dict]:
@@ -73,9 +99,9 @@ class ProblemBatch(ABC):
         raise NotImplementedError
 
 
-class UnsupervisedProblemBatch(ProblemBatch):
+class SelfSupervisedProblemBatch(ProblemBatch):
     """
-    Base class for unsupervised learning or optimization problems on batches.
+    Base class for self-supervised learning or optimization problems on batches.
 
     This class focuses on problems where the objective is defined by a gradient
     of a cost function with respect to the decision variables.
@@ -110,16 +136,17 @@ class SupervisedProblemBatch(ProblemBatch):
     """
 
     @abstractmethod
-    def get_target(self, get_info: bool = False) -> tuple[Graph, dict]:
-        """
-        Retrieve the target graphs :math:`y^*` of the problem batch.
+    def get_loss(self, *, decision: Graph, get_info: bool = False, step: int | None = None) -> tuple[float, dict]:
+        r"""
+        Compute the loss value for a given decision :math:`y`.
 
-        The target graphs contain the ground truth labels or optimal decisions
-        associated with the context graphs.
+        The loss guides optimization algorithms such as gradient descent.
 
+        :param decision: A decision graph at which to evaluate the loss.
         :param get_info: Flag indicating if additional information should be returned for tracking purpose.
+        :param step: Training step number passed by the trainer. Useful for scheduling.
         :return: A tuple containing:
-            - **Graph**: The target graph object.
+            - **float**: The loss value.
             - **dict**: A dictionary of additional information (empty if `get_info=False`).
 
         :raises NotImplementedError: If the subclass does not override this constructor.

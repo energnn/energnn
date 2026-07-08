@@ -5,6 +5,9 @@
 # SPDX-License-Identifier: MPL-2.0
 
 from abc import ABC, abstractmethod
+from typing import Any
+
+from jax.tree_util import register_pytree_node_class
 
 from energnn.graph import Graph, GraphStructure
 
@@ -22,6 +25,11 @@ class Problem(ABC):
           `get_info=True` for tracking purpose.
     """
 
+    def __init_subclass__(cls, **kwargs):
+        """Automatically register subclasses as JAX PyTrees."""
+        super().__init_subclass__(**kwargs)
+        register_pytree_node_class(cls)
+
     @abstractmethod
     def __init__(self):
         """
@@ -33,6 +41,21 @@ class Problem(ABC):
         :raises NotImplementedError: If the subclass does not override this constructor.
         """
         raise NotImplementedError
+
+    def tree_flatten(self) -> tuple[tuple[Any, ...], Any]:
+        """
+        Flatten the Problem into a list of children and auxiliary data for JAX.
+        """
+        children = tuple(self.__dict__.values())
+        aux_data = tuple(self.__dict__.keys())
+        return children, aux_data
+
+    @classmethod
+    def tree_unflatten(cls, aux_data: tuple[str, ...], children: tuple[Any, ...]) -> "Problem":
+        """Reconstruct the Problem from children and auxiliary data."""
+        instance = cls.__new__(cls)
+        instance.__dict__.update(zip(aux_data, children))
+        return instance
 
     @abstractmethod
     def get_context(self, get_info: bool = False, step: int | None = None) -> tuple[Graph, dict]:
@@ -94,9 +117,9 @@ class Problem(ABC):
         raise NotImplementedError
 
 
-class UnsupervisedProblem(Problem):
+class SelfSupervisedProblem(Problem):
     """
-    Base class for unsupervised learning or optimization problems.
+    Base class for self-supervised learning or optimization problems.
 
     This class focuses on problems where the objective is defined by a gradient
     of a cost function with respect to the decision variables.
@@ -129,17 +152,17 @@ class SupervisedProblem(Problem):
     """
 
     @abstractmethod
-    def get_target(self, get_info: bool = False, step: int | None = None) -> tuple[Graph, dict]:
-        """
-        Retrieve the target graph :math:`y^*` of the problem instance.
+    def get_loss(self, *, decision: Graph, get_info: bool = False, step: int | None = None) -> tuple[float, dict]:
+        r"""
+        Compute the loss graph :math:`\mathcal{L} = f(y, y^{\star})` for a given decision :math:`y`.
 
-        The target graph contains the ground truth label or optimal decision
-        associated with the context graph.
+        The loss guides optimization algorithms such as gradient descent.
 
+        :param decision: A decision graph at which to evaluate the loss.
         :param get_info: Flag indicating if additional information should be returned for tracking purpose.
         :param step: Training step number passed by the trainer. Useful for scheduling.
         :return: A tuple containing:
-            - **Graph**: The target graph object.
+            - **float**: The loss value.
             - **dict**: A dictionary of additional information (empty if `get_info=False`).
 
         :raises NotImplementedError: If the subclass does not override this constructor.
