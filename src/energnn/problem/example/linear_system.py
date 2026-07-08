@@ -13,9 +13,9 @@ from omegaconf import DictConfig
 
 from energnn.graph import GraphStructure, HyperEdgeSetStructure
 from energnn.graph import Graph, GraphShape, HyperEdgeSet, JaxBackend, collate_graphs
-from ..batch import ProblemBatch
+from ..batch import SelfSupervisedProblemBatch
 from ..loader import ProblemLoader
-from ..problem import Problem
+from ..problem import SelfSupervisedProblem
 
 LINEAR_SYSTEM_CONTEXT_STRUCTURE = GraphStructure(
     hyper_edge_sets={
@@ -28,7 +28,7 @@ LINEAR_SYSTEM_DECISION_STRUCTURE = GraphStructure(
 )
 
 
-class LinearSystemProblemBatch(ProblemBatch):
+class LinearSystemProblemBatch(SelfSupervisedProblemBatch):
     __test__ = False
 
     def __init__(self, *, context: Graph, oracle: Graph):
@@ -84,7 +84,7 @@ class LinearSystemProblemBatch(ProblemBatch):
         pass
 
 
-class LinearSystemProblem(Problem):
+class LinearSystemProblem(SelfSupervisedProblem):
     __test__ = False
 
     def __init__(self, *, context: Graph, oracle: Graph):
