@@ -4,6 +4,7 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 # SPDX-License-Identifier: MPL-2.0
 
+import logging
 import jax
 import jax.numpy as jnp
 from flax import nnx
@@ -27,6 +28,10 @@ class TDigestModule(nnx.Module):
         n_breakpoints: int,
         max_centroids: int,
         use_running_average: bool,
+        enable_saturation: bool = False,
+        saturation_strategy: str = "hard",
+        clip_min: float = -1.5,
+        clip_max: float = 1.5,
     ):
         """
         Initializes the TDigestModule.
@@ -36,12 +41,22 @@ class TDigestModule(nnx.Module):
         :param n_breakpoints: Number of points for the interpolation grid.
         :param max_centroids: Maximum number of centroids for the T-Digest.
         :param use_running_average: If True, skips updates and uses current state (inference mode).
+        :param enable_saturation: If True, applies saturation to the output to handle outliers
+            that fall far outside the distribution observed during fitting.
+        :param saturation_strategy: Strategy for saturation, either "hard" (clipping) or "soft" (tanh-based).
+            Defaults to "hard".
+        :param clip_min: Minimum value for saturation. Defaults to -1.5.
+        :param clip_max: Maximum value for saturation. Defaults to 1.5.
         """
         self.in_size = in_size
         self.update_limit = update_limit
         self.n_breakpoints = n_breakpoints
         self.max_centroids = max_centroids
         self.use_running_average = use_running_average
+        self.enable_saturation = enable_saturation
+        self.saturation_strategy = saturation_strategy
+        self.clip_min = clip_min
+        self.clip_max = clip_max
 
         self.updates = nnx.Variable(jnp.array([0], dtype=jnp.int32))
 
@@ -145,6 +160,26 @@ class TDigestModule(nnx.Module):
         else:
             out = jax.vmap(forward_local, in_axes=(1, 1, 0), out_axes=1)(array, xp, slopes.T)
 
+        if self.enable_saturation:
+            # Warning mechanism
+            def log_clipping(has_clipped):
+                if has_clipped:
+                    logging.warning(
+                        f"Normalization saturation occurred: some values were outside [{self.clip_min}, {self.clip_max}]"
+                    )
+
+            has_clipped = jnp.any((out < self.clip_min) | (out > self.clip_max))
+            jax.debug.callback(log_clipping, has_clipped)
+
+            if self.saturation_strategy == "hard":
+                out = jnp.clip(out, self.clip_min, self.clip_max)
+            elif self.saturation_strategy == "soft":
+                mid = (self.clip_max + self.clip_min) / 2
+                half_range = (self.clip_max - self.clip_min) / 2
+                out = mid + half_range * jnp.tanh((out - mid) / half_range)
+            else:
+                raise ValueError(f"Unknown saturation_strategy: {self.saturation_strategy}")
+
         return out * non_fictitious
 
 
@@ -163,6 +198,10 @@ class TDigestNormalizer(Normalizer):
         n_breakpoints: int = 20,
         max_centroids: int = 1000,
         use_running_average: bool = False,
+        enable_saturation: bool = False,
+        saturation_strategy: str = "hard",
+        clip_min: float = -1.5,
+        clip_max: float = 1.5,
     ):
         """
         Initializes the TDigestNormalizer.
@@ -172,12 +211,22 @@ class TDigestNormalizer(Normalizer):
         :param n_breakpoints: Number of breakpoints for the interpolation grid.
         :param max_centroids: Maximum number of centroids for each T-Digest.
         :param use_running_average: Initial state for the running average flag.
+        :param enable_saturation: If True, applies saturation to the output to handle outliers
+            that fall far outside the distribution observed during fitting.
+        :param saturation_strategy: Strategy for saturation, either "hard" (clipping) or "soft" (tanh-based).
+            Defaults to "hard".
+        :param clip_min: Minimum value for saturation. Defaults to -1.5.
+        :param clip_max: Maximum value for saturation. Defaults to 1.5.
         """
         self.in_structure = in_structure
         self.update_limit = update_limit
         self.n_breakpoints = n_breakpoints
         self.max_centroids = max_centroids
         self.use_running_average = use_running_average
+        self.enable_saturation = enable_saturation
+        self.saturation_strategy = saturation_strategy
+        self.clip_min = clip_min
+        self.clip_max = clip_max
 
         self.module_dict = self._build_module_dict()
 
@@ -193,6 +242,10 @@ class TDigestNormalizer(Normalizer):
                     n_breakpoints=self.n_breakpoints,
                     max_centroids=self.max_centroids,
                     use_running_average=self.use_running_average,
+                    enable_saturation=self.enable_saturation,
+                    saturation_strategy=self.saturation_strategy,
+                    clip_min=self.clip_min,
+                    clip_max=self.clip_max,
                 )
             else:
                 module_dict[key] = None
