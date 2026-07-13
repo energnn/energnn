@@ -28,10 +28,10 @@ class TDigestModule(nnx.Module):
         n_breakpoints: int,
         max_centroids: int,
         use_running_average: bool,
-        enable_saturation: bool = False,
-        saturation_strategy: str = "hard",
-        clip_min: float = -1.5,
-        clip_max: float = 1.5,
+        saturation_strategy: str | None = None,
+        clip_min: float | None = None,
+        clip_max: float | None = None,
+        update_frequency: int = 1,
     ):
         """
         Initializes the TDigestModule.
@@ -41,24 +41,33 @@ class TDigestModule(nnx.Module):
         :param n_breakpoints: Number of points for the interpolation grid.
         :param max_centroids: Maximum number of centroids for the T-Digest.
         :param use_running_average: If True, skips updates and uses current state (inference mode).
-        :param enable_saturation: If True, applies saturation to the output to handle outliers
-            that fall far outside the distribution observed during fitting.
-        :param saturation_strategy: Strategy for saturation, either "hard" (clipping) or "soft" (tanh-based).
-            Defaults to "hard".
-        :param clip_min: Minimum value for saturation. Defaults to -1.5.
-        :param clip_max: Maximum value for saturation. Defaults to 1.5.
+        :param saturation_strategy: Strategy for saturation, either "hard" (clipping to [clip_min, clip_max]),
+            "soft" (applying tanh function), or None (no saturation). Defaults to None.
+        :param clip_min: Minimum value for hard saturation. Required if saturation_strategy is "hard".
+        :param clip_max: Maximum value for hard saturation. Required if saturation_strategy is "hard".
+        :param update_frequency: Frequency of update steps. Defaults to 1 (update at every step).
+            Updates are always performed at the first step (step 0).
         """
+        if saturation_strategy not in [None, "hard", "soft"]:
+            raise ValueError(f"saturation_strategy must be None, 'hard' or 'soft', got {saturation_strategy}")
+        if saturation_strategy == "hard":
+            if clip_min is None or clip_max is None:
+                raise ValueError("clip_min and clip_max must be provided when saturation_strategy is 'hard'")
+            if clip_min >= clip_max:
+                raise ValueError(f"clip_min must be strictly less than clip_max, got {clip_min} >= {clip_max}")
+
         self.in_size = in_size
         self.update_limit = update_limit
+        self.update_frequency = update_frequency
         self.n_breakpoints = n_breakpoints
         self.max_centroids = max_centroids
         self.use_running_average = use_running_average
-        self.enable_saturation = enable_saturation
         self.saturation_strategy = saturation_strategy
         self.clip_min = clip_min
         self.clip_max = clip_max
 
         self.updates = nnx.Variable(jnp.array([0], dtype=jnp.int32))
+        self.train_steps = nnx.Variable(jnp.array([0], dtype=jnp.int32))
 
         # Initialize vmapped JaxTDigest
         def init_digest(_):
@@ -111,7 +120,9 @@ class TDigestModule(nnx.Module):
 
     def __call__(self, array: jax.Array, non_fictitious: jax.Array) -> jax.Array:
         is_training = not self.use_running_average
-        should_update = is_training & (self.updates[...] < self.update_limit)[0]
+        should_update = (
+            is_training & (self.updates[...] < self.update_limit)[0] & (self.train_steps[...] % self.update_frequency == 0)[0]
+        )
 
         if array.ndim == 3:
             B, N, F = array.shape
@@ -138,6 +149,7 @@ class TDigestModule(nnx.Module):
 
         if is_training:
             self.updates[...] += jnp.where(did_update, 1, 0)
+            self.train_steps[...] += 1
             self.digest.set_value(jax.tree.map(jax.lax.stop_gradient, new_digest))
             self.xp_var[...] = jax.lax.stop_gradient(new_xp)
             self.slopes_var[...] = jax.lax.stop_gradient(new_sl)
@@ -160,23 +172,20 @@ class TDigestModule(nnx.Module):
         else:
             out = jax.vmap(forward_local, in_axes=(1, 1, 0), out_axes=1)(array, xp, slopes.T)
 
-        if self.enable_saturation:
-            # Warning mechanism
-            def log_clipping(has_clipped):
-                if has_clipped:
-                    logging.warning(
-                        f"Normalization saturation occurred: some values were outside [{self.clip_min}, {self.clip_max}]"
-                    )
-
-            has_clipped = jnp.any((out < self.clip_min) | (out > self.clip_max))
-            jax.debug.callback(log_clipping, has_clipped)
-
+        if self.saturation_strategy is not None:
             if self.saturation_strategy == "hard":
+                # Warning mechanism only for hard clipping
+                def log_clipping(has_clipped):
+                    if has_clipped:
+                        logging.warning(
+                            f"Normalization saturation occurred: some values were outside [{self.clip_min}, {self.clip_max}]"
+                        )
+
+                has_clipped = jnp.any((out < self.clip_min) | (out > self.clip_max))
+                jax.debug.callback(log_clipping, has_clipped)
                 out = jnp.clip(out, self.clip_min, self.clip_max)
             elif self.saturation_strategy == "soft":
-                mid = (self.clip_max + self.clip_min) / 2
-                half_range = (self.clip_max - self.clip_min) / 2
-                out = mid + half_range * jnp.tanh((out - mid) / half_range)
+                out = jnp.tanh(out)
             else:
                 raise ValueError(f"Unknown saturation_strategy: {self.saturation_strategy}")
 
@@ -198,10 +207,10 @@ class TDigestNormalizer(Normalizer):
         n_breakpoints: int = 20,
         max_centroids: int = 1000,
         use_running_average: bool = False,
-        enable_saturation: bool = False,
-        saturation_strategy: str = "hard",
-        clip_min: float = -1.5,
-        clip_max: float = 1.5,
+        saturation_strategy: str | None = None,
+        clip_min: float | None = None,
+        clip_max: float | None = None,
+        update_frequency: int = 1,
     ):
         """
         Initializes the TDigestNormalizer.
@@ -211,19 +220,27 @@ class TDigestNormalizer(Normalizer):
         :param n_breakpoints: Number of breakpoints for the interpolation grid.
         :param max_centroids: Maximum number of centroids for each T-Digest.
         :param use_running_average: Initial state for the running average flag.
-        :param enable_saturation: If True, applies saturation to the output to handle outliers
-            that fall far outside the distribution observed during fitting.
-        :param saturation_strategy: Strategy for saturation, either "hard" (clipping) or "soft" (tanh-based).
-            Defaults to "hard".
-        :param clip_min: Minimum value for saturation. Defaults to -1.5.
-        :param clip_max: Maximum value for saturation. Defaults to 1.5.
+        :param saturation_strategy: Strategy for saturation, either "hard" (clipping to [clip_min, clip_max]),
+            "soft" (applying tanh function), or None (no saturation). Defaults to None.
+        :param clip_min: Minimum value for hard saturation. Required if saturation_strategy is "hard".
+        :param clip_max: Maximum value for hard saturation. Required if saturation_strategy is "hard".
+        :param update_frequency: Frequency of update steps for each T-Digest. Defaults to 1 (update at every step).
+            Updates are always performed at the first step (step 0).
         """
+        if saturation_strategy not in [None, "hard", "soft"]:
+            raise ValueError(f"saturation_strategy must be None, 'hard' or 'soft', got {saturation_strategy}")
+        if saturation_strategy == "hard":
+            if clip_min is None or clip_max is None:
+                raise ValueError("clip_min and clip_max must be provided when saturation_strategy is 'hard'")
+            if clip_min >= clip_max:
+                raise ValueError(f"clip_min must be strictly less than clip_max, got {clip_min} >= {clip_max}")
+
         self.in_structure = in_structure
         self.update_limit = update_limit
+        self.update_frequency = update_frequency
         self.n_breakpoints = n_breakpoints
         self.max_centroids = max_centroids
         self.use_running_average = use_running_average
-        self.enable_saturation = enable_saturation
         self.saturation_strategy = saturation_strategy
         self.clip_min = clip_min
         self.clip_max = clip_max
@@ -242,10 +259,10 @@ class TDigestNormalizer(Normalizer):
                     n_breakpoints=self.n_breakpoints,
                     max_centroids=self.max_centroids,
                     use_running_average=self.use_running_average,
-                    enable_saturation=self.enable_saturation,
                     saturation_strategy=self.saturation_strategy,
                     clip_min=self.clip_min,
                     clip_max=self.clip_max,
+                    update_frequency=self.update_frequency,
                 )
             else:
                 module_dict[key] = None
