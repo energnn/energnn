@@ -4,11 +4,11 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
+import logging
 import jax
 import jax.numpy as jnp
 import numpy as np
 
-import energnn.model.normalizer.tdigest_normalizer as tdn
 from energnn.graph import GraphStructure, HyperEdgeSetStructure, Graph, HyperEdgeSet, JaxBackend
 from energnn.model.normalizer.tdigest_normalizer import (
     TDigestModule,
@@ -87,6 +87,109 @@ def test_tdigest_module_normalization_range():
         assert norm_out[2, 0] > 0.95
     finally:
         jax.config.update("jax_enable_x64", False)
+
+
+def test_tdigest_saturation(caplog):
+    feature_names = ["feat1"]
+    hyper_edge_sets = {"nodes": HyperEdgeSetStructure(port_list=[], feature_list=feature_names)}
+    structure = GraphStructure(hyper_edge_sets=hyper_edge_sets)
+
+    # Enable saturation (hard)
+    normalizer = TDigestNormalizer(
+        in_structure=structure,
+        update_limit=10,
+        enable_saturation=True,
+        saturation_strategy="hard",
+        clip_min=-1.0,
+        clip_max=1.0,
+    )
+
+    # Fit with normal data in [-0.5, 0.5]
+    data = jnp.linspace(-0.5, 0.5, 100).reshape(1, 100, 1)
+    nodes = HyperEdgeSet(
+        backend=JaxBackend(),
+        port_dict=None,
+        feature_array=data,
+        feature_names=feature_names,
+        non_fictitious=jnp.ones((1, 100)),
+    )
+    graph = Graph.from_dict(backend=JaxBackend(), hyper_edge_set_dict={"nodes": nodes}, n_addresses=100)
+
+    for _ in range(5):
+        normalizer(graph=graph)
+
+    normalizer.set_running_average(True)
+
+    # Test with outlier
+    outlier_data = jnp.array([[[10.0]]])
+    outlier_nodes = HyperEdgeSet(
+        backend=JaxBackend(),
+        port_dict=None,
+        feature_array=outlier_data,
+        feature_names=feature_names,
+        non_fictitious=jnp.ones((1, 1)),
+    )
+    outlier_graph = Graph.from_dict(backend=JaxBackend(), hyper_edge_set_dict={"nodes": outlier_nodes}, n_addresses=1)
+
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        gn, _ = normalizer(graph=outlier_graph)
+
+    val = gn.hyper_edge_sets["nodes"].feature_array[0, 0, 0]
+    assert val == 1.0
+    assert "Normalization saturation occurred" in caplog.text
+
+
+def test_tdigest_soft_saturation(caplog):
+    feature_names = ["feat1"]
+    hyper_edge_sets = {"nodes": HyperEdgeSetStructure(port_list=[], feature_list=feature_names)}
+    structure = GraphStructure(hyper_edge_sets=hyper_edge_sets)
+
+    # Enable saturation (soft)
+    normalizer = TDigestNormalizer(
+        in_structure=structure,
+        update_limit=10,
+        enable_saturation=True,
+        saturation_strategy="soft",
+        clip_min=-1.0,
+        clip_max=1.0,
+    )
+
+    # Fit with normal data in [-0.5, 0.5]
+    data = jnp.linspace(-0.5, 0.5, 100).reshape(1, 100, 1)
+    nodes = HyperEdgeSet(
+        backend=JaxBackend(),
+        port_dict=None,
+        feature_array=data,
+        feature_names=feature_names,
+        non_fictitious=jnp.ones((1, 100)),
+    )
+    graph = Graph.from_dict(backend=JaxBackend(), hyper_edge_set_dict={"nodes": nodes}, n_addresses=100)
+
+    for _ in range(5):
+        normalizer(graph=graph)
+
+    normalizer.set_running_average(True)
+
+    # Test with outlier
+    outlier_data = jnp.array([[[2.0]]])
+    outlier_nodes = HyperEdgeSet(
+        backend=JaxBackend(),
+        port_dict=None,
+        feature_array=outlier_data,
+        feature_names=feature_names,
+        non_fictitious=jnp.ones((1, 1)),
+    )
+    outlier_graph = Graph.from_dict(backend=JaxBackend(), hyper_edge_set_dict={"nodes": outlier_nodes}, n_addresses=1)
+
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        gn, _ = normalizer(graph=outlier_graph)
+
+    val = gn.hyper_edge_sets["nodes"].feature_array[0, 0, 0]
+    # tanh(out) where out > 1
+    assert val < 1.0
+    assert "Normalization saturation occurred" in caplog.text
 
 
 def test_tdigest_module_inference_mode():
