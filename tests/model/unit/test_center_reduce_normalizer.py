@@ -5,6 +5,7 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
 import logging
+import pytest
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -35,6 +36,36 @@ def test_hyper_edge_set_center_reduce_normalizer_init():
     assert module.var.shape == (in_size,)
     assert jnp.all(module.mean[...] == 0.0)
     assert jnp.all(module.var[...] == 1.0)
+
+
+def test_center_reduce_module_validation():
+    # Valid
+    HyperEdgeSetCenterReduceNormalizer(n_features=1, update_limit=10)
+
+    # Invalid
+    with pytest.raises(ValueError, match="saturation_strategy must be None, 'hard' or 'soft'"):
+        HyperEdgeSetCenterReduceNormalizer(n_features=1, update_limit=10, saturation_strategy="foo")
+
+
+def test_center_reduce_normalizer_validation():
+    struct = GraphStructure(hyper_edge_sets={"nodes": HyperEdgeSetStructure(port_list=[], feature_list=["a"])})
+
+    # Valid
+    CenterReduceNormalizer(struct, update_limit=10, saturation_strategy="hard", clip_min=-1.0, clip_max=1.0)
+    CenterReduceNormalizer(struct, update_limit=10, saturation_strategy="soft")
+    CenterReduceNormalizer(struct, update_limit=10)  # Default is None
+
+    # Invalid strategy
+    with pytest.raises(ValueError, match="saturation_strategy must be None, 'hard' or 'soft'"):
+        CenterReduceNormalizer(struct, update_limit=10, saturation_strategy="invalid")
+
+    # Missing clip for hard
+    with pytest.raises(ValueError, match="clip_min and clip_max must be provided"):
+        CenterReduceNormalizer(struct, update_limit=10, saturation_strategy="hard")
+
+    # Invalid clip range
+    with pytest.raises(ValueError, match="clip_min must be strictly less than clip_max"):
+        CenterReduceNormalizer(struct, update_limit=10, saturation_strategy="hard", clip_min=1.0, clip_max=-1.0)
 
 
 def test_hyper_edge_set_center_reduce_normalizer_update():
@@ -254,7 +285,6 @@ def test_center_reduce_saturation(caplog):
     normalizer = CenterReduceNormalizer(
         in_structure=structure,
         update_limit=10,
-        enable_saturation=True,
         saturation_strategy="hard",
         clip_min=-1.0,
         clip_max=1.0,
@@ -301,7 +331,6 @@ def test_center_reduce_soft_saturation(caplog):
     normalizer = CenterReduceNormalizer(
         in_structure=structure,
         update_limit=10,
-        enable_saturation=True,
         saturation_strategy="soft",
         clip_min=-1.0,
         clip_max=1.0,
@@ -337,4 +366,4 @@ def test_center_reduce_soft_saturation(caplog):
     val = gn.hyper_edge_sets["nodes"].feature_array[0, 0, 0]
     # tanh(2.0) is ~0.964
     assert val < 1.0
-    assert "Normalization saturation occurred" in caplog.text
+    assert "Normalization saturation occurred" not in caplog.text

@@ -5,6 +5,7 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
 import logging
+import pytest
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -58,6 +59,46 @@ def test_tdigest_module_update():
     assert module.updates[...] == 3  # Should stop at update_limit
 
 
+def test_tdigest_module_validation():
+    # Valid
+    TDigestModule(in_size=1, update_limit=10, n_breakpoints=10, max_centroids=10, use_running_average=False)
+
+    # Invalid
+    with pytest.raises(ValueError, match="saturation_strategy must be None, 'hard' or 'soft'"):
+        TDigestModule(
+            in_size=1,
+            update_limit=10,
+            n_breakpoints=10,
+            max_centroids=10,
+            use_running_average=False,
+            saturation_strategy="foo",
+        )
+
+
+def test_tdigest_normalizer_validation():
+    struct = GraphStructure(hyper_edge_sets={"nodes": HyperEdgeSetStructure(port_list=[], feature_list=["a"])})
+
+    # Valid
+    TDigestNormalizer(struct, update_limit=10, saturation_strategy="hard", clip_min=-1.0, clip_max=1.0)
+    TDigestNormalizer(struct, update_limit=10, saturation_strategy="soft")
+    TDigestNormalizer(struct, update_limit=10)  # Default is None
+
+    # Invalid strategy
+    with pytest.raises(ValueError, match="saturation_strategy must be None, 'hard' or 'soft'"):
+        TDigestNormalizer(struct, update_limit=10, saturation_strategy="invalid")
+
+    # Missing clip for hard
+    with pytest.raises(ValueError, match="clip_min and clip_max must be provided"):
+        TDigestNormalizer(struct, update_limit=10, saturation_strategy="hard")
+
+    # Invalid clip range
+    with pytest.raises(ValueError, match="clip_min must be strictly less than clip_max"):
+        TDigestNormalizer(struct, update_limit=10, saturation_strategy="hard", clip_min=1.0, clip_max=-1.0)
+
+    with pytest.raises(ValueError, match="clip_min must be strictly less than clip_max"):
+        TDigestNormalizer(struct, update_limit=10, saturation_strategy="hard", clip_min=1.0, clip_max=1.0)
+
+
 def test_tdigest_module_normalization_range():
     jax.config.update("jax_enable_x64", True)
     try:
@@ -98,7 +139,6 @@ def test_tdigest_saturation(caplog):
     normalizer = TDigestNormalizer(
         in_structure=structure,
         update_limit=10,
-        enable_saturation=True,
         saturation_strategy="hard",
         clip_min=-1.0,
         clip_max=1.0,
@@ -149,7 +189,6 @@ def test_tdigest_soft_saturation(caplog):
     normalizer = TDigestNormalizer(
         in_structure=structure,
         update_limit=10,
-        enable_saturation=True,
         saturation_strategy="soft",
         clip_min=-1.0,
         clip_max=1.0,
@@ -189,7 +228,7 @@ def test_tdigest_soft_saturation(caplog):
     val = gn.hyper_edge_sets["nodes"].feature_array[0, 0, 0]
     # tanh(out) where out > 1
     assert val < 1.0
-    assert "Normalization saturation occurred" in caplog.text
+    assert "Normalization saturation occurred" not in caplog.text
 
 
 def test_tdigest_module_inference_mode():
@@ -228,6 +267,48 @@ def test_tdigest_module_batch_shape():
     out = module(data, mask)
     assert out.shape == (2, 3, 2)
     assert module.updates[...] == 1
+
+
+def test_tdigest_module_update_frequency():
+    in_size = 1
+    # Update every 3 steps, limit to 2 updates
+    module = TDigestModule(
+        in_size=in_size,
+        update_limit=2,
+        n_breakpoints=10,
+        max_centroids=10,
+        use_running_average=False,
+        update_frequency=3,
+    )
+
+    data = jnp.array([[1.0]])
+    mask = jnp.ones((1, 1))
+
+    # Step 0: should update
+    module(data, mask)
+    assert module.updates[...] == 1
+    assert module.train_steps[...] == 1
+
+    # Step 1: should NOT update
+    module(data, mask)
+    assert module.updates[...] == 1
+    assert module.train_steps[...] == 2
+
+    # Step 2: should NOT update
+    module(data, mask)
+    assert module.updates[...] == 1
+    assert module.train_steps[...] == 3
+
+    # Step 3: should update (3 % 3 == 0)
+    module(data, mask)
+    assert module.updates[...] == 2
+    assert module.train_steps[...] == 4
+
+    # Step 4, 5: should NOT update (limit reached)
+    module(data, mask)
+    module(data, mask)
+    assert module.updates[...] == 2
+    assert module.train_steps[...] == 6
 
 
 def test_tdigest_normalizer_init():
