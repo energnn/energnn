@@ -85,6 +85,21 @@ class HyperEdgeSetCenterReduceNormalizer(nnx.Module):
         # We use jnp.where to handle the updates even if jitted, to avoid TracerBoolConversionError.
         # However, the assignment itself must happen.
 
+        self._update_stats(x, mask, is_batched, is_training)
+
+        # Correct bias
+        # We add epsilon to denominator to avoid division by zero when updates is 0
+        mean_hat = self.mean / (1 - self.beta_1**self.updates + self.epsilon)
+        var_hat = self.var / (1 - self.beta_2**self.updates + self.epsilon)
+
+        out = (x - mean_hat) / (jnp.sqrt(var_hat) + self.epsilon)
+
+        if self.saturation_strategy is not None:
+            out = self._apply_saturation(out)
+
+        return out * mask
+
+    def _update_stats(self, x: jax.Array, mask: jax.Array, is_batched: bool, is_training: bool):
         if is_batched:
             current_mean = x.mean(axis=(0, 1), where=(mask != 0.0))
             current_var = x.var(axis=(0, 1), where=(mask != 0.0))
@@ -116,31 +131,24 @@ class HyperEdgeSetCenterReduceNormalizer(nnx.Module):
         self.var[...] = stop_gradient(jnp.where(should_update, new_var, self.var[...]))
         self.updates[...] = jnp.where(should_update, self.updates[...] + 1, self.updates[...])
 
-        # Correct bias
-        # We add epsilon to denominator to avoid division by zero when updates is 0
-        mean_hat = self.mean / (1 - self.beta_1**self.updates + self.epsilon)
-        var_hat = self.var / (1 - self.beta_2**self.updates + self.epsilon)
+    def _apply_saturation(self, out: jax.Array) -> jax.Array:
+        if self.saturation_strategy == "hard":
 
-        out = (x - mean_hat) / (jnp.sqrt(var_hat) + self.epsilon)
+            # Warning mechanism only for hard clipping
+            def log_clipping(has_clipped):
+                if has_clipped:
+                    logging.warning(
+                        f"Normalization saturation occurred: some values were outside [{self.clip_min}, {self.clip_max}]"
+                    )
 
-        if self.saturation_strategy is not None:
-            if self.saturation_strategy == "hard":
-                # Warning mechanism only for hard clipping
-                def log_clipping(has_clipped):
-                    if has_clipped:
-                        logging.warning(
-                            f"Normalization saturation occurred: some values were outside [{self.clip_min}, {self.clip_max}]"
-                        )
-
-                has_clipped = jnp.any((out < self.clip_min) | (out > self.clip_max))
-                jax.debug.callback(log_clipping, has_clipped)
-                out = jnp.clip(out, self.clip_min, self.clip_max)
-            elif self.saturation_strategy == "soft":
-                out = jnp.tanh(out)
-            else:
-                raise ValueError(f"Unknown saturation_strategy: {self.saturation_strategy}")
-
-        return out * mask
+            has_clipped = jnp.any((out < self.clip_min) | (out > self.clip_max))
+            jax.debug.callback(log_clipping, has_clipped)
+            out = jnp.clip(out, self.clip_min, self.clip_max)
+        elif self.saturation_strategy == "soft":
+            out = jnp.tanh(out)
+        else:
+            raise ValueError(f"Unknown saturation_strategy: {self.saturation_strategy}")
+        return out
 
 
 class CenterReduceNormalizer(Normalizer):

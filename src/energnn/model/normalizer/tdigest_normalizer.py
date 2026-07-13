@@ -432,6 +432,32 @@ class TDigestModule(nnx.Module):
             flat_mask = non_fictitious
 
         # Update state (Synchronous update)
+        self._sync_update_state(flat_array, flat_mask, is_training, should_update)
+
+        # Normalize with current (potentially updated) state
+        xp = self.xp_var[...]
+        slopes = self.slopes_var[...]
+
+        def forward_local(x_feat, xp_feat, slopes_feat):
+            interp_term = jnp.interp(x_feat, xp_feat, self.fp)
+            # Extrapolation
+            left_term = jnp.minimum(x_feat - xp_feat[0], 0.0) * slopes_feat[0]
+            right_term = jnp.maximum(x_feat - xp_feat[-1], 0.0) * slopes_feat[1]
+            return interp_term + left_term + right_term
+
+        # Apply normalization
+        if array.ndim == 3:
+            out = jax.vmap(forward_local, in_axes=(1, 1, 0), out_axes=1)(flat_array, xp, slopes.T)
+            out = out.reshape(B, N, F)
+        else:
+            out = jax.vmap(forward_local, in_axes=(1, 1, 0), out_axes=1)(array, xp, slopes.T)
+
+        if self.saturation_strategy is not None:
+            out = self._apply_saturation(out)
+
+        return out * non_fictitious
+
+    def _sync_update_state(self, flat_array: jax.Array, flat_mask: jax.Array, is_training: bool, should_update: bool):
         def update_fn(a, m):
             new_digest, new_xp, new_sl = self._update_digest(a, m)
             return new_digest, new_xp, new_sl, jnp.array(True)
@@ -453,42 +479,24 @@ class TDigestModule(nnx.Module):
             self.xp_var[...] = jax.lax.stop_gradient(new_xp)
             self.slopes_var[...] = jax.lax.stop_gradient(new_sl)
 
-        # Normalize with current (potentially updated) state
-        xp = self.xp_var[...]
-        slopes = self.slopes_var[...]
+    def _apply_saturation(self, out: jax.Array) -> jax.Array:
+        if self.saturation_strategy == "hard":
 
-        def forward_local(x_feat, xp_feat, slopes_feat):
-            interp_term = jnp.interp(x_feat, xp_feat, self.fp)
-            # Extrapolation
-            left_term = jnp.minimum(x_feat - xp_feat[0], 0.0) * slopes_feat[0]
-            right_term = jnp.maximum(x_feat - xp_feat[-1], 0.0) * slopes_feat[1]
-            return interp_term + left_term + right_term
+            # Warning mechanism only for hard clipping
+            def log_clipping(has_clipped):
+                if has_clipped:
+                    logging.warning(
+                        f"Normalization saturation occurred: some values were outside [{self.clip_min}, {self.clip_max}]"
+                    )
 
-        # Apply normalization
-        if array.ndim == 3:
-            out = jax.vmap(forward_local, in_axes=(1, 1, 0), out_axes=1)(flat_array, xp, slopes.T)
-            out = out.reshape(B, N, F)
+            has_clipped = jnp.any((out < self.clip_min) | (out > self.clip_max))
+            jax.debug.callback(log_clipping, has_clipped)
+            out = jnp.clip(out, self.clip_min, self.clip_max)
+        elif self.saturation_strategy == "soft":
+            out = jnp.tanh(out)
         else:
-            out = jax.vmap(forward_local, in_axes=(1, 1, 0), out_axes=1)(array, xp, slopes.T)
-
-        if self.saturation_strategy is not None:
-            if self.saturation_strategy == "hard":
-                # Warning mechanism only for hard clipping
-                def log_clipping(has_clipped):
-                    if has_clipped:
-                        logging.warning(
-                            f"Normalization saturation occurred: some values were outside [{self.clip_min}, {self.clip_max}]"
-                        )
-
-                has_clipped = jnp.any((out < self.clip_min) | (out > self.clip_max))
-                jax.debug.callback(log_clipping, has_clipped)
-                out = jnp.clip(out, self.clip_min, self.clip_max)
-            elif self.saturation_strategy == "soft":
-                out = jnp.tanh(out)
-            else:
-                raise ValueError(f"Unknown saturation_strategy: {self.saturation_strategy}")
-
-        return out * non_fictitious
+            raise ValueError(f"Unknown saturation_strategy: {self.saturation_strategy}")
+        return out
 
 
 class TDigestNormalizer(Normalizer):
