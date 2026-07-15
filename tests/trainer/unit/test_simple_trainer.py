@@ -30,9 +30,11 @@ def create_tiny_model(context_structure):
     class SimpleDecoder(nnx.Module):
         def __call__(self, coordinates, graph, get_info=False):
             # No params here, just pass through
-            decision = Graph(backend=JaxBackend(),
+            decision = Graph(
+                backend=JaxBackend(),
                 hyper_edge_sets={
-                    "bus": HyperEdgeSet(backend=JaxBackend(),
+                    "bus": HyperEdgeSet(
+                        backend=JaxBackend(),
                         port_dict=None,
                         feature_array=coordinates,
                         feature_names={"phase_angle": jnp.array(0)},
@@ -64,7 +66,7 @@ def create_tiny_model(context_structure):
 
 def test_cast_cotangent_to_primal_dtype():
     primal = {"a": jnp.array([1.0], dtype=jnp.float32), "b": jnp.array([1], dtype=jnp.int32), "c": "not-an-array"}
-    cotangent = {"a": jnp.array([2.0], dtype=jnp.float64), "b": jnp.array([2.0], dtype=jnp.float32), "c": "not-an-array"}
+    cotangent = {"a": jnp.array([2.0], dtype=jnp.float32), "b": jnp.array([2.0], dtype=jnp.float32), "c": "not-an-array"}
 
     casted = _cast_cotangent_to_primal_dtype(cotangent, primal)
 

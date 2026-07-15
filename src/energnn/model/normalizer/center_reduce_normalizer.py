@@ -4,6 +4,7 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 # SPDX-License-Identifier: MPL-2.0
 
+import logging
 import jax
 import jax.numpy as jnp
 from flax import nnx
@@ -26,6 +27,9 @@ class HyperEdgeSetCenterReduceNormalizer(nnx.Module):
         beta_2: float = 0.9,
         epsilon: float = 1e-6,
         use_running_average: bool = False,
+        saturation_strategy: str | None = None,
+        clip_min: float | None = None,
+        clip_max: float | None = None,
     ):
         """
         Initializes the instance with the necessary configurations and state variables for
@@ -38,13 +42,28 @@ class HyperEdgeSetCenterReduceNormalizer(nnx.Module):
         :param epsilon: A small value added to prevent division by zero during calculations. Defaults to 1e-6.
         :param use_running_average: Determines whether to use a running average for parameter updates. Defaults to False.
             Automatically set to True in `eval` mode and to `False` in `train` mode.
+        :param saturation_strategy: Strategy for saturation, either "hard" (clipping to [clip_min, clip_max]),
+            "soft" (applying tanh function), or None (no saturation). Defaults to None.
+        :param clip_min: Minimum value for hard saturation. Required if saturation_strategy is "hard".
+        :param clip_max: Maximum value for hard saturation. Required if saturation_strategy is "hard".
         """
+        if saturation_strategy not in [None, "hard", "soft"]:
+            raise ValueError(f"saturation_strategy must be None, 'hard' or 'soft', got {saturation_strategy}")
+        if saturation_strategy == "hard":
+            if clip_min is None or clip_max is None:
+                raise ValueError("clip_min and clip_max must be provided when saturation_strategy is 'hard'")
+            if clip_min >= clip_max:
+                raise ValueError(f"clip_min must be strictly less than clip_max, got {clip_min} >= {clip_max}")
+
         self.n_features = n_features
         self.update_limit = nnx.Variable(jnp.array([update_limit]))
         self.use_running_average = use_running_average
         self.epsilon = epsilon
         self.beta_1 = beta_1
         self.beta_2 = beta_2
+        self.saturation_strategy = saturation_strategy
+        self.clip_min = clip_min
+        self.clip_max = clip_max
         self.updates = nnx.Variable(jnp.array([0]))
 
         self.mean = nnx.Variable(jnp.zeros(n_features))
@@ -66,6 +85,21 @@ class HyperEdgeSetCenterReduceNormalizer(nnx.Module):
         # We use jnp.where to handle the updates even if jitted, to avoid TracerBoolConversionError.
         # However, the assignment itself must happen.
 
+        self._update_stats(x, mask, is_batched, is_training)
+
+        # Correct bias
+        # We add epsilon to denominator to avoid division by zero when updates is 0
+        mean_hat = self.mean / (1 - self.beta_1**self.updates + self.epsilon)
+        var_hat = self.var / (1 - self.beta_2**self.updates + self.epsilon)
+
+        out = (x - mean_hat) / (jnp.sqrt(var_hat) + self.epsilon)
+
+        if self.saturation_strategy is not None:
+            out = self._apply_saturation(out)
+
+        return out * mask
+
+    def _update_stats(self, x: jax.Array, mask: jax.Array, is_batched: bool, is_training: bool):
         if is_batched:
             current_mean = x.mean(axis=(0, 1), where=(mask != 0.0))
             current_var = x.var(axis=(0, 1), where=(mask != 0.0))
@@ -97,12 +131,24 @@ class HyperEdgeSetCenterReduceNormalizer(nnx.Module):
         self.var[...] = stop_gradient(jnp.where(should_update, new_var, self.var[...]))
         self.updates[...] = jnp.where(should_update, self.updates[...] + 1, self.updates[...])
 
-        # Correct bias
-        # We add epsilon to denominator to avoid division by zero when updates is 0
-        mean_hat = self.mean / (1 - self.beta_1**self.updates + self.epsilon)
-        var_hat = self.var / (1 - self.beta_2**self.updates + self.epsilon)
+    def _apply_saturation(self, out: jax.Array) -> jax.Array:
+        if self.saturation_strategy == "hard":
 
-        return (x - mean_hat) / (jnp.sqrt(var_hat) + self.epsilon) * mask
+            # Warning mechanism only for hard clipping
+            def log_clipping(has_clipped):
+                if has_clipped:
+                    logging.warning(
+                        f"Normalization saturation occurred: some values were outside [{self.clip_min}, {self.clip_max}]"
+                    )
+
+            has_clipped = jnp.any((out < self.clip_min) | (out > self.clip_max))
+            jax.debug.callback(log_clipping, has_clipped)
+            out = jnp.clip(out, self.clip_min, self.clip_max)
+        elif self.saturation_strategy == "soft":
+            out = jnp.tanh(out)
+        else:
+            raise ValueError(f"Unknown saturation_strategy: {self.saturation_strategy}")
+        return out
 
 
 class CenterReduceNormalizer(Normalizer):
@@ -124,6 +170,10 @@ class CenterReduceNormalizer(Normalizer):
     :param epsilon: Small constant added to improve numerical stability. Defaults to 1e-6.
     :param use_running_average: Flag that indicates whether to use a running average or not. Defaults to False.
         Automatically set to True in `eval` mode and to `False` in `train` mode.
+    :param saturation_strategy: Strategy for saturation, either "hard" (clipping to [clip_min, clip_max]),
+        "soft" (applying tanh function), or None (no saturation). Defaults to None.
+    :param clip_min: Minimum value for hard saturation. Required if saturation_strategy is "hard".
+    :param clip_max: Maximum value for hard saturation. Required if saturation_strategy is "hard".
     """
 
     def __init__(
@@ -134,13 +184,27 @@ class CenterReduceNormalizer(Normalizer):
         beta_2: float = 0.9,
         epsilon: float = 1e-6,
         use_running_average: bool = False,
+        saturation_strategy: str | None = None,
+        clip_min: float | None = None,
+        clip_max: float | None = None,
     ):
+        if saturation_strategy not in [None, "hard", "soft"]:
+            raise ValueError(f"saturation_strategy must be None, 'hard' or 'soft', got {saturation_strategy}")
+        if saturation_strategy == "hard":
+            if clip_min is None or clip_max is None:
+                raise ValueError("clip_min and clip_max must be provided when saturation_strategy is 'hard'")
+            if clip_min >= clip_max:
+                raise ValueError(f"clip_min must be strictly less than clip_max, got {clip_min} >= {clip_max}")
+
         self.in_structure = in_structure
         self.update_limit = update_limit
         self.use_running_average = use_running_average
         self.epsilon = epsilon
         self.beta_1 = beta_1
         self.beta_2 = beta_2
+        self.saturation_strategy = saturation_strategy
+        self.clip_min = clip_min
+        self.clip_max = clip_max
 
         self.module_dict = self._build_module_dict()
 
@@ -157,6 +221,9 @@ class CenterReduceNormalizer(Normalizer):
                     beta_2=self.beta_2,
                     epsilon=self.epsilon,
                     use_running_average=self.use_running_average,
+                    saturation_strategy=self.saturation_strategy,
+                    clip_min=self.clip_min,
+                    clip_max=self.clip_max,
                 )
             else:
                 module_dict[key] = None

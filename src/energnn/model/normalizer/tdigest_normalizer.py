@@ -1,260 +1,323 @@
-# Copyright (c) 2025, RTE (http://www.rte-france.com)
+# Copyright (c) 2026, RTE (http://www.rte-france.com)
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 # SPDX-License-Identifier: MPL-2.0
 
-from functools import partial
-from typing import Any, Sequence
+from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import Sequence, Union
+import logging
 import jax
 import jax.numpy as jnp
-import numpy as np
-from fastdigest import TDigest
 from flax import nnx
-from jax import ShapeDtypeStruct
-from jax.experimental import io_callback
-
-from energnn.graph import Graph, GraphStructure, HyperEdgeSet
+from energnn.graph import GraphStructure, Graph, HyperEdgeSet
 from .normalizer import Normalizer
 
+ArrayLike = Union[float, Sequence[float], jnp.ndarray]
+FloatArray = jnp.ndarray
 
-def _merge_equal_quantiles_host(p: np.ndarray, q: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+
+def _as_1d_float32(x: ArrayLike) -> FloatArray:
     """
-    Resolves equal-quantile conflicts by averaging probabilities for identical quantile values.
-
-    When some adjacent quantiles in `q` are equal (zero slope), this function
-    computes a merged probability vector per feature so the piecewise-linear CDF
-    remains bijective (strictly monotone in the probability coordinate). The
-    algorithm groups identical quantile values per column and averages the
-    corresponding probabilities.
-
-    :param p: Probability grid as a 2-D array of shape (K, F) (values in [0,1]).
-    :param q: Quantiles matrix of shape (K, F).
-        Each column q[:, f] contains quantiles for feature f.
-    :return: Tuple (p_merged, q_merged) where both have shape (K, F) and p_merged
-        contains the merged/averaged probabilities per unique quantile value
-        per feature, and q_merged is equal to `q` (cast to float32).
+    Converts input to a 1D float32 JAX array.
     """
-    K, F = q.shape
-    p_out = np.zeros((K, F), dtype=np.float32)
-    q_out = q.astype(np.float32)
-    for f in range(F):
-        qf = q_out[:, f]
-        pf = p[:, f]
-        vals, inv, counts = np.unique(qf, return_inverse=True, return_counts=True)
-        sum_p_per_unique = np.zeros_like(vals, dtype=np.float64)
-        np.add.at(sum_p_per_unique, inv, pf)
-        avg_p_per_unique = sum_p_per_unique / counts
-        p_out[:, f] = avg_p_per_unique[inv].astype(np.float32)
-    return p_out, q_out
+    arr = jnp.asarray(x, dtype=jnp.float32)
+    return jnp.ravel(arr)
 
 
-def _ingest_new_data(
-    max_centroids: Sequence[int],
-    min_val: Sequence[float],
-    max_val: Sequence[float],
-    centroids_m: np.ndarray,
-    centroids_c: np.ndarray,
-    fp: np.ndarray,
-    xp: np.ndarray,
-    array: np.ndarray,
-    mask: np.ndarray,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+def _split_weights(x: FloatArray, w: ArrayLike | None) -> FloatArray:
     """
-    Host-side callback to update T-Digest statistics using the fastdigest library.
-
-    This function processes a batch of data, updates the underlying T-Digest structures,
-    and extracts new interpolation points (xp, fp) for the normalization.
-
-    :param max_centroids: Maximum number of centroids allowed for each feature.
-    :param min_val: Current minimum value for each feature.
-    :param max_val: Current maximum value for each feature.
-    :param centroids_m: Centroid means for each feature.
-    :param centroids_c: Centroid counts for each feature.
-    :param fp: Interpolation probabilities (mapped to [-1, 1]).
-    :param xp: Interpolation quantiles.
-    :param array: New data batch of shape (N, F) or (B, N, F).
-    :param mask: Mask for valid data.
-    :return: Updated state variables for the TDigest modules.
+    Prepares the weights array to match the input data shape.
     """
-    # Variables are individual numpy arrays
-    # array has shape (N, F) or (B, N, F)
-    # mask has shape (N, 1) or (B, N, 1)
+    if w is None:
+        return jnp.ones_like(x, dtype=jnp.float32)
 
-    if array.ndim == 3:
-        # Batched: (B, N, F)
-        B, N, F = array.shape
-        array = array.reshape(B * N, F)
-        mask = mask.reshape(B * N, 1)
-    else:
-        N, F = array.shape
+    w_arr = jnp.asarray(w, dtype=jnp.float32)
+    if w_arr.ndim == 0:
+        return jnp.full_like(x, float(w_arr), dtype=jnp.float32)
 
-    # Apply mask
-    mask = mask.flatten().astype(bool)
-    array = array[mask]
-
-    n_features = array.shape[-1]
-    K = fp.shape[0]
-
-    new_max_centroids = []
-    new_min_list = []
-    new_max_list = []
-    new_c_c_list = []
-    new_c_m_list = []
-    new_p_matrix = []
-    new_q_matrix = []
-
-    for i in range(n_features):
-        feature_array = array[:, i]
-        _max_centroids = int(max_centroids[i])
-        _min = float(min_val[i])
-        _max = float(max_val[i])
-        _c_m = centroids_m[:, i]
-        _c_c = centroids_c[:, i]
-
-        tdigest_dict = {
-            "max_centroids": _max_centroids,
-            "min": _min,
-            "max": _max,
-            "centroids": [{"m": float(m), "c": float(c)} for m, c in zip(_c_m, _c_c) if c > 0.0],
-        }
-
-        # Handle NaNs from initialization
-        if np.isnan(tdigest_dict["min"]):
-            tdigest_dict["min"] = 0.0
-        if np.isnan(tdigest_dict["max"]):
-            tdigest_dict["max"] = 0.0
-
-        tdigest = TDigest.from_dict(tdigest_dict)
-        if len(feature_array) > 0:
-            tdigest.batch_update(np.array(feature_array))
-
-        new_tdigest_dict = tdigest.to_dict()
-
-        new_max_centroids.append(new_tdigest_dict["max_centroids"])
-        new_min_list.append(new_tdigest_dict["min"])
-        new_max_list.append(new_tdigest_dict["max"])
-
-        c_c = np.array([centroid["c"] for centroid in new_tdigest_dict["centroids"]])
-        c_c = np.pad(c_c, (0, _max_centroids - len(c_c)), mode="constant", constant_values=0.0)
-        new_c_c_list.append(c_c)
-        c_m = np.array([centroid["m"] for centroid in new_tdigest_dict["centroids"]])
-        c_m = np.pad(c_m, (0, _max_centroids - len(c_m)), mode="constant", constant_values=0.0)
-        new_c_m_list.append(c_m)
-
-        p_list = np.linspace(0, 1, K)
-        q_list = [tdigest.quantile(float(p)) for p in p_list]
-        new_p_matrix.append(p_list)
-        new_q_matrix.append(np.asarray(q_list))
-
-    new_p_matrix = np.stack(new_p_matrix, axis=0)  # (F, K)
-    new_q_matrix = np.stack(new_q_matrix, axis=0)  # (F, K)
-
-    p_merged, q_merged = _merge_equal_quantiles_host(new_p_matrix.T, new_q_matrix.T)
-    new_xp = q_merged.astype(np.float32)
-    new_fp = (-1.0 + 2.0 * p_merged).astype(np.float32)
-
-    return (
-        np.array(new_max_centroids, dtype=np.int32),
-        np.array(new_min_list, dtype=np.float32),
-        np.array(new_max_list, dtype=np.float32),
-        np.stack(new_c_m_list, axis=1).astype(np.float32),
-        np.stack(new_c_c_list, axis=1).astype(np.float32),
-        new_fp,
-        new_xp,
-    )
+    w_arr = jnp.ravel(w_arr)
+    if w_arr.shape[0] != x.shape[0]:
+        raise ValueError("w must be either a scalar or have the same length as x.")
+    return w_arr
 
 
-@partial(jax.custom_vjp, nondiff_argnums=(4, 5, 6))
-def _tdigest_apply(
-    array: jax.Array,
-    non_fictitious: jax.Array,
-    should_update: jax.Array,
-    module_state: tuple[jax.Array, ...],
-    in_size: int,
+def _compress_sorted(
+    centroids: FloatArray,
     max_centroids: int,
-    n_breakpoints: int,
-) -> tuple[jax.Array, ...]:
+    internal_capacity: int,
+) -> FloatArray:
     """
-    Applies normalization and optionally updates T-Digest statistics.
-    This function is wrapped in custom_vjp to handle the non-differentiable io_callback.
-    """
-    (
-        max_centroids_val,
-        min_val,
-        max_val,
-        centroids_m,
-        centroids_c,
-        fp,
-        xp,
-    ) = module_state
+    Compresses a set of centroids by merging those that are close to each other.
 
-    def update_fn(array: jax.Array, non_fictitious: jax.Array) -> tuple[jax.Array, ...]:
-        result_shapes = (
-            ShapeDtypeStruct((in_size,), jnp.int32),  # max_centroids
-            ShapeDtypeStruct((in_size,), jnp.float32),  # min
-            ShapeDtypeStruct((in_size,), jnp.float32),  # max
-            ShapeDtypeStruct((max_centroids, in_size), jnp.float32),  # centroids_m
-            ShapeDtypeStruct((max_centroids, in_size), jnp.float32),  # centroids_c
-            ShapeDtypeStruct((n_breakpoints, in_size), jnp.float32),  # fp
-            ShapeDtypeStruct((n_breakpoints, in_size), jnp.float32),  # xp
+    This function implements the core T-Digest compression logic using the k1 scale function.
+    It sorts the input centroids by mean and then uses a scan to decide which centroids
+    to merge based on the cumulative weight and the maximum allowed weight for a centroid
+    at its current quantile.
+
+    :param centroids: Array of shape (N, 2) where each row is [mean, weight].
+    :param max_centroids: The target number of centroids (compression parameter K).
+    :param internal_capacity: The fixed size of the output centroid array (for JAX compatibility).
+
+    :return: A compressed centroid array of shape (internal_capacity, 2).
+    """
+    # centroids: (N, 2) [mean, weight]
+    # returns: (internal_capacity, 2)
+
+    K = jnp.array(max_centroids, dtype=jnp.float32)
+    K_int = internal_capacity
+
+    values = centroids[:, 0]
+    weights = centroids[:, 1]
+
+    # Sort centroids by mean to allow sequential merging
+    order = jnp.argsort(values, stable=True)
+    # Sorted means (m for mean)
+    sorted_m = values[order]
+    # Sorted weights/counts (c for count)
+    sorted_c = weights[order]
+
+    total_w = jnp.maximum(jnp.sum(sorted_c), jnp.array(1e-7, dtype=jnp.float32))
+
+    # Constants for optimized k-function logic (k1 scale function)
+    # The k1 scale function is: k(q) = (K/pi) * arcsin(2q - 1)
+    # The merging criteria is: k(q_after) - k(q_before) <= 1
+    # This ensures smaller centroids at the edges (q near 0 or 1).
+    delta = jnp.array(jnp.pi, dtype=jnp.float32) / K
+    cos_delta = jnp.cos(delta)
+    sin_delta = jnp.sin(delta)
+    # Pre-calculated term for the optimized arcsin difference check
+    one_minus_cos_delta_div_2 = (jnp.array(1.0, dtype=jnp.float32) - cos_delta) / jnp.array(2.0, dtype=jnp.float32)
+
+    def compute_cluster_ids(c_arr, tw):
+        def body(state, w):
+            q_base, curr_w, k_idx = state
+
+            # Current quantile at the start of the candidate cluster
+            q_b = q_base / tw
+            # Potential quantile at the end if we include the current point
+            q_p = (q_base + curr_w + w) / tw
+
+            # Optimized check for k(q_p) - k(q_b) <= 1
+            # Equivalent to: q_p <= q_b*cos(delta) + sqrt(q_b*(1-q_b))*sin(delta) + (1-cos(delta))/2
+            # derived from sin(arcsin(2q_b-1) + delta)
+            term_sqrt = jnp.sqrt(jnp.maximum(q_b * (jnp.array(1.0, dtype=jnp.float32) - q_b), 0.0))
+            q_limit = one_minus_cos_delta_div_2 + q_b * cos_delta + term_sqrt * sin_delta
+
+            # Merge if:
+            # 1. Candidate cluster is empty (curr_w == 0)
+            # 2. It respects the scale function limit
+            # 3. We haven't exceeded the fixed internal capacity
+            should_merge = (curr_w == 0) | (q_p <= q_limit + jnp.array(1e-7, dtype=jnp.float32)) | (k_idx >= K_int - 1)
+
+            cond = (w > 0) & (~should_merge)
+            new_state = (
+                jnp.where(cond, q_base + curr_w, q_base),  # Update q_base if we start a new cluster
+                jnp.where(cond, w, curr_w + w),  # Reset or increment current cluster weight
+                jnp.where(cond, k_idx + 1, k_idx),  # Increment cluster ID if new cluster
+            )
+            return new_state, new_state[2]
+
+        init_state = (jnp.array(0.0, dtype=jnp.float32), jnp.array(0.0, dtype=jnp.float32), 0)
+        _, ids = jax.lax.scan(body, init_state, c_arr)
+        return ids
+
+    cluster_ids = compute_cluster_ids(sorted_c, total_w)
+
+    # Sum weights and weighted means for each cluster
+    # Aggregate weights for each identified cluster (segment)
+    new_c = jax.ops.segment_sum(sorted_c, cluster_ids, num_segments=K_int)
+    # Aggregate weighted means (sum of mean * weight) for each cluster
+    new_m_weighted = jax.ops.segment_sum(sorted_m * sorted_c, cluster_ids, num_segments=K_int)
+
+    # Compute new means
+    # If a cluster has weight > 0, calculate the weighted average.
+    # Otherwise, use a placeholder value for empty segments.
+    new_m = jnp.where(
+        new_c > 0, new_m_weighted / jnp.maximum(new_c, jnp.array(1e-7, dtype=jnp.float32)), jnp.array(-1e30, dtype=jnp.float32)
+    )
+    # Ensure means are strictly non-decreasing (handling potential numerical noise)
+    new_m = jnp.maximum.accumulate(new_m)
+
+    return jnp.stack([new_m, new_c], axis=-1)
+
+
+@jax.tree_util.register_pytree_node_class
+@dataclass(frozen=True)
+class JaxTDigest:
+    """
+    JAX-compatible T-Digest structure.
+
+    T-Digest is a data structure for estimating quantiles and cumulative distribution functions (CDF)
+    from data streams or large datasets with high accuracy, especially at the tails.
+
+    The algorithm works by clustering data points into 'centroids'. Each centroid represents
+    a group of points with a mean value and a total weight (number of points).
+    The number of centroids is kept bounded by a 'compression' process that merges
+    centroids while respecting a scale function (usually k1). This scale function
+    ensures that centroids near the tails are smaller (more precise) than those in the middle.
+
+    Attributes:
+        max_centroids: Compression parameter (K). Higher values mean more precision and more centroids.
+        centroids: Array of shape (capacity, 2) storing [mean, weight] for each cluster.
+        stats: Array of shape (3,) storing [total_mass, min_value, max_value].
+
+    References:
+        - Ted Dunning and Otmar Ertl, "Computing Extremely Accurate Quantiles Using t-Digests"
+        - https://github.com/tdunning/t-digest
+    """
+
+    max_centroids: int
+    centroids: FloatArray  # (capacity, 2) -> [mean, weight]
+    stats: FloatArray  # (3,) -> [mass, min_value, max_value]
+
+    @classmethod
+    def empty(cls, max_centroids: int = 1000) -> "JaxTDigest":
+        """
+        Initializes an empty T-Digest.
+        """
+        capacity = int(1.5 * max_centroids)
+        return cls(
+            max_centroids=max_centroids,
+            centroids=jnp.stack(
+                [jnp.full((capacity,), jnp.array(-1e30, dtype=jnp.float32)), jnp.zeros((capacity,), dtype=jnp.float32)],
+                axis=-1,
+            ),
+            stats=jnp.array([0.0, jnp.inf, -jnp.inf], dtype=jnp.float32),
         )
 
-        return io_callback(
-            _ingest_new_data,
-            result_shapes,
-            max_centroids_val,
-            min_val,
-            max_val,
-            centroids_m,
-            centroids_c,
-            fp,
-            xp,
-            array,
-            non_fictitious,
+    def tree_flatten(self):
+        children = (self.centroids, self.stats)
+        aux_data = (self.max_centroids,)
+        return (children, aux_data)
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        return cls(*aux_data, *children)
+
+    def is_empty(self) -> bool:
+        return self.mass == 0
+
+    @property
+    def internal_capacity(self) -> int:
+        return self.centroids.shape[0]
+
+    @property
+    def mass(self) -> float:
+        return self.stats[..., 0]
+
+    @property
+    def min_value(self) -> float:
+        return self.stats[..., 1]
+
+    @property
+    def max_value(self) -> float:
+        return self.stats[..., 2]
+
+    def _merge_unsorted(self, x: FloatArray, w: FloatArray) -> "JaxTDigest":
+        """
+        Merges new observations (unsorted) into the existing T-Digest.
+        """
+        new_data = jnp.stack([x, w], axis=-1)
+        combined = jnp.concatenate([self.centroids, new_data], axis=0)
+
+        new_centroids = _compress_sorted(combined, self.max_centroids, self.internal_capacity)
+
+        new_mass = jnp.sum(w) + self.mass
+        new_min = jnp.minimum(self.min_value, jnp.min(jnp.where(w > 0, x, jnp.array(jnp.inf, dtype=jnp.float32))))
+        new_max = jnp.maximum(self.max_value, jnp.max(jnp.where(w > 0, x, jnp.array(-jnp.inf, dtype=jnp.float32))))
+
+        return JaxTDigest(
+            max_centroids=self.max_centroids,
+            centroids=new_centroids,
+            stats=jnp.stack([new_mass, new_min, new_max]).astype(jnp.float32),
         )
 
-    new_vars = jax.lax.cond(
-        should_update,
-        lambda a, m: update_fn(a, m),
-        lambda a, m: (max_centroids_val, min_val, max_val, centroids_m, centroids_c, fp, xp),
-        array,
-        non_fictitious,
-    )
-    return new_vars
+    def batch_update(self, x: ArrayLike, w: ArrayLike | None = None) -> "JaxTDigest":
+        """
+        Updates the T-Digest with a batch of new values.
 
+        :param x: Array of values to add.
+        :param w: Optional array of weights for each value. Defaults to 1.0 for each value.
+        """
+        x_arr = _as_1d_float32(x)
+        if x_arr.size == 0:
+            return self
 
-def _tdigest_apply_fwd(
-    array: jax.Array,
-    non_fictitious: jax.Array,
-    should_update: jax.Array,
-    module_state: tuple[jax.Array, ...],
-    in_size: int,
-    max_centroids: int,
-    n_breakpoints: int,
-) -> tuple[tuple[jax.Array, ...], tuple[jax.Array, ...]]:
-    new_vars = _tdigest_apply(array, non_fictitious, should_update, module_state, in_size, max_centroids, n_breakpoints)
-    return (new_vars), (array, non_fictitious, new_vars[6], new_vars[5])
+        w_arr = _split_weights(x_arr, w)
+        return self._merge_unsorted(x_arr, w_arr)
 
+    def quantile_vec(self, q: ArrayLike) -> FloatArray:
+        """
+        Estimates quantiles for a given set of probabilities.
 
-def _tdigest_apply_bwd(
-    in_size: int, max_centroids: int, n_breakpoints: int, res: tuple[jax.Array, ...], grads: Any
-) -> tuple[jax.Array, ...]:
-    array, non_fictitious, xp, fp = res
-    return 0 * array, None, None, None
+        Quantile estimation is done by linear interpolation between centroid means.
+        The 'quantile' of a centroid is defined as the midpoint of its weight range
+        in the sorted order of centroids.
 
+        :param q: Array of probabilities in [0, 1].
 
-_tdigest_apply.defvjp(_tdigest_apply_fwd, _tdigest_apply_bwd)
+        :return: Array of estimated quantiles.
+        """
+        q_arr = jnp.asarray(q, dtype=jnp.float32)
+        if q_arr.size == 0:
+            return q_arr
+
+        means = self.centroids[:, 0]
+        weights = self.centroids[:, 1]
+
+        # Cumulative weight at the end of each centroid
+        cum = jnp.cumsum(weights)
+        # Probabilities at the center of each centroid
+        mid_q = (cum - jnp.array(0.5, dtype=jnp.float32) * weights) / jnp.maximum(
+            self.mass, jnp.array(1e-7, dtype=jnp.float32)
+        )
+
+        # Interpolate between centroid centers
+        res = jnp.interp(q_arr, mid_q, means, left=self.min_value, right=self.max_value)
+
+        # Boundary conditions and empty digest handling
+        res = jnp.where(self.mass == 0, jnp.nan, res)
+        res = jnp.where(q_arr <= 0.0, self.min_value, res)
+        res = jnp.where(q_arr >= 1.0, self.max_value, res)
+
+        return res
+
+    def cdf_vec(self, x: ArrayLike) -> FloatArray:
+        """
+        Estimates the Cumulative Distribution Function (CDF) at given values.
+
+        :param x: Array of values at which to estimate the CDF.
+
+        :return: Array of estimated CDF values in [0, 1].
+        """
+        x_arr = _as_1d_float32(x)
+        if x_arr.size == 0:
+            return x_arr
+
+        means = self.centroids[:, 0]
+        weights = self.centroids[:, 1]
+
+        cum = jnp.cumsum(weights)
+        # Probabilities at the center of each centroid
+        mid_q = (cum - jnp.array(0.5, dtype=jnp.float32) * weights) / jnp.maximum(
+            self.mass, jnp.array(1e-7, dtype=jnp.float32)
+        )
+
+        # Interpolate probabilities for given values
+        res = jnp.interp(x_arr, means, mid_q, left=0.0, right=1.0)
+        res = jnp.where(self.mass == 0, jnp.nan, res)
+        return res
 
 
 class TDigestModule(nnx.Module):
     """
-    Maintains and applies T-Digest normalization for a set of features.
+    Maintains and applies T-Digest normalization for a set of features using pure JAX.
 
-    This module uses the T-Digest algorithm to estimate quantiles and map input
+    This module uses the T-Digest algorithm JAX-implemented to estimate quantiles and map input
     features to a target distribution (piecewise linear interpolation).
-    It supports batch updates via an IO callback and provides a fast inference path.
     """
 
     def __init__(
@@ -264,6 +327,10 @@ class TDigestModule(nnx.Module):
         n_breakpoints: int,
         max_centroids: int,
         use_running_average: bool,
+        saturation_strategy: str | None = None,
+        clip_min: float | None = None,
+        clip_max: float | None = None,
+        update_frequency: int = 1,
     ):
         """
         Initializes the TDigestModule.
@@ -273,91 +340,162 @@ class TDigestModule(nnx.Module):
         :param n_breakpoints: Number of points for the interpolation grid.
         :param max_centroids: Maximum number of centroids for the T-Digest.
         :param use_running_average: If True, skips updates and uses current state (inference mode).
+        :param saturation_strategy: Strategy for saturation, either "hard" (clipping to [clip_min, clip_max]),
+            "soft" (applying tanh function), or None (no saturation). Defaults to None.
+        :param clip_min: Minimum value for hard saturation. Required if saturation_strategy is "hard".
+        :param clip_max: Maximum value for hard saturation. Required if saturation_strategy is "hard".
+        :param update_frequency: Frequency of update steps. Defaults to 1 (update at every step).
+            Updates are always performed at the first step (step 0).
         """
+        if saturation_strategy not in [None, "hard", "soft"]:
+            raise ValueError(f"saturation_strategy must be None, 'hard' or 'soft', got {saturation_strategy}")
+        if saturation_strategy == "hard":
+            if clip_min is None or clip_max is None:
+                raise ValueError("clip_min and clip_max must be provided when saturation_strategy is 'hard'")
+            if clip_min >= clip_max:
+                raise ValueError(f"clip_min must be strictly less than clip_max, got {clip_min} >= {clip_max}")
+
         self.in_size = in_size
         self.update_limit = update_limit
+        self.update_frequency = update_frequency
         self.n_breakpoints = n_breakpoints
         self.max_centroids = max_centroids
         self.use_running_average = use_running_average
+        self.saturation_strategy = saturation_strategy
+        self.clip_min = clip_min
+        self.clip_max = clip_max
 
         self.updates = nnx.Variable(jnp.array([0], dtype=jnp.int32))
+        self.train_steps = nnx.Variable(jnp.array([0], dtype=jnp.int32))
 
-        self.max_centroids_var = nnx.Variable(jnp.array([self.max_centroids] * self.in_size, dtype=jnp.int32))
-        self.min_var = nnx.Variable(jnp.array([jnp.nan] * self.in_size, dtype=jnp.float32))
-        self.max_var = nnx.Variable(jnp.array([jnp.nan] * self.in_size, dtype=jnp.float32))
-        self.centroids_m_var = nnx.Variable(jnp.zeros([self.max_centroids, self.in_size], dtype=jnp.float32))
-        self.centroids_c_var = nnx.Variable(jnp.zeros([self.max_centroids, self.in_size], dtype=jnp.float32))
-        self.fp_var = nnx.Variable(jnp.linspace(-1, 1, self.n_breakpoints)[:, None] + jnp.zeros([1, self.in_size]))
-        self.xp_var = nnx.Variable(jnp.linspace(-1, 1, self.n_breakpoints)[:, None] + jnp.zeros([1, self.in_size]))
+        # Initialize vmapped JaxTDigest
+        def init_digest(_):
+            return JaxTDigest.empty(self.max_centroids)
+
+        self.digest = nnx.Variable(jax.vmap(init_digest)(jnp.arange(self.in_size)))
+
+        # Grid for interpolation
+        self.p_grid = jnp.linspace(0.0, 1.0, self.n_breakpoints, dtype=jnp.float32)
+        self.fp = self.p_grid * 2.0 - 1.0
+        self.dfp_left = self.fp[1] - self.fp[0]
+        self.dfp_right = self.fp[-1] - self.fp[-2]
+        self.xp_var = nnx.Variable(
+            jnp.tile(jnp.linspace(-1.0, 1.0, self.n_breakpoints, dtype=jnp.float32)[:, None], (1, self.in_size))
+        )
+
+        # Slopes for extrapolation [left, right]
+        self.slopes_var = nnx.Variable(jnp.ones((2, self.in_size), dtype=jnp.float32))
+
+    @property
+    def min_var(self):
+        return self.digest.get_value().min_value
+
+    @property
+    def max_var(self):
+        return self.digest.get_value().max_value
+
+    def _update_digest(self, array: jax.Array, mask: jax.Array):
+        """Pure JAX implementation of T-Digest update."""
+        array = array.astype(jnp.float32)
+        mask = mask.astype(jnp.float32)
+
+        # Update Digest and Grid in a single vmap
+        def update_and_get_xp(d, x, w, p):
+            new_d = d.batch_update(x, w)
+            new_xp = new_d.quantile_vec(p)
+            return new_d, new_xp
+
+        new_digest, new_xp = jax.vmap(update_and_get_xp, in_axes=(0, 1, None, None), out_axes=(0, 1))(
+            self.digest.get_value(), array, mask.squeeze(-1), self.p_grid
+        )
+
+        # Compute new slopes
+        EPS = 1e-6
+        new_left_slope = self.dfp_left / (new_xp[1, :] - new_xp[0, :] + EPS)
+        new_right_slope = self.dfp_right / (new_xp[-1, :] - new_xp[-2, :] + EPS)
+        new_slopes = jnp.stack([new_left_slope, new_right_slope], axis=0)
+
+        return new_digest, new_xp, new_slopes
 
     def __call__(self, array: jax.Array, non_fictitious: jax.Array) -> jax.Array:
-        """
-        Normalizes the input array using the current T-Digest state.
-
-        If in training mode and under the update limit, it also triggers a state update.
-
-        :param array: Input array of shape (..., in_size).
-        :param non_fictitious: Mask for valid (non-fictitious) items.
-        :return: Normalized array of the same shape as input.
-        """
         is_training = not self.use_running_average
-        should_update = is_training & (self.updates[...] < self.update_limit)[0]
-
-        if is_training:
-            module_state = (
-                self.max_centroids_var[...],
-                self.min_var[...],
-                self.max_var[...],
-                self.centroids_m_var[...],
-                self.centroids_c_var[...],
-                self.fp_var[...],
-                self.xp_var[...],
-            )
-
-            new_vars = _tdigest_apply(
-                array,
-                non_fictitious,
-                should_update,
-                module_state,
-                self.in_size,
-                self.max_centroids,
-                self.n_breakpoints,
-            )
-
-            # Update state variables (side effects)
-            self.updates[...] = jnp.where(should_update, self.updates[...] + 1, self.updates[...])
-            self.max_centroids_var[...] = jax.lax.stop_gradient(new_vars[0])
-            self.min_var[...] = jax.lax.stop_gradient(new_vars[1])
-            self.max_var[...] = jax.lax.stop_gradient(new_vars[2])
-            self.centroids_m_var[...] = jax.lax.stop_gradient(new_vars[3])
-            self.centroids_c_var[...] = jax.lax.stop_gradient(new_vars[4])
-            self.fp_var[...] = jax.lax.stop_gradient(new_vars[5])
-            self.xp_var[...] = jax.lax.stop_gradient(new_vars[6])
-
-        xp = self.xp_var[...]
-        fp = self.fp_var[...]
-
-        def forward_local(x_feat, xp_feat, fp_feat):
-            EPS = 1e-6
-            interp_term = jnp.interp(x_feat, xp_feat, fp_feat)
-            left_term = (
-                jnp.minimum(x_feat - xp_feat[0], 0.0) * (fp_feat[1] - fp_feat[0] + EPS) / (xp_feat[1] - xp_feat[0] + EPS)
-            )
-            right_term = (
-                jnp.maximum(x_feat - xp_feat[-1], 0.0) * (fp_feat[-1] - fp_feat[-2] + EPS) / (xp_feat[-1] - xp_feat[-2] + EPS)
-            )
-            return interp_term + left_term + right_term
+        should_update = (
+            is_training & (self.updates[...] < self.update_limit)[0] & (self.train_steps[...] % self.update_frequency == 0)[0]
+        )
 
         if array.ndim == 3:
-            out = jax.vmap(
-                lambda a: jax.vmap(forward_local, in_axes=(1, 1, 1), out_axes=1)(a, xp, fp),
-                in_axes=0,
-                out_axes=0,
-            )(array)
+            B, N, F = array.shape
+            flat_array = array.reshape(B * N, F)
+            flat_mask = non_fictitious.reshape(B * N, 1)
         else:
-            out = jax.vmap(forward_local, in_axes=(1, 1, 1), out_axes=1)(array, xp, fp)
+            flat_array = array
+            flat_mask = non_fictitious
 
-        out = out * non_fictitious
+        # Update state (Synchronous update)
+        self._sync_update_state(flat_array, flat_mask, is_training, should_update)
+
+        # Normalize with current (potentially updated) state
+        xp = self.xp_var[...]
+        slopes = self.slopes_var[...]
+
+        def forward_local(x_feat, xp_feat, slopes_feat):
+            interp_term = jnp.interp(x_feat, xp_feat, self.fp)
+            # Extrapolation
+            left_term = jnp.minimum(x_feat - xp_feat[0], 0.0) * slopes_feat[0]
+            right_term = jnp.maximum(x_feat - xp_feat[-1], 0.0) * slopes_feat[1]
+            return interp_term + left_term + right_term
+
+        # Apply normalization
+        if array.ndim == 3:
+            out = jax.vmap(forward_local, in_axes=(1, 1, 0), out_axes=1)(flat_array, xp, slopes.T)
+            out = out.reshape(B, N, F)
+        else:
+            out = jax.vmap(forward_local, in_axes=(1, 1, 0), out_axes=1)(array, xp, slopes.T)
+
+        if self.saturation_strategy is not None:
+            out = self._apply_saturation(out)
+
+        return out * non_fictitious
+
+    def _sync_update_state(self, flat_array: jax.Array, flat_mask: jax.Array, is_training: bool, should_update: bool):
+        def update_fn(a, m):
+            new_digest, new_xp, new_sl = self._update_digest(a, m)
+            return new_digest, new_xp, new_sl, jnp.array(True)
+
+        def no_update_fn(a, m):
+            return (
+                self.digest.get_value(),
+                self.xp_var[...],
+                self.slopes_var[...],
+                jnp.array(False),
+            )
+
+        new_digest, new_xp, new_sl, did_update = jax.lax.cond(should_update, update_fn, no_update_fn, flat_array, flat_mask)
+
+        if is_training:
+            self.updates[...] += jnp.where(did_update, 1, 0)
+            self.train_steps[...] += 1
+            self.digest.set_value(jax.tree.map(jax.lax.stop_gradient, new_digest))
+            self.xp_var[...] = jax.lax.stop_gradient(new_xp)
+            self.slopes_var[...] = jax.lax.stop_gradient(new_sl)
+
+    def _apply_saturation(self, out: jax.Array) -> jax.Array:
+        if self.saturation_strategy == "hard":
+
+            # Warning mechanism only for hard clipping
+            def log_clipping(has_clipped):
+                if has_clipped:
+                    logging.warning(
+                        f"Normalization saturation occurred: some values were outside [{self.clip_min}, {self.clip_max}]"
+                    )
+
+            has_clipped = jnp.any((out < self.clip_min) | (out > self.clip_max))
+            jax.debug.callback(log_clipping, has_clipped)
+            out = jnp.clip(out, self.clip_min, self.clip_max)
+        elif self.saturation_strategy == "soft":
+            out = jnp.tanh(out)
+        else:
+            raise ValueError(f"Unknown saturation_strategy: {self.saturation_strategy}")
         return out
 
 
@@ -376,6 +514,10 @@ class TDigestNormalizer(Normalizer):
         n_breakpoints: int = 20,
         max_centroids: int = 1000,
         use_running_average: bool = False,
+        saturation_strategy: str | None = None,
+        clip_min: float | None = None,
+        clip_max: float | None = None,
+        update_frequency: int = 1,
     ):
         """
         Initializes the TDigestNormalizer.
@@ -385,12 +527,30 @@ class TDigestNormalizer(Normalizer):
         :param n_breakpoints: Number of breakpoints for the interpolation grid.
         :param max_centroids: Maximum number of centroids for each T-Digest.
         :param use_running_average: Initial state for the running average flag.
+        :param saturation_strategy: Strategy for saturation, either "hard" (clipping to [clip_min, clip_max]),
+            "soft" (applying tanh function), or None (no saturation). Defaults to None.
+        :param clip_min: Minimum value for hard saturation. Required if saturation_strategy is "hard".
+        :param clip_max: Maximum value for hard saturation. Required if saturation_strategy is "hard".
+        :param update_frequency: Frequency of update steps for each T-Digest. Defaults to 1 (update at every step).
+            Updates are always performed at the first step (step 0).
         """
+        if saturation_strategy not in [None, "hard", "soft"]:
+            raise ValueError(f"saturation_strategy must be None, 'hard' or 'soft', got {saturation_strategy}")
+        if saturation_strategy == "hard":
+            if clip_min is None or clip_max is None:
+                raise ValueError("clip_min and clip_max must be provided when saturation_strategy is 'hard'")
+            if clip_min >= clip_max:
+                raise ValueError(f"clip_min must be strictly less than clip_max, got {clip_min} >= {clip_max}")
+
         self.in_structure = in_structure
         self.update_limit = update_limit
+        self.update_frequency = update_frequency
         self.n_breakpoints = n_breakpoints
         self.max_centroids = max_centroids
         self.use_running_average = use_running_average
+        self.saturation_strategy = saturation_strategy
+        self.clip_min = clip_min
+        self.clip_max = clip_max
 
         self.module_dict = self._build_module_dict()
 
@@ -406,6 +566,10 @@ class TDigestNormalizer(Normalizer):
                     n_breakpoints=self.n_breakpoints,
                     max_centroids=self.max_centroids,
                     use_running_average=self.use_running_average,
+                    saturation_strategy=self.saturation_strategy,
+                    clip_min=self.clip_min,
+                    clip_max=self.clip_max,
+                    update_frequency=self.update_frequency,
                 )
             else:
                 module_dict[key] = None
@@ -418,9 +582,9 @@ class TDigestNormalizer(Normalizer):
         :param use: If True, enables inference mode (no updates).
         """
         self.use_running_average = use
-        # module_dict is wrapped in nnx.data
         for module in self.module_dict.values():
-            module.use_running_average = use
+            if module is not None:
+                module.use_running_average = use
 
     def __call__(self, *, graph: Graph, get_info: bool = False) -> tuple[Graph, dict]:
         """
@@ -437,14 +601,14 @@ class TDigestNormalizer(Normalizer):
         hyper_edge_set_norm_dict = {
             k: (hyper_edge_set, self.module_dict[k])
             for k, hyper_edge_set in graph.hyper_edge_sets.items()
-            if k in self.module_dict.keys()
+            if k in self.module_dict.keys() and self.module_dict[k] is not None
         }
 
         def apply_norm(edge_norm: tuple[HyperEdgeSet, TDigestModule]) -> HyperEdgeSet:
             hyper_edge_set, normalizer = edge_norm
             array = hyper_edge_set.feature_array
-            if hyper_edge_set.feature_array is not None:
-                if hyper_edge_set.feature_array.shape[-2] > 0:
+            if array is not None:
+                if array.shape[-2] > 0:
                     array = normalizer(array, jnp.expand_dims(hyper_edge_set.non_fictitious, -1))
             return HyperEdgeSet(
                 backend=hyper_edge_set._backend,
@@ -458,9 +622,13 @@ class TDigestNormalizer(Normalizer):
             apply_norm, hyper_edge_set_norm_dict, is_leaf=(lambda x: isinstance(x, tuple))
         )
 
+        # Merge with non-normalized sets
+        final_sets = dict(graph.hyper_edge_sets)
+        final_sets.update(normalized_hyper_edge_sets)
+
         normalized_context = Graph(
             backend=graph._backend,
-            hyper_edge_sets=normalized_hyper_edge_sets,
+            hyper_edge_sets=final_sets,
             non_fictitious_addresses=graph.non_fictitious_addresses,
             true_shape=graph.true_shape,
             current_shape=graph.current_shape,

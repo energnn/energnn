@@ -1,24 +1,21 @@
 #
-# Copyright (c) 2025, RTE (http://www.rte-france.com)
+# Copyright (c) 2026, RTE (http://www.rte-france.com)
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
+import logging
+import pytest
 import jax
 import jax.numpy as jnp
 import numpy as np
 
-import energnn.model.normalizer.tdigest_normalizer as tdn
-from energnn.graph import GraphStructure, HyperEdgeSetStructure
-from energnn.graph import Graph, HyperEdgeSet, JaxBackend
+from energnn.graph import GraphStructure, HyperEdgeSetStructure, Graph, HyperEdgeSet, JaxBackend
 from energnn.model.normalizer.tdigest_normalizer import (
     TDigestModule,
     TDigestNormalizer,
 )
 from energnn.problem.example import LinearSystemProblemLoader
-
-# TDigestNormalizer relies on float32 explicitly in io_callback.
-jax.config.update("jax_enable_x64", False)
 
 # make deterministic
 np.random.seed(0)
@@ -31,182 +28,405 @@ jax_context_batch, _ = pb_batch.get_context()
 jax_context = jax.tree.map(lambda x: x[0], jax_context_batch)  # single example usable in tests
 
 
-def test_merge_equal_quantiles_host_no_repeats():
-    # p grid of length 3, two features with strictly increasing quantiles
-    p = np.array([0.0, 0.5, 1.0], dtype=np.float32)
-    q = np.array([[0.0, -1.0], [0.5, 0.0], [1.0, 1.0]], dtype=np.float32)  # (3,2)
-    # broadcast p to (3,2)
-    p_2d = np.stack([p, p], axis=1)
-    p_out, q_out = tdn._merge_equal_quantiles_host(p_2d, q)
-    assert p_out.shape == (3, 2)
-    assert q_out.shape == (3, 2)
-    # distinct quantiles -> p_out should be identical to p broadcasted across features
-    np.testing.assert_allclose(p_out[:, 0], p, rtol=0, atol=1e-6)
-    np.testing.assert_allclose(p_out[:, 1], p, rtol=0, atol=1e-6)
-    np.testing.assert_allclose(q_out, q.astype(np.float32), rtol=0, atol=0)
+def test_tdigest_module_init():
+    in_size = 4
+    module = TDigestModule(in_size=in_size, update_limit=10, n_breakpoints=20, max_centroids=100, use_running_average=False)
+    assert module.in_size == in_size
+    assert module.updates[...] == 0
+    assert module.xp_var.shape == (20, in_size)
+    assert module.slopes_var.shape == (2, in_size)
+    # JaxTDigest internal capacity is 1.5 * max_centroids
+    assert module.digest.get_value().centroids.shape == (in_size, 150, 2)
 
 
-def test_merge_equal_quantiles_host_with_duplicates():
-    # create q where q[1]==q[2] for the first feature -> merging should average p[1] & p[2]
-    p = np.array([0.0, 0.4, 0.6, 1.0], dtype=np.float32)
-    q = np.array(
-        [
-            [0.0, 10.0],
-            [0.5, 20.0],
-            [0.5, 30.0],  # duplicate in column 0 with previous row
-            [1.0, 40.0],
-        ],
-        dtype=np.float32,
-    )  # shape (4,2)
-    # broadcast p to (4,2)
-    p_2d = np.stack([p, p], axis=1)
-    p_out, q_out = tdn._merge_equal_quantiles_host(p_2d, q)
-    assert p_out.shape == (4, 2)
-    assert q_out.shape == (4, 2)
-    # for column 0, rows 1 and 2 have identical q values -> they should receive the average p = (0.4+0.6)/2 = 0.5
-    assert np.isclose(p_out[1, 0], 0.5, atol=1e-6)
-    assert np.isclose(p_out[2, 0], 0.5, atol=1e-6)
-    # q_out should equal q cast to float32
-    np.testing.assert_allclose(q_out, q.astype(np.float32), rtol=0, atol=1e-6)
+def test_tdigest_module_update():
+    in_size = 2
+    module = TDigestModule(in_size=in_size, update_limit=3, n_breakpoints=10, max_centroids=10, use_running_average=False)
+
+    # First update
+    x = jnp.array([[1.0, 10.0], [2.0, 20.0], [3.0, 30.0]])
+    mask = jnp.ones((3, 1))
+    _ = module(x, mask)
+
+    assert module.updates[...] == 1
+    # Check that xp_var has been updated from its initial linear linspace
+    assert not jnp.allclose(module.xp_var[...], jnp.tile(jnp.linspace(-1.0, 1.0, 10)[:, None], (1, in_size)))
+
+    # Multiple updates until limit
+    for _ in range(5):
+        module(x, mask)
+
+    assert module.updates[...] == 3  # Should stop at update_limit
 
 
-def test_ingest_new_data_shapes_and_fp():
-    # batch: N rows, F features = 2
-    batch = np.array([[0.0, 10.0], [1.0, 20.0], [2.0, 30.0], [3.0, 40.0]], dtype=np.float32)
-    F = batch.shape[1]
-    max_centroids = np.array([50] * F, dtype=np.int32)
-    min_val = np.array([np.nan] * F, dtype=np.float32)
-    max_val = np.array([np.nan] * F, dtype=np.float32)
-    centroids_m = np.zeros((50, F), dtype=np.float32)
-    centroids_c = np.zeros((50, F), dtype=np.float32)
-    K = 3
-    fp = np.linspace(-1, 1, K)[:, None] + np.zeros((1, F), dtype=np.float32)
-    xp = np.zeros((K, F), dtype=np.float32)
-    mask = np.ones((batch.shape[0], 1), dtype=np.float32)
+def test_tdigest_module_validation():
+    # Valid
+    TDigestModule(in_size=1, update_limit=10, n_breakpoints=10, max_centroids=10, use_running_average=False)
 
-    res = tdn._ingest_new_data(max_centroids, min_val, max_val, centroids_m, centroids_c, fp, xp, batch, mask)
-    (
-        new_max_centroids,
-        new_min_val,
-        new_max_val,
-        new_centroids_m,
-        new_centroids_c,
-        new_fp,
-        new_xp,
-    ) = res
-
-    # shapes
-    assert new_xp.shape == (K, F)
-    assert new_fp.shape == (K, F)
-    assert new_xp.dtype == np.float32
-    assert new_fp.dtype == np.float32
-    # new_fp should lie in [-1, 1]
-    assert np.all(new_fp >= -1.0 - 1e-6)
-    assert np.all(new_fp <= 1.0 + 1e-6)
+    # Invalid
+    with pytest.raises(ValueError, match="saturation_strategy must be None, 'hard' or 'soft'"):
+        TDigestModule(
+            in_size=1,
+            update_limit=10,
+            n_breakpoints=10,
+            max_centroids=10,
+            use_running_average=False,
+            saturation_strategy="foo",
+        )
 
 
-def test_ingest_new_data_quantile_values_basic():
-    # prepare a column with constant values and a column with increasing values
-    col0 = np.zeros((8,), dtype=np.float32)  # constant -> quantiles same 0
-    col1 = np.arange(8, dtype=np.float32)  # increasing -> quantiles should follow distribution
-    batch = np.stack([col0, col1], axis=1)  # shape (8,2)
-    F = batch.shape[1]
-    max_centroids = np.array([100] * F, dtype=np.int32)
-    min_val = np.array([np.nan] * F, dtype=np.float32)
-    max_val = np.array([np.nan] * F, dtype=np.float32)
-    centroids_m = np.zeros((100, F), dtype=np.float32)
-    centroids_c = np.zeros((100, F), dtype=np.float32)
-    K = 5
-    fp = np.linspace(-1, 1, K)[:, None] + np.zeros((1, F), dtype=np.float32)
-    xp = np.zeros((K, F), dtype=np.float32)
-    mask = np.ones((batch.shape[0], 1), dtype=np.float32)
+def test_tdigest_normalizer_validation():
+    struct = GraphStructure(hyper_edge_sets={"nodes": HyperEdgeSetStructure(port_list=[], feature_list=["a"])})
 
-    res = tdn._ingest_new_data(max_centroids, min_val, max_val, centroids_m, centroids_c, fp, xp, batch, mask)
-    new_xp = res[6]
+    # Valid
+    TDigestNormalizer(struct, update_limit=10, saturation_strategy="hard", clip_min=-1.0, clip_max=1.0)
+    TDigestNormalizer(struct, update_limit=10, saturation_strategy="soft")
+    TDigestNormalizer(struct, update_limit=10)  # Default is None
 
-    # col0: all quantiles equal to 0
-    np.testing.assert_allclose(new_xp[:, 0], 0.0, atol=1e-6)
-    # col1: quantiles should be in ascending order and within min/max of col1
-    assert np.all(np.diff(new_xp[:, 1]) >= -1e-6)
-    assert new_xp[0, 1] >= col1.min() - 1e-6
-    assert new_xp[-1, 1] <= col1.max() + 1e-6
+    # Invalid strategy
+    with pytest.raises(ValueError, match="saturation_strategy must be None, 'hard' or 'soft'"):
+        TDigestNormalizer(struct, update_limit=10, saturation_strategy="invalid")
+
+    # Missing clip for hard
+    with pytest.raises(ValueError, match="clip_min and clip_max must be provided"):
+        TDigestNormalizer(struct, update_limit=10, saturation_strategy="hard")
+
+    # Invalid clip range
+    with pytest.raises(ValueError, match="clip_min must be strictly less than clip_max"):
+        TDigestNormalizer(struct, update_limit=10, saturation_strategy="hard", clip_min=1.0, clip_max=-1.0)
+
+    with pytest.raises(ValueError, match="clip_min must be strictly less than clip_max"):
+        TDigestNormalizer(struct, update_limit=10, saturation_strategy="hard", clip_min=1.0, clip_max=1.0)
 
 
-def test_tdigest_module_initial_shapes():
-    mod = TDigestModule(in_size=3, update_limit=5, n_breakpoints=4, max_centroids=20, use_running_average=False)
-    # xp and fp shapes
-    K = mod.n_breakpoints
-    assert mod.xp_var[...].shape == (K, 3)
-    assert mod.fp_var[...].shape == (K, 3)
-    # digest centroids shapes
-    assert mod.centroids_m_var[...].shape == (mod.max_centroids, 3)
-    assert mod.centroids_c_var[...].shape == (mod.max_centroids, 3)
+def test_tdigest_module_normalization_range():
+    jax.config.update("jax_enable_x64", True)
+    try:
+        in_size = 1
+        module = TDigestModule(
+            in_size=in_size, update_limit=100, n_breakpoints=50, max_centroids=100, use_running_average=False
+        )
+
+        # Train on a normal distribution
+        key = jax.random.PRNGKey(0)
+        data = jax.random.normal(key, (1000, 1))
+        mask = jnp.ones((1000, 1))
+
+        # Several updates to converge
+        for _ in range(5):
+            module(data, mask)
+
+        # Test normalization
+        test_data = jnp.array([[-3.0], [0.0], [3.0]])
+        norm_out = module(test_data, jnp.ones((3, 1)))
+
+        # Values should be roughly in [-1, 1] for data within the seen distribution
+        # Median (0.0) should be around 0.0
+        assert jnp.abs(norm_out[1, 0]) < 0.1
+        # Extremes should be close to -1 and 1
+        assert norm_out[0, 0] < -0.95
+        assert norm_out[2, 0] > 0.95
+    finally:
+        jax.config.update("jax_enable_x64", False)
 
 
-def test_tdigest_module_call_updates_and_maps_values():
-    """
-    Call the module and verify xp/fp set and output mapping in [-1,1].
-    """
-    mod = TDigestModule(in_size=2, update_limit=5, n_breakpoints=4, max_centroids=20, use_running_average=False)
-    # input x shape (n_items, F)
-    x = jnp.array(np.random.normal(size=(5, 2)), dtype=jnp.float32)
-    non_fictitious = jnp.ones((5, 1), dtype=jnp.float32)
+def test_tdigest_saturation(caplog):
+    feature_names = ["feat1"]
+    hyper_edge_sets = {"nodes": HyperEdgeSetStructure(port_list=[], feature_list=feature_names)}
+    structure = GraphStructure(hyper_edge_sets=hyper_edge_sets)
 
-    out = mod(x, non_fictitious)
-    # updates incremented
-    assert mod.updates[...] == 1
-    # xp and fp now set (originally zeros for xp)
-    assert mod.xp_var[...].shape[1] == 2
-    assert mod.fp_var[...].shape[1] == 2
-    assert not np.allclose(np.array(mod.xp_var[...]), 0.0)
-    # output has same shape as input
-    assert out.shape == x.shape
-    assert np.all(np.isfinite(np.array(out)))
-
-
-def test_tdigest_normalizer_apply_preserves_none_feature_edges(monkeypatch):
-    # Build graph with one edge having None features and another with features
-    node_edge_with_none = HyperEdgeSet(backend=JaxBackend(),
-        port_dict=jax_context.hyper_edge_sets["bus"].port_dict,
-        feature_array=None,
-        feature_names=None,
-        non_fictitious=jax_context.hyper_edge_sets["bus"].non_fictitious,
-    )
-    edge_with_feat = HyperEdgeSet(backend=JaxBackend(),
-        port_dict=jax_context.hyper_edge_sets["line"].port_dict,
-        feature_array=jnp.ones((jax_context.hyper_edge_sets["line"].feature_array.shape[0], 1), dtype=jnp.float32),
-        feature_names={"susceptance": jnp.array(0)},
-        non_fictitious=jax_context.hyper_edge_sets["line"].non_fictitious,
-    )
-    g = Graph(backend=JaxBackend(),
-        hyper_edge_sets={"bus": node_edge_with_none, "line": edge_with_feat},
-        non_fictitious_addresses=jax_context.non_fictitious_addresses,
-        true_shape=jax_context.true_shape,
-        current_shape=jax_context.current_shape,
+    # Enable saturation (hard)
+    normalizer = TDigestNormalizer(
+        in_structure=structure,
+        update_limit=10,
+        saturation_strategy="hard",
+        clip_min=-1.0,
+        clip_max=1.0,
     )
 
-    in_structure = GraphStructure(
+    # Fit with normal data in [-0.5, 0.5]
+    data = jnp.linspace(-0.5, 0.5, 100).reshape(1, 100, 1)
+    nodes = HyperEdgeSet(
+        backend=JaxBackend(),
+        port_dict=None,
+        feature_array=data,
+        feature_names=feature_names,
+        non_fictitious=jnp.ones((1, 100)),
+    )
+    graph = Graph.from_dict(backend=JaxBackend(), hyper_edge_set_dict={"nodes": nodes}, n_addresses=100)
+
+    for _ in range(5):
+        normalizer(graph=graph)
+
+    normalizer.set_running_average(True)
+
+    # Test with outlier
+    outlier_data = jnp.array([[[10.0]]])
+    outlier_nodes = HyperEdgeSet(
+        backend=JaxBackend(),
+        port_dict=None,
+        feature_array=outlier_data,
+        feature_names=feature_names,
+        non_fictitious=jnp.ones((1, 1)),
+    )
+    outlier_graph = Graph.from_dict(backend=JaxBackend(), hyper_edge_set_dict={"nodes": outlier_nodes}, n_addresses=1)
+
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        gn, _ = normalizer(graph=outlier_graph)
+
+    val = gn.hyper_edge_sets["nodes"].feature_array[0, 0, 0]
+    assert val == 1.0
+    assert "Normalization saturation occurred" in caplog.text
+
+
+def test_tdigest_soft_saturation(caplog):
+    feature_names = ["feat1"]
+    hyper_edge_sets = {"nodes": HyperEdgeSetStructure(port_list=[], feature_list=feature_names)}
+    structure = GraphStructure(hyper_edge_sets=hyper_edge_sets)
+
+    # Enable saturation (soft)
+    normalizer = TDigestNormalizer(
+        in_structure=structure,
+        update_limit=10,
+        saturation_strategy="soft",
+        clip_min=-1.0,
+        clip_max=1.0,
+    )
+
+    # Fit with normal data in [-0.5, 0.5]
+    data = jnp.linspace(-0.5, 0.5, 100).reshape(1, 100, 1)
+    nodes = HyperEdgeSet(
+        backend=JaxBackend(),
+        port_dict=None,
+        feature_array=data,
+        feature_names=feature_names,
+        non_fictitious=jnp.ones((1, 100)),
+    )
+    graph = Graph.from_dict(backend=JaxBackend(), hyper_edge_set_dict={"nodes": nodes}, n_addresses=100)
+
+    for _ in range(5):
+        normalizer(graph=graph)
+
+    normalizer.set_running_average(True)
+
+    # Test with outlier
+    outlier_data = jnp.array([[[2.0]]])
+    outlier_nodes = HyperEdgeSet(
+        backend=JaxBackend(),
+        port_dict=None,
+        feature_array=outlier_data,
+        feature_names=feature_names,
+        non_fictitious=jnp.ones((1, 1)),
+    )
+    outlier_graph = Graph.from_dict(backend=JaxBackend(), hyper_edge_set_dict={"nodes": outlier_nodes}, n_addresses=1)
+
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        gn, _ = normalizer(graph=outlier_graph)
+
+    val = gn.hyper_edge_sets["nodes"].feature_array[0, 0, 0]
+    # tanh(out) where out > 1
+    assert val < 1.0
+    assert "Normalization saturation occurred" not in caplog.text
+
+
+def test_tdigest_module_inference_mode():
+    module = TDigestModule(in_size=1, update_limit=10, n_breakpoints=10, max_centroids=10, use_running_average=True)
+    initial_xp = module.xp_var[...]
+
+    data = jnp.array([[1.0], [2.0], [3.0]])
+    module(data, jnp.ones((3, 1)))
+
+    assert module.updates[...] == 0
+    assert jnp.all(module.xp_var[...] == initial_xp)
+
+
+def test_tdigest_module_masking():
+    module = TDigestModule(in_size=1, update_limit=10, n_breakpoints=10, max_centroids=10, use_running_average=False)
+
+    # Only the first element is non-fictitious
+    data = jnp.array([[100.0], [0.0]])
+    mask = jnp.array([[1.0], [0.0]])
+
+    module(data, mask)
+
+    # Min/Max should reflect only the first element
+    assert jnp.allclose(module.min_var, 100.0)
+    assert jnp.allclose(module.max_var, 100.0)
+
+
+def test_tdigest_module_batch_shape():
+    in_size = 2
+    module = TDigestModule(in_size=in_size, update_limit=10, n_breakpoints=10, max_centroids=10, use_running_average=False)
+
+    # Batch of 2 examples, each with 3 nodes
+    data = jnp.ones((2, 3, 2))
+    mask = jnp.ones((2, 3, 1))
+
+    out = module(data, mask)
+    assert out.shape == (2, 3, 2)
+    assert module.updates[...] == 1
+
+
+def test_tdigest_module_update_frequency():
+    in_size = 1
+    # Update every 3 steps, limit to 2 updates
+    module = TDigestModule(
+        in_size=in_size,
+        update_limit=2,
+        n_breakpoints=10,
+        max_centroids=10,
+        use_running_average=False,
+        update_frequency=3,
+    )
+
+    data = jnp.array([[1.0]])
+    mask = jnp.ones((1, 1))
+
+    # Step 0: should update
+    module(data, mask)
+    assert module.updates[...] == 1
+    assert module.train_steps[...] == 1
+
+    # Step 1: should NOT update
+    module(data, mask)
+    assert module.updates[...] == 1
+    assert module.train_steps[...] == 2
+
+    # Step 2: should NOT update
+    module(data, mask)
+    assert module.updates[...] == 1
+    assert module.train_steps[...] == 3
+
+    # Step 3: should update (3 % 3 == 0)
+    module(data, mask)
+    assert module.updates[...] == 2
+    assert module.train_steps[...] == 4
+
+    # Step 4, 5: should NOT update (limit reached)
+    module(data, mask)
+    module(data, mask)
+    assert module.updates[...] == 2
+    assert module.train_steps[...] == 6
+
+
+def test_tdigest_normalizer_init():
+    struct = GraphStructure(
         hyper_edge_sets={
-            "bus": HyperEdgeSetStructure(port_list=["id"], feature_list=None),
-            "line": HyperEdgeSetStructure(port_list=["from", "to"], feature_list=["susceptance"]),
+            "nodes": HyperEdgeSetStructure(port_list=["id"], feature_list=["a", "b"]),
+            "edges": HyperEdgeSetStructure(port_list=["from", "to"], feature_list=None),
         }
     )
+    normalizer = TDigestNormalizer(struct, update_limit=10)
+    assert "nodes" in normalizer.module_dict
+    assert isinstance(normalizer.module_dict["nodes"], TDigestModule)
+    assert normalizer.module_dict["edges"] is None
 
-    normalizer = TDigestNormalizer(
-        in_structure=in_structure,
-        update_limit=1,
-        n_breakpoints=3,
-        max_centroids=8,
-        use_running_average=False,
-        # in_structure=pb_loader.context_structure, update_limit=1, n_breakpoints=3, max_centroids=8, use_running_average=False
+
+def test_tdigest_normalizer_call():
+    # Use jax_context and context_structure from the file setup
+    struct = pb_batch.context_structure
+    normalizer = TDigestNormalizer(struct, update_limit=10)
+
+    # Call normalizer
+    norm_graph, info = normalizer(graph=jax_context, get_info=True)
+
+    assert isinstance(norm_graph, Graph)
+    assert "input_graph" in info
+    assert "output_graph" in info
+
+    # Check that some values changed in nodes features
+    for k in jax_context.hyper_edge_sets:
+        if normalizer.module_dict[k] is not None:
+            original = jax_context.hyper_edge_sets[k].feature_array
+            normalized = norm_graph.hyper_edge_sets[k].feature_array
+            if original is not None and original.shape[-2] > 0:
+                assert not jnp.allclose(original, normalized)
+
+
+def test_tdigest_normalizer_set_running_average():
+    struct = pb_batch.context_structure
+    normalizer = TDigestNormalizer(struct, update_limit=10)
+
+    normalizer.set_running_average(True)
+    assert normalizer.use_running_average is True
+    for module in normalizer.module_dict.values():
+        if module is not None:
+            assert module.use_running_average is True
+
+
+def test_tdigest_normalizer_multi_sets():
+    struct = GraphStructure(
+        hyper_edge_sets={
+            "s1": HyperEdgeSetStructure(port_list=["p1"], feature_list=["f1"]),
+            "s2": HyperEdgeSetStructure(port_list=["p2"], feature_list=["f2", "f3"]),
+            "s3": HyperEdgeSetStructure(port_list=["p3"], feature_list=None),
+        }
     )
-    # patch TDigestModule.__call__ to return input*2 (simulate normalization)
-    monkeypatch.setattr(TDigestModule, "__call__", lambda self, x, nf: x * 2.0 * nf)
-    out_graph, _ = normalizer(graph=g, get_info=False)
+    normalizer = TDigestNormalizer(struct, update_limit=10)
 
-    # bus edge had None -> must remain None
-    assert out_graph.hyper_edge_sets["bus"].feature_array is None
-    # edge with features must be multiplied by 2 and masked by non_fictitious
-    mask2 = np.array(edge_with_feat.non_fictitious)
-    expected = np.array(edge_with_feat.feature_array) * mask2[..., None] * 2.0
-    np.testing.assert_allclose(np.array(out_graph.hyper_edge_sets["line"].feature_array), expected, rtol=1e-6, atol=1e-6)
+    # Create a dummy graph
+    h1 = HyperEdgeSet(
+        backend=JaxBackend(),
+        feature_array=jnp.array([[1.0], [2.0]]),
+        feature_names=["f1"],
+        non_fictitious=jnp.array([True, True]),
+        port_dict={"p1": jnp.array([0, 1])},
+    )
+    h2 = HyperEdgeSet(
+        backend=JaxBackend(),
+        feature_array=jnp.array([[10.0, 100.0]]),
+        feature_names=["f2", "f3"],
+        non_fictitious=jnp.array([True]),
+        port_dict={"p2": jnp.array([0])},
+    )
+    h3 = HyperEdgeSet(
+        backend=JaxBackend(),
+        feature_array=None,
+        feature_names=None,
+        non_fictitious=jnp.array([True]),
+        port_dict={"p3": jnp.array([0])},
+    )
+
+    graph = Graph(
+        backend=JaxBackend(),
+        hyper_edge_sets={"s1": h1, "s2": h2, "s3": h3},
+        non_fictitious_addresses=jnp.array([0, 1]),
+        true_shape=None,  # Not used here
+        current_shape=None,
+    )
+
+    norm_graph, _ = normalizer(graph=graph)
+
+    # Check that s1 and s2 are normalized
+    assert not jnp.allclose(norm_graph.hyper_edge_sets["s1"].feature_array, h1.feature_array)
+    assert not jnp.allclose(norm_graph.hyper_edge_sets["s2"].feature_array, h2.feature_array)
+    # Check that s3 is unchanged
+    assert norm_graph.hyper_edge_sets["s3"].feature_array is None
+
+
+def test_tdigest_normalizer_update_limit():
+    struct = GraphStructure(hyper_edge_sets={"s1": HyperEdgeSetStructure(port_list=["p1"], feature_list=["f1"])})
+    normalizer = TDigestNormalizer(struct, update_limit=2)
+
+    h1 = HyperEdgeSet(
+        feature_array=jnp.array([[1.0]]),
+        feature_names=["f1"],
+        non_fictitious=jnp.array([True]),
+        port_dict={"p1": jnp.array([0])},
+    )
+    graph = Graph(
+        backend=JaxBackend(),
+        hyper_edge_sets={"s1": h1},
+        non_fictitious_addresses=jnp.array([0]),
+        true_shape=None,
+        current_shape=None,
+    )
+
+    # Call 3 times
+    normalizer(graph=graph)
+    normalizer(graph=graph)
+    normalizer(graph=graph)
+
+    assert normalizer.module_dict["s1"].updates[...] == 2
