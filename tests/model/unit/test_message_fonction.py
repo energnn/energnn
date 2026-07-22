@@ -881,3 +881,81 @@ def test_local_sum_blacklist_excluded_from_scatter():
     manual[2] += [3.0, 4.0]
     manual[3] += [3.0, 4.0]
     np.testing.assert_allclose(np.array(out), manual, rtol=0.0, atol=1e-6)
+
+
+# Tests for mixed precision (dtype) support
+def test_mlp_dtype_computation_and_param_storage():
+    from energnn.model.utils import MLP as _MLP
+
+    mlp = _MLP(in_size=4, hidden_sizes=[8], out_size=3, dtype=jnp.bfloat16, seed=0)
+    out = mlp(jnp.ones((5, 4), dtype=jnp.float32))
+    assert out.dtype == jnp.bfloat16
+    # parameters remain stored in float32
+    for leaf in jax.tree.leaves(nnx.state(mlp, nnx.Param)):
+        assert leaf.dtype == jnp.float32
+
+
+def test_local_sum_bf16_output_dtype_and_closeness():
+    mf_fp32 = LocalSumMessagePassingFunction(
+        in_graph_structure=pb_loader.context_structure,
+        in_array_size=coordinates.shape[1],
+        hidden_sizes=[4],
+        activation=None,
+        out_size=3,
+        outer_activation=nnx.identity,
+        seed=5,
+    )
+    mf_bf16 = LocalSumMessagePassingFunction(
+        in_graph_structure=pb_loader.context_structure,
+        in_array_size=coordinates.shape[1],
+        hidden_sizes=[4],
+        activation=None,
+        out_size=3,
+        outer_activation=nnx.identity,
+        dtype=jnp.bfloat16,
+        seed=5,
+    )
+    out_fp32, _ = mf_fp32(graph=jax_context, coordinates=coordinates, get_info=False)
+    out_bf16, info = mf_bf16(graph=jax_context, coordinates=coordinates, get_info=False)
+    # output is cast back to the coordinates dtype
+    assert out_bf16.dtype == coordinates.dtype
+    assert out_bf16.shape == out_fp32.shape
+    assert info == {}
+    # bf16 has ~2-3 significant decimal digits: results must be close but not identical
+    np.testing.assert_allclose(np.array(out_bf16), np.array(out_fp32), rtol=0.05, atol=0.05)
+
+
+def test_local_sum_dtype_none_is_unchanged():
+    kwargs = dict(
+        in_graph_structure=pb_loader.context_structure,
+        in_array_size=coordinates.shape[1],
+        hidden_sizes=[4],
+        activation=None,
+        out_size=3,
+        outer_activation=nnx.identity,
+    )
+    mf_default = LocalSumMessagePassingFunction(**kwargs, seed=6)
+    mf_explicit = LocalSumMessagePassingFunction(**kwargs, dtype=None, seed=6)
+    out1, _ = mf_default(graph=jax_context, coordinates=coordinates, get_info=False)
+    out2, _ = mf_explicit(graph=jax_context, coordinates=coordinates, get_info=False)
+    assert out1.dtype == jnp.float32
+    np.testing.assert_array_equal(np.array(out1), np.array(out2))
+
+
+def test_local_sum_bf16_vmap_jit_safety():
+    mf = LocalSumMessagePassingFunction(
+        in_graph_structure=pb_loader.context_structure,
+        in_array_size=coordinates.shape[1],
+        hidden_sizes=[2],
+        activation=None,
+        out_size=4,
+        outer_activation=nnx.identity,
+        dtype=jnp.bfloat16,
+        seed=8,
+    )
+    apply_vmap = jax.vmap(lambda g, c: mf(graph=g, coordinates=c, get_info=False), in_axes=(0, 0), out_axes=0)
+    out_vmap, _ = apply_vmap(jax_context_batch, coordinates_batch)
+    out_jit, _ = jax.jit(apply_vmap)(jax_context_batch, coordinates_batch)
+    assert out_vmap.dtype == coordinates_batch.dtype
+    assert out_vmap.shape[0] == coordinates_batch.shape[0]
+    np.testing.assert_allclose(np.array(out_vmap), np.array(out_jit), rtol=2e-2, atol=2e-2)
