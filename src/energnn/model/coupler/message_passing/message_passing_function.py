@@ -42,11 +42,23 @@ class LocalSumMessagePassingFunction(MessagePassingFunction):
     element-wise activation function, and :math:`h_e := (h_{o(e)})_{o \in {\mathcal{O}^c}}` is the concatenation of
     port coordinates of hyper-edge :math:`e`.
 
+    When ``fuse_ports`` is set to True, the port-specific MLPs of a class are fused into a single
+    class-specific MLP :math:`\xi^{c}_\theta` that predicts the messages of all non-blacklisted ports
+    at once: its output of size ``out_size * n_ports`` is split into one chunk per port, which is then
+    scattered to the corresponding addresses:
+
+    .. math::
+        \psi_\theta(h,x)_a = \sigma \left( \sum_{(c,e,o)\in \mathcal{N}_x(a)} \left[\xi^{c}_\theta(h_e, x_e)\right]_o\right),
+
+    where :math:`\left[\cdot\right]_o` denotes the output chunk associated with port :math:`o`.
+    Hidden layers are then shared between the ports of a same class, which reduces both the parameter
+    count and the amount of computation.
+
     :param in_graph_structure: Input graph structure.
     :param in_array_size: Size of the input coordinate arrays.
     :param hidden_sizes: Hidden sizes of the MLPs :math:`\xi^{c,o}_\theta`.
     :param activation: Activation function for the MLPs :math:`\xi^{c,o}_\theta`.
-    :param out_size: Output size of the MLPs :math:`\xi^{c,o}_\theta`.
+    :param out_size: Size of the message associated to each port.
     :param use_bias: Whether to use bias in the MLPs :math:`\xi^{c,o}_\theta`.
     :param kernel_init: Kernel initializer for the MLPs :math:`\xi^{c,o}_\theta`.
     :param bias_init: Bias initializer for the MLPs :math:`\xi^{c,o}_\theta`.
@@ -54,6 +66,8 @@ class LocalSumMessagePassingFunction(MessagePassingFunction):
     :param outer_activation: Activation function :math:`\sigma` applied over the output.
     :param encoded_feature_size: None if the input data has not been encoded, otherwise the size of the encoded features.
     :param port_scatter_blacklist: Dictionary mapping hyper-edge set keys to lists of port keys to be excluded from the sum.
+    :param fuse_ports: If True, use a single MLP per class predicting the messages of all its
+        non-blacklisted ports, instead of one MLP per class and port.
     :param seed: Seed for RNG streams for weight initialization.
     """
 
@@ -71,6 +85,7 @@ class LocalSumMessagePassingFunction(MessagePassingFunction):
         outer_activation: Activation = nnx.tanh,
         encoded_feature_size: int | None = None,
         port_scatter_blacklist: dict[str, list[str]] | None = None,
+        fuse_ports: bool = False,
         seed: int | None = None,
         rngs: nnx.Rngs | None = None,
     ):
@@ -89,49 +104,68 @@ class LocalSumMessagePassingFunction(MessagePassingFunction):
             self.port_scatter_blacklist = {}
         else:
             self.port_scatter_blacklist = port_scatter_blacklist
+        self.fuse_ports = fuse_ports
 
+        self.active_ports = self._build_active_ports()
         self.mlp_tree = self._build_mlp_tree(seed=seed, rngs=rngs)
 
-    def _build_mlp_tree(self, seed: int = 0, rngs: nnx.Rngs | None = None) -> dict[str, dict[str, MLP]]:
+    def _build_active_ports(self) -> dict[str, list[str]]:
+        """Maps each hyper-edge set key to its ordered list of non-blacklisted ports."""
+        active_ports = {}
+        for key, hyper_edge_set_structure in self.in_graph_structure.hyper_edge_sets.items():
+            if hyper_edge_set_structure.port_list is not None and len(hyper_edge_set_structure.port_list) > 0:
+                active_ports[key] = [
+                    port_key
+                    for port_key in hyper_edge_set_structure.port_list
+                    if port_key not in self.port_scatter_blacklist.get(key, [])
+                ]
+        return active_ports
+
+    def _build_mlp_tree(self, seed: int | None = 0, rngs: nnx.Rngs | None = None) -> dict:
         if rngs is None:
             rngs = nnx.Rngs(seed)
         elif seed is not None:
             raise ValueError("Seed must be None when rngs are provided.")
-        mlp_tree = {}
+        mlp_tree: dict = {}
 
         for key, hyper_edge_set_structure in self.in_graph_structure.hyper_edge_sets.items():
-            if hyper_edge_set_structure.port_list is not None and len(hyper_edge_set_structure.port_list) > 0:
-                n_ports = len(hyper_edge_set_structure.port_list)
-                in_size = self.in_array_size * n_ports
-                if hyper_edge_set_structure.feature_list is not None and len(hyper_edge_set_structure.feature_list) > 0:
-                    if self.encoded_feature_size is not None:
-                        in_size += self.encoded_feature_size
-                    else:
-                        in_size += len(hyper_edge_set_structure.feature_list)
+            port_list = hyper_edge_set_structure.port_list
+            active_ports = self.active_ports.get(key, [])
+            if port_list is None or len(port_list) == 0:
+                continue
 
-                if key not in mlp_tree.keys():
-                    mlp_tree[key] = {}
+            in_size = self.in_array_size * len(port_list)
+            if hyper_edge_set_structure.feature_list is not None and len(hyper_edge_set_structure.feature_list) > 0:
+                if self.encoded_feature_size is not None:
+                    in_size += self.encoded_feature_size
+                else:
+                    in_size += len(hyper_edge_set_structure.feature_list)
 
-                for port_key in hyper_edge_set_structure.port_list:
-                    if port_key not in self.port_scatter_blacklist.get(key, []):
-                        mlp_tree[key][port_key] = MLP(
-                            in_size=in_size,
-                            hidden_sizes=self.hidden_sizes,
-                            activation=self.activation,
-                            out_size=self.out_size,
-                            use_bias=self.use_bias,
-                            kernel_init=self.kernel_init,
-                            bias_init=self.bias_init,
-                            final_activation=self.final_activation,
-                            rngs=rngs,
-                        )
+            def build_mlp(mlp_out_size: int) -> MLP:
+                return MLP(
+                    in_size=in_size,
+                    hidden_sizes=self.hidden_sizes,
+                    activation=self.activation,
+                    out_size=mlp_out_size,
+                    use_bias=self.use_bias,
+                    kernel_init=self.kernel_init,
+                    bias_init=self.bias_init,
+                    final_activation=self.final_activation,
+                    rngs=rngs,
+                )
+
+            if self.fuse_ports:
+                if len(active_ports) > 0:
+                    mlp_tree[key] = build_mlp(self.out_size * len(active_ports))
+            else:
+                mlp_tree[key] = {port_key: build_mlp(self.out_size) for port_key in active_ports}
         return nnx.data(mlp_tree)
 
     def __call__(self, *, graph: Graph, coordinates: jax.Array, get_info: bool = False) -> tuple[jax.Array, dict]:
 
         def sum_over_edges(_accumulator, edge_mlp_tuple):
-            """Sums the output of class and port specific MLPs through ports of all hyper-edge sets in the graph."""
-            hyper_edge_set, mlp_dict = edge_mlp_tuple
+            """Sums the messages predicted by class-specific MLPs through ports of a hyper-edge set."""
+            key, hyper_edge_set, mlp_or_dict = edge_mlp_tuple
 
             input_array = []
             if hyper_edge_set.feature_names is not None:
@@ -141,19 +175,27 @@ class LocalSumMessagePassingFunction(MessagePassingFunction):
             input_array = jnp.concatenate(input_array, axis=-1)
             non_fictitious_mask = jnp.expand_dims(hyper_edge_set.non_fictitious, -1)
 
-            def sum_over_ports(__accumulator: jax.Array, mlp_port: tuple[MLP, jax.Array]) -> jax.Array:
-                """Sums the outputs of port-specific MLPs through ports of a given hyper-edge set."""
-                mlp, _port_array = mlp_port
-                increment = mlp(input_array * non_fictitious_mask) * non_fictitious_mask
-                return scatter_add(accumulator=__accumulator, increment=increment, addresses=_port_array)
-
-            mlp_port_dict = {port_name: (mlp, hyper_edge_set.port_dict[port_name]) for port_name, mlp in mlp_dict.items()}
-            return jax.tree.reduce(
-                sum_over_ports, mlp_port_dict, initializer=_accumulator, is_leaf=lambda x: isinstance(x, tuple)
-            )
+            if self.fuse_ports:
+                output_array = mlp_or_dict(input_array * non_fictitious_mask) * non_fictitious_mask
+                for i, port_name in enumerate(self.active_ports[key]):
+                    increment = output_array[..., i * self.out_size : (i + 1) * self.out_size]
+                    _accumulator = scatter_add(
+                        accumulator=_accumulator, increment=increment, addresses=hyper_edge_set.port_dict[port_name]
+                    )
+            else:
+                for port_name, mlp in mlp_or_dict.items():
+                    increment = mlp(input_array * non_fictitious_mask) * non_fictitious_mask
+                    _accumulator = scatter_add(
+                        accumulator=_accumulator, increment=increment, addresses=hyper_edge_set.port_dict[port_name]
+                    )
+            return _accumulator
 
         initializer = jnp.zeros((coordinates.shape[0], self.out_size))
-        edge_mlp_dict = {key: (hyper_edge_set, self.mlp_tree[key]) for key, hyper_edge_set in graph.hyper_edge_sets.items()}
+        edge_mlp_dict = {
+            key: (key, hyper_edge_set, self.mlp_tree[key])
+            for key, hyper_edge_set in graph.hyper_edge_sets.items()
+            if key in self.mlp_tree
+        }
         accumulator = jax.tree.reduce(
             sum_over_edges,
             edge_mlp_dict,
