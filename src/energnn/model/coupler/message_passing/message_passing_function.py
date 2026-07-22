@@ -54,6 +54,11 @@ class LocalSumMessagePassingFunction(MessagePassingFunction):
     Hidden layers are then shared between the ports of a same class, which reduces both the parameter
     count and the amount of computation.
 
+    .. note::
+        Enabling ``fuse_ports`` changes the parameter structure of the module: checkpoints saved
+        with ``fuse_ports=False`` (e.g. from older models, where this mode did not exist) cannot be
+        loaded with ``fuse_ports=True``, and vice versa.
+
     :param in_graph_structure: Input graph structure.
     :param in_array_size: Size of the input coordinate arrays.
     :param hidden_sizes: Hidden sizes of the MLPs :math:`\xi^{c,o}_\theta`.

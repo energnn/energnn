@@ -25,6 +25,7 @@ class ReadyRecurrentEquivariantGNN(GNN):
         latent_dimension: int,
         hidden_sizes: list[int],
         n_steps: int = 5,
+        fuse_ports: bool = True,
         seed: int = 0,
     ):
 
@@ -52,6 +53,7 @@ class ReadyRecurrentEquivariantGNN(GNN):
             final_activation=None,
             outer_activation=nnx.tanh,
             encoded_feature_size=latent_dimension,
+            fuse_ports=fuse_ports,
             rngs=rngs,
         )
 
