@@ -36,6 +36,10 @@ class RecurrentCoupler(Coupler):
     :param phi: Outer MLP :math:`\phi_\theta`.
     :param message_functions: List of message functions :math:`(\psi^i_\theta)_i`.
     :param n_steps: Number of message passing steps.
+    :param use_scan: If True, iterate with :func:`jax.lax.scan` instead of an unrolled Python loop.
+        This keeps the compiled program size independent of ``n_steps``.
+    :param use_remat: If True (and ``use_scan``), apply :func:`jax.checkpoint` to each scan step,
+        so the backward pass only stores the per-step carries instead of all intermediate activations.
     """
 
     def __init__(
@@ -43,11 +47,15 @@ class RecurrentCoupler(Coupler):
         phi: MLP,
         message_functions: list[MessagePassingFunction],
         n_steps: int,
+        use_scan: bool = True,
+        use_remat: bool = True,
     ):
         super().__init__()
         self.phi = phi
         self.message_functions = nnx.List(message_functions)
         self.n_steps = n_steps
+        self.use_scan = use_scan
+        self.use_remat = use_remat
 
         self.dt = 1 / self.n_steps
 
@@ -65,8 +73,16 @@ class RecurrentCoupler(Coupler):
         h = jnp.zeros([jnp.shape(graph.non_fictitious_addresses)[0], self.phi.out_size])
 
         dt = 1 / self.n_steps
-        for _ in range(self.n_steps):
-            h = h + dt * F(0, h, graph)
+        if self.use_scan:
+
+            def step(carry, _):
+                return carry + dt * F(0, carry, graph), None
+
+            step_fn = jax.checkpoint(step) if self.use_remat else step
+            h, _ = jax.lax.scan(step_fn, h, None, length=self.n_steps)
+        else:
+            for _ in range(self.n_steps):
+                h = h + dt * F(0, h, graph)
 
         return h, {}
 

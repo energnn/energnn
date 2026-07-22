@@ -129,6 +129,50 @@ def test_recurrentcoupler_zero_steps_raises():
         _ = make_coupler(phi=IdentityPhi(out_size=1), message_functions=mf, n_steps=0)
 
 
+class IdentityMessage:
+    """Message function returning the coordinates themselves, so the recurrence feeds back through phi."""
+
+    def __call__(self, *, graph, coordinates):
+        return coordinates, {}
+
+
+@pytest.mark.parametrize("use_remat", [False, True])
+def test_recurrentcoupler_scan_matches_unrolled_forward(use_remat):
+    """lax.scan (with or without remat) must produce the same output as the unrolled Python loop."""
+    phi = MLP(in_size=3, hidden_sizes=[4], out_size=3, activation=nnx.tanh, seed=3)
+    coupler = make_coupler(phi=phi, message_functions=[IdentityMessage()], n_steps=13)
+
+    coupler.use_scan = False
+    out_unrolled, _ = coupler(graph=jax_context, get_info=False)
+
+    coupler.use_scan = True
+    coupler.use_remat = use_remat
+    out_scan, _ = coupler(graph=jax_context, get_info=False)
+
+    np.testing.assert_allclose(np.array(out_scan), np.array(out_unrolled), rtol=1e-6, atol=1e-6)
+
+
+def test_recurrentcoupler_scan_gradients_match_unrolled():
+    """Gradients w.r.t. phi parameters must be identical between scan+remat and the unrolled loop."""
+    phi = MLP(in_size=2, hidden_sizes=[4], out_size=2, activation=nnx.tanh, seed=5)
+    coupler = make_coupler(phi=phi, message_functions=[IdentityMessage()], n_steps=7)
+
+    def loss(c):
+        out, _ = c(graph=jax_context, get_info=False)
+        return jnp.sum(out**2)
+
+    coupler.use_scan = False
+    grads_unrolled = jax.tree.leaves(nnx.grad(loss)(coupler))
+
+    coupler.use_scan = True
+    coupler.use_remat = True
+    grads_scan = jax.tree.leaves(nnx.grad(loss)(coupler))
+
+    assert len(grads_unrolled) == len(grads_scan) > 0
+    for g_u, g_s in zip(grads_unrolled, grads_scan):
+        np.testing.assert_allclose(np.array(g_s), np.array(g_u), rtol=1e-5, atol=1e-6)
+
+
 def test_recurrentcoupler_init_deterministic_with_same_seed():
     """
     Two couplers with phi MLPs initialized using the same seed must produce identical outputs.
