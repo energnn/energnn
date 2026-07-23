@@ -12,7 +12,7 @@ import numpy as np
 from omegaconf import DictConfig
 
 from energnn.graph import GraphStructure, HyperEdgeSetStructure
-from energnn.graph import Graph, GraphShape, HyperEdgeSet, JaxBackend, collate_graphs
+from energnn.graph import Graph, GraphShape, HyperEdgeSet, JaxBackend, NumpyBackend, collate_graphs
 from ..batch import ProblemBatch
 from ..loader import ProblemLoader
 from ..problem import Problem
@@ -145,25 +145,18 @@ def _generate_sparse_linear_system(n, m):
     B = np.zeros((n, n))
     nodes = np.arange(n)
     np.random.shuffle(nodes)
-    for i in range(n - 1):
-        u, v = nodes[i], nodes[i + 1]
-        weight = np.random.rand() + 0.5
-        B[u, v] = B[v, u] = -weight
+    u, v = nodes[:-1], nodes[1:]
+    weights = np.random.rand(n - 1) + 0.5
+    B[u, v] = B[v, u] = -weights
 
-    # Add remaining m - (n-1) edges
-    possible_edges = []
-    for i in range(n):
-        for j in range(i + 1, n):
-            if B[i, j] == 0:
-                possible_edges.append((i, j))
-
-    if possible_edges and m > n - 1:
-        n_extra = min(m - (n - 1), len(possible_edges))
-        idx = np.random.choice(len(possible_edges), n_extra, replace=False)
-        for i in idx:
-            u, v = possible_edges[i]
-            weight = np.random.rand() + 0.5
-            B[u, v] = B[v, u] = -weight
+    # Add remaining m - (n-1) edges among the still-free upper-triangular pairs
+    iu, ju = np.triu_indices(n, k=1)
+    free = np.flatnonzero(B[iu, ju] == 0)
+    n_extra = min(m - (n - 1), free.size)
+    if n_extra > 0:
+        idx = np.random.choice(free, n_extra, replace=False)
+        weights = np.random.rand(n_extra) + 0.5
+        B[iu[idx], ju[idx]] = B[ju[idx], iu[idx]] = -weights
 
     # B is Laplacian matrix-like (off-diagonal < 0, diagonal = -sum(off-diagonal))
     # For a DC network: P = B * theta. B is the susceptance matrix.
@@ -171,8 +164,7 @@ def _generate_sparse_linear_system(n, m):
     # Here we'll add a small shunt to ensure invertibility if needed,
     # but the usual DC power flow has sum(P) = 0.
     # Let's make it more generic: B theta = P where B is the susceptance matrix.
-    for i in range(n):
-        B[i, i] = -np.sum(B[i, :]) + 0.1  # 0.1 for shunt conductance to ground to ensure invertibility
+    np.fill_diagonal(B, -B.sum(axis=1) + 0.1)  # 0.1 for shunt conductance to ground to ensure invertibility
 
     theta = np.random.randn(n)
     P = B @ theta
@@ -190,7 +182,11 @@ class LinearSystemProblemGenerator:
 
         np.random.seed(seed)
 
-    def generate_problem(self) -> LinearSystemProblem:
+    def generate_problem(self, backend: JaxBackend | NumpyBackend | None = None) -> LinearSystemProblem:
+        # Graphs are built with a numpy backend: their shapes vary from one problem to the next,
+        # and building them directly in jax would trigger one XLA compilation per new shape.
+        if backend is None:
+            backend = JaxBackend()
         n = np.random.randint(2, self.n_max + 1)
         m = np.random.randint(n - 1, n * (n - 1) // 2 + 1)
         B, P, theta = _generate_sparse_linear_system(n, m)
@@ -198,52 +194,56 @@ class LinearSystemProblemGenerator:
         # Context
         # Use line for off-diagonal terms
         rows, cols = np.nonzero(np.triu(B, k=1))
-        jax_backend = JaxBackend()
+        numpy_backend = NumpyBackend()
         line = HyperEdgeSet.from_dict(
-            backend=jax_backend, port_dict={"from": rows, "to": cols}, feature_dict={"susceptance": -B[rows, cols]}
+            backend=numpy_backend, port_dict={"from": rows, "to": cols}, feature_dict={"susceptance": -B[rows, cols]}
         )
         bus_context = HyperEdgeSet.from_dict(
-            backend=jax_backend, port_dict={"id": np.arange(n)}, feature_dict={"active_power_injection": P}
+            backend=numpy_backend, port_dict={"id": np.arange(n)}, feature_dict={"active_power_injection": P}
         )
         context = Graph.from_dict(
-            backend=jax_backend, hyper_edge_set_dict={"line": line, "bus": bus_context}, n_addresses=jnp.array(n)
+            backend=numpy_backend, hyper_edge_set_dict={"line": line, "bus": bus_context}, n_addresses=np.array(n)
         )
 
         # Oracle
         # Use bus for the solution (phase angles)
-        bus_oracle = HyperEdgeSet.from_dict(backend=jax_backend, port_dict=None, feature_dict={"phase_angle": theta})
-        oracle = Graph.from_dict(backend=jax_backend, hyper_edge_set_dict={"bus": bus_oracle}, n_addresses=jnp.array(n))
+        bus_oracle = HyperEdgeSet.from_dict(backend=numpy_backend, port_dict=None, feature_dict={"phase_angle": theta})
+        oracle = Graph.from_dict(backend=numpy_backend, hyper_edge_set_dict={"bus": bus_oracle}, n_addresses=np.array(n))
 
-        return LinearSystemProblem(context=context, oracle=oracle)
+        if isinstance(backend, NumpyBackend):
+            return LinearSystemProblem(context=context, oracle=oracle)
+        return LinearSystemProblem(context=context.to_backend(backend), oracle=oracle.to_backend(backend))
 
     def generate_problem_batch(self, batch_size: int = 8) -> LinearSystemProblemBatch:
 
         context_list, oracle_list = [], []
 
+        numpy_backend = NumpyBackend()
         for _ in range(batch_size):
-            problem = self.generate_problem()
+            problem = self.generate_problem(backend=numpy_backend)
             context = problem.context
             oracle = problem.oracle
             context_list.append(context)
             oracle_list.append(oracle)
 
-        jax_backend = JaxBackend()
         max_context_shape = GraphShape(
-            backend=jax_backend,
+            backend=numpy_backend,
             hyper_edge_sets={
-                "line": jnp.array(self.n_max * (self.n_max - 1) // 2),
-                "bus": jnp.array(self.n_max),
+                "line": np.array(self.n_max * (self.n_max - 1) // 2),
+                "bus": np.array(self.n_max),
             },
-            addresses=jnp.array(self.n_max),
+            addresses=np.array(self.n_max),
         )
         max_oracle_shape = GraphShape(
-            backend=jax_backend, hyper_edge_sets={"bus": jnp.array(self.n_max)}, addresses=jnp.array(self.n_max)
+            backend=numpy_backend, hyper_edge_sets={"bus": np.array(self.n_max)}, addresses=np.array(self.n_max)
         )
 
+        # Padding and collating are done in numpy (variable shapes are free there); the padded
+        # batch has a fixed shape, so the final conversion to jax compiles only once.
         [context.pad(target_shape=max_context_shape) for context in context_list]
         [oracle.pad(target_shape=max_oracle_shape) for oracle in oracle_list]
-        context_batch = collate_graphs(context_list)
-        oracle_batch = collate_graphs(oracle_list)
+        context_batch = collate_graphs(context_list).to_backend(JaxBackend())
+        oracle_batch = collate_graphs(oracle_list).to_backend(JaxBackend())
 
         return LinearSystemProblemBatch(context=context_batch, oracle=oracle_batch)
 
@@ -268,6 +268,9 @@ class LinearSystemProblemLoader(ProblemLoader):
         self.current_step = 0
 
         self.generator = LinearSystemProblemGenerator(seed=seed, n_max=n_max)
+        # The loader resets its RNG at each epoch, so every epoch regenerates the exact same
+        # batches: they are generated once and cached.
+        self._batch_cache: list[LinearSystemProblemBatch] = []
 
     @property
     def decision_structure(self) -> GraphStructure:
@@ -289,7 +292,11 @@ class LinearSystemProblemLoader(ProblemLoader):
         batch_end = min(self.current_step + self.batch_size, self.len)
         self.current_step = batch_end
         n_batch = batch_end - batch_start
+        batch_index = batch_start // self.batch_size
+        if batch_index < len(self._batch_cache):
+            return self._batch_cache[batch_index]
         batch = self.generator.generate_problem_batch(batch_size=n_batch)
+        self._batch_cache.append(batch)
         return batch
 
     def __len__(self):
