@@ -22,10 +22,10 @@ class ReadyRecurrentEquivariantGNN(GNN):
     Ready-to-use equivariant GNN with recurrent message passing.
 
     By default, the message passing uses a single fused MLP per hyper-edge class
-    (``fuse_ports=True``) and runs in mixed precision (``dtype=jnp.bfloat16``, parameters kept in
-    float32), which is substantially faster and lighter with no measured impact on score. Pass
-    ``fuse_ports=False`` and/or ``dtype=None`` to recover one MLP per class and port and/or a full
-    float32 computation.
+    (``fuse_ports=True``) and the whole model (encoder, coupler and decoder) runs in mixed
+    precision (``dtype=jnp.bfloat16``, parameters kept in float32), which is substantially faster
+    and lighter with no measured impact on score. Pass ``fuse_ports=False`` and/or ``dtype=None``
+    to recover one MLP per class and port and/or a full float32 computation.
     """
 
     def __init__(
@@ -52,6 +52,7 @@ class ReadyRecurrentEquivariantGNN(GNN):
             out_size=latent_dimension,
             use_bias=True,
             final_activation=None,
+            dtype=dtype,
             rngs=rngs,
         )
 
@@ -96,6 +97,7 @@ class ReadyRecurrentEquivariantGNN(GNN):
             use_bias=True,
             final_activation=None,
             encoded_feature_size=latent_dimension,
+            dtype=dtype,
             rngs=rngs,
         )
 

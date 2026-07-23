@@ -9,7 +9,7 @@ import jax.numpy as jnp
 import jax.random
 from flax import nnx
 from flax.nnx import initializers
-from flax.typing import Initializer
+from flax.typing import Dtype, Initializer
 
 from energnn.graph import Graph, GraphStructure, HyperEdgeSet
 from energnn.model.utils import Activation, MLP
@@ -35,6 +35,9 @@ class MLPEncoder(Encoder):
     :param kernel_init: Kernel initializer for MLPs :math:`({\phi}_{\theta}^c)_{c\in C}`.
     :param bias_init: Bias initializer for MLPs :math:`({\phi}_{\theta}^c)_{c\in C}`.
     :param final_activation: Final activation function for MLPs :math:`({\phi}_{\theta}^c)_{c\in C}`.
+    :param dtype: Computation dtype of the MLPs (e.g. ``jnp.bfloat16`` for mixed precision).
+        Parameters are stored in float32 regardless, and the output is cast back to the input
+        features dtype. None (default) keeps the computation in the input dtype, i.e. full float32.
     :param seed: Seed for RNG streams for weight initialization.
     """
 
@@ -49,6 +52,7 @@ class MLPEncoder(Encoder):
         kernel_init: Initializer = initializers.lecun_normal(),
         bias_init: Initializer = initializers.zeros_init(),
         final_activation: Activation | None = None,
+        dtype: Dtype | None = None,
         seed: int | None = None,
         rngs: nnx.Rngs | None = None,
     ) -> None:
@@ -67,6 +71,7 @@ class MLPEncoder(Encoder):
         self.kernel_init = kernel_init
         self.bias_init = bias_init
         self.final_activation = final_activation
+        self.dtype = dtype
 
         self.mlp_dict = self._build_mlp_dict(seed=seed, rngs=rngs)
         self.feature_names = nnx.data({f"lat_{i}": jnp.array(i) for i in range(self.out_size)})
@@ -90,6 +95,7 @@ class MLPEncoder(Encoder):
                     kernel_init=self.kernel_init,
                     bias_init=self.bias_init,
                     final_activation=self.final_activation,
+                    dtype=self.dtype,
                     rngs=rngs,
                 )
             else:
@@ -125,7 +131,8 @@ class MLPEncoder(Encoder):
             hyper_edge_set, mlp = edge_mlp
             if hyper_edge_set.feature_array is not None:
                 mask = jnp.expand_dims(hyper_edge_set.non_fictitious, -1)
-                feature_array, feature_names = mlp(hyper_edge_set.feature_array) * mask, self.feature_names
+                feature_array = mlp(hyper_edge_set.feature_array).astype(hyper_edge_set.feature_array.dtype) * mask
+                feature_names = self.feature_names
             else:
                 feature_array, feature_names = None, None
             return HyperEdgeSet(

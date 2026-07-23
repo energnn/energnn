@@ -29,6 +29,9 @@ def test_ready_defaults_are_fused_bf16():
     for key in mf.mlp_tree:
         assert isinstance(mf.mlp_tree[key], MLP)
     assert model.coupler.phi.dtype == jnp.bfloat16
+    # the whole model runs in bf16, encoder and decoder included
+    assert model.encoder.dtype == jnp.bfloat16
+    assert model.decoder.dtype == jnp.bfloat16
     # parameters remain stored in float32
     for leaf in jax.tree.leaves(nnx.state(model, nnx.Param)):
         assert leaf.dtype == jnp.float32
@@ -55,6 +58,8 @@ def test_ready_opt_out_recovers_per_port_fp32():
     mf = model.coupler.message_functions[0]
     assert mf.fuse_ports is False
     assert mf.dtype is None
+    assert model.encoder.dtype is None
+    assert model.decoder.dtype is None
     # per-port mode: one dict of MLPs per hyper-edge class
     for key in mf.mlp_tree:
         assert isinstance(mf.mlp_tree[key], dict)

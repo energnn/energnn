@@ -263,3 +263,34 @@ def test_mlp_equivariant_decoder_numeric_identity_edge():
     expected = np.concatenate([coords[addr0], coords[addr1], feats], axis=1) * nf[:, None]
 
     np.testing.assert_allclose(np.array(edge_out), expected, rtol=0.0, atol=1e-6)
+
+
+# Tests for mixed precision (dtype) support
+def test_mlp_equivariant_decoder_bf16_output_dtype_and_closeness():
+    from flax import nnx
+
+    kwargs = dict(
+        in_graph_structure=pb_loader.context_structure,
+        in_array_size=7,
+        out_structure=default_out_structure,
+        activation=jax.nn.relu,
+        hidden_sizes=[8],
+    )
+    dec_bf16 = MLPEquivariantDecoder(**kwargs, dtype=jnp.bfloat16, seed=7)
+    dec_fp32 = MLPEquivariantDecoder(**kwargs, seed=7)
+
+    out_bf16, _ = dec_bf16(graph=jax_context, coordinates=coordinates, get_info=False)
+    out_fp32, _ = dec_fp32(graph=jax_context, coordinates=coordinates, get_info=False)
+
+    for key, hyper_edge_set in out_bf16.hyper_edge_sets.items():
+        # output is cast back to the coordinates dtype
+        assert hyper_edge_set.feature_array.dtype == coordinates.dtype
+        np.testing.assert_allclose(
+            np.array(hyper_edge_set.feature_array),
+            np.array(out_fp32.hyper_edge_sets[key].feature_array),
+            rtol=0.1,
+            atol=0.1,
+        )
+    # parameters remain stored in float32
+    for leaf in jax.tree.leaves(nnx.state(dec_bf16, nnx.Param)):
+        assert leaf.dtype == jnp.float32
