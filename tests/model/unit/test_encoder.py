@@ -270,3 +270,29 @@ def test_encoder_apply_preserves_none_feature_edges(monkeypatch):
 
     # bus edge had None -> must remain None
     assert out_graph.hyper_edge_sets["bus"].feature_array is None
+
+
+# Tests for mixed precision (dtype) support
+def test_mlp_encoder_bf16_output_dtype_and_closeness():
+    from flax import nnx
+
+    kwargs = dict(in_structure=pb_loader.context_structure, hidden_sizes=[8], out_size=4, activation=None)
+    enc_bf16 = MLPEncoder(**kwargs, dtype=jnp.bfloat16, seed=7)
+    enc_fp32 = MLPEncoder(**kwargs, seed=7)
+
+    out_bf16, _ = enc_bf16(graph=jax_context, get_info=False)
+    out_fp32, _ = enc_fp32(graph=jax_context, get_info=False)
+
+    for key, hyper_edge_set in out_bf16.hyper_edge_sets.items():
+        if hyper_edge_set.feature_array is not None:
+            # output is cast back to the input features dtype
+            assert hyper_edge_set.feature_array.dtype == jnp.float32
+            np.testing.assert_allclose(
+                np.array(hyper_edge_set.feature_array),
+                np.array(out_fp32.hyper_edge_sets[key].feature_array),
+                rtol=0.1,
+                atol=0.1,
+            )
+    # parameters remain stored in float32
+    for leaf in jax.tree.leaves(nnx.state(enc_bf16, nnx.Param)):
+        assert leaf.dtype == jnp.float32

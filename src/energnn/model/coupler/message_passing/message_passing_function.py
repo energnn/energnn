@@ -10,7 +10,7 @@ import jax
 import jax.numpy as jnp
 from flax import nnx
 from flax.nnx import initializers
-from flax.typing import Initializer
+from flax.typing import Dtype, Initializer
 
 from energnn.graph import GraphStructure, Graph
 from energnn.model.utils import Activation, MLP, gather, scatter_add
@@ -73,6 +73,16 @@ class LocalSumMessagePassingFunction(MessagePassingFunction):
     :param port_scatter_blacklist: Dictionary mapping hyper-edge set keys to lists of port keys to be excluded from the sum.
     :param fuse_ports: If True, use a single MLP per class predicting the messages of all its
         non-blacklisted ports, instead of one MLP per class and port.
+    :param dtype: Computation dtype of the message passing (e.g. ``jnp.bfloat16`` for mixed
+        precision): coordinates and features are cast to this dtype before being gathered and fed
+        to the MLPs, and messages are aggregated in this dtype. MLP parameters are stored in
+        float32 regardless, and the output is cast back to the coordinates dtype. None (default)
+        keeps the computation in the input dtype, i.e. full float32.
+    :param scatter_dtype: Dtype in which the messages are accumulated by the scatter-add. None
+        (default) accumulates in the computation dtype. On GPUs without hardware atomic add for
+        the computation dtype (e.g. bfloat16 before compute capability 9.0), the scatter-add is
+        emulated and slow: setting ``scatter_dtype=jnp.float32`` together with
+        ``dtype=jnp.bfloat16`` keeps the MLPs in bfloat16 while accumulating in float32.
     :param seed: Seed for RNG streams for weight initialization.
     """
 
@@ -91,6 +101,8 @@ class LocalSumMessagePassingFunction(MessagePassingFunction):
         encoded_feature_size: int | None = None,
         port_scatter_blacklist: dict[str, list[str]] | None = None,
         fuse_ports: bool = False,
+        dtype: Dtype | None = None,
+        scatter_dtype: Dtype | None = None,
         seed: int | None = None,
         rngs: nnx.Rngs | None = None,
     ):
@@ -110,6 +122,8 @@ class LocalSumMessagePassingFunction(MessagePassingFunction):
         else:
             self.port_scatter_blacklist = port_scatter_blacklist
         self.fuse_ports = fuse_ports
+        self.dtype = dtype
+        self.scatter_dtype = scatter_dtype
 
         self.active_ports = self._build_active_ports()
         self.mlp_tree = self._build_mlp_tree(seed=seed, rngs=rngs)
@@ -156,6 +170,7 @@ class LocalSumMessagePassingFunction(MessagePassingFunction):
                     kernel_init=self.kernel_init,
                     bias_init=self.bias_init,
                     final_activation=self.final_activation,
+                    dtype=self.dtype,
                     rngs=rngs,
                 )
 
@@ -168,20 +183,27 @@ class LocalSumMessagePassingFunction(MessagePassingFunction):
 
     def __call__(self, *, graph: Graph, coordinates: jax.Array, get_info: bool = False) -> tuple[jax.Array, dict]:
 
+        out_dtype = coordinates.dtype
+        compute_coordinates = coordinates if self.dtype is None else coordinates.astype(self.dtype)
+        scatter_dtype = compute_coordinates.dtype if self.scatter_dtype is None else self.scatter_dtype
+
         def sum_over_edges(_accumulator, edge_mlp_tuple):
             """Sums the messages predicted by class-specific MLPs through ports of a hyper-edge set."""
             key, hyper_edge_set, mlp_or_dict = edge_mlp_tuple
 
             input_array = []
             if hyper_edge_set.feature_names is not None:
-                input_array.append(hyper_edge_set.feature_array)
+                feature_array = hyper_edge_set.feature_array
+                input_array.append(feature_array if self.dtype is None else feature_array.astype(self.dtype))
             for port_name, port_array in hyper_edge_set.port_dict.items():
-                input_array.append(gather(coordinates=coordinates, addresses=port_array))
+                input_array.append(gather(coordinates=compute_coordinates, addresses=port_array))
             input_array = jnp.concatenate(input_array, axis=-1)
             non_fictitious_mask = jnp.expand_dims(hyper_edge_set.non_fictitious, -1)
+            if self.dtype is not None:
+                non_fictitious_mask = non_fictitious_mask.astype(self.dtype)
 
             if self.fuse_ports:
-                output_array = mlp_or_dict(input_array * non_fictitious_mask) * non_fictitious_mask
+                output_array = (mlp_or_dict(input_array * non_fictitious_mask) * non_fictitious_mask).astype(scatter_dtype)
                 for i, port_name in enumerate(self.active_ports[key]):
                     increment = output_array[..., i * self.out_size : (i + 1) * self.out_size]
                     _accumulator = scatter_add(
@@ -189,13 +211,13 @@ class LocalSumMessagePassingFunction(MessagePassingFunction):
                     )
             else:
                 for port_name, mlp in mlp_or_dict.items():
-                    increment = mlp(input_array * non_fictitious_mask) * non_fictitious_mask
+                    increment = (mlp(input_array * non_fictitious_mask) * non_fictitious_mask).astype(scatter_dtype)
                     _accumulator = scatter_add(
                         accumulator=_accumulator, increment=increment, addresses=hyper_edge_set.port_dict[port_name]
                     )
             return _accumulator
 
-        initializer = jnp.zeros((coordinates.shape[0], self.out_size))
+        initializer = jnp.zeros((coordinates.shape[0], self.out_size), dtype=scatter_dtype)
         edge_mlp_dict = {
             key: (key, hyper_edge_set, self.mlp_tree[key])
             for key, hyper_edge_set in graph.hyper_edge_sets.items()
@@ -208,7 +230,7 @@ class LocalSumMessagePassingFunction(MessagePassingFunction):
             is_leaf=lambda x: isinstance(x, tuple),
         )
 
-        return self.outer_activation(accumulator), {}
+        return self.outer_activation(accumulator).astype(out_dtype), {}
 
 
 class IdentityMessagePassingFunction(MessagePassingFunction):
