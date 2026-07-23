@@ -4,7 +4,6 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 # SPDX-License-Identifier: MPL-2.0
 
-import jax.numpy as jnp
 from flax import nnx
 from flax.typing import Dtype
 
@@ -22,10 +21,26 @@ class ReadyRecurrentEquivariantGNN(GNN):
     Ready-to-use equivariant GNN with recurrent message passing.
 
     By default, the message passing uses a single fused MLP per hyper-edge class
-    (``fuse_ports=True``) and the whole model (encoder, coupler and decoder) runs in mixed
-    precision (``dtype=jnp.bfloat16``, parameters kept in float32), which is substantially faster
-    and lighter with no measured impact on score. Pass ``fuse_ports=False`` and/or ``dtype=None``
-    to recover one MLP per class and port and/or a full float32 computation.
+    (``fuse_ports=True``, substantially faster than one MLP per class and port) and the whole
+    model runs in full float32 (``dtype=None``).
+
+    Mixed precision can be enabled by passing ``dtype=jnp.bfloat16``: the encoder, coupler and
+    decoder then compute in bfloat16 while parameters stay stored in float32, roughly halving
+    the activation memory. Its effect on *speed* depends on the device, because the scatter-add
+    of the message passing relies on atomic adds:
+
+    - GPUs with native bfloat16 atomic adds (compute capability 9.0+, e.g. H100):
+      ``dtype=jnp.bfloat16`` is expected to be the fastest configuration.
+    - GPUs with bfloat16 tensor cores but emulated bfloat16 atomics (compute capability 8.x,
+      e.g. A100, RTX 30xx/Axxx): use ``dtype=jnp.bfloat16, scatter_dtype=jnp.float32`` (bfloat16
+      MLPs, float32 message accumulation); plain bfloat16 is slowed down by the emulated
+      scatter-add.
+    - GPUs without bfloat16 support (compute capability 7.x, e.g. V100): keep the full float32
+      default.
+
+    These are starting points: benchmark on your own hardware and data before committing to a
+    configuration. Since parameters are stored in float32 in all cases, checkpoints are portable
+    across these configurations.
     """
 
     def __init__(
@@ -37,7 +52,8 @@ class ReadyRecurrentEquivariantGNN(GNN):
         hidden_sizes: list[int],
         n_steps: int = 5,
         fuse_ports: bool = True,
-        dtype: Dtype | None = jnp.bfloat16,
+        dtype: Dtype | None = None,
+        scatter_dtype: Dtype | None = None,
         seed: int = 0,
     ):
 
@@ -68,6 +84,7 @@ class ReadyRecurrentEquivariantGNN(GNN):
             encoded_feature_size=latent_dimension,
             fuse_ports=fuse_ports,
             dtype=dtype,
+            scatter_dtype=scatter_dtype,
             rngs=rngs,
         )
 
@@ -132,7 +149,8 @@ class TinyRecurrentEquivariantGNN(ReadyRecurrentEquivariantGNN):
         in_structure: GraphStructure,
         out_structure: GraphStructure,
         fuse_ports: bool = True,
-        dtype: Dtype | None = jnp.bfloat16,
+        dtype: Dtype | None = None,
+        scatter_dtype: Dtype | None = None,
         seed: int = 0,
     ):
         super().__init__(
@@ -144,6 +162,7 @@ class TinyRecurrentEquivariantGNN(ReadyRecurrentEquivariantGNN):
             n_steps=5,
             fuse_ports=fuse_ports,
             dtype=dtype,
+            scatter_dtype=scatter_dtype,
             seed=seed,
         )
 
@@ -171,7 +190,8 @@ class SmallRecurrentEquivariantGNN(ReadyRecurrentEquivariantGNN):
         in_structure: GraphStructure,
         out_structure: GraphStructure,
         fuse_ports: bool = True,
-        dtype: Dtype | None = jnp.bfloat16,
+        dtype: Dtype | None = None,
+        scatter_dtype: Dtype | None = None,
         seed: int = 0,
     ):
         super().__init__(
@@ -183,6 +203,7 @@ class SmallRecurrentEquivariantGNN(ReadyRecurrentEquivariantGNN):
             n_steps=10,
             fuse_ports=fuse_ports,
             dtype=dtype,
+            scatter_dtype=scatter_dtype,
             seed=seed,
         )
 
@@ -210,7 +231,8 @@ class MediumRecurrentEquivariantGNN(ReadyRecurrentEquivariantGNN):
         in_structure: GraphStructure,
         out_structure: GraphStructure,
         fuse_ports: bool = True,
-        dtype: Dtype | None = jnp.bfloat16,
+        dtype: Dtype | None = None,
+        scatter_dtype: Dtype | None = None,
         seed: int = 0,
     ):
         super().__init__(
@@ -222,6 +244,7 @@ class MediumRecurrentEquivariantGNN(ReadyRecurrentEquivariantGNN):
             n_steps=20,
             fuse_ports=fuse_ports,
             dtype=dtype,
+            scatter_dtype=scatter_dtype,
             seed=seed,
         )
 
@@ -249,7 +272,8 @@ class LargeRecurrentEquivariantGNN(ReadyRecurrentEquivariantGNN):
         in_structure: GraphStructure,
         out_structure: GraphStructure,
         fuse_ports: bool = True,
-        dtype: Dtype | None = jnp.bfloat16,
+        dtype: Dtype | None = None,
+        scatter_dtype: Dtype | None = None,
         seed: int = 0,
     ):
         super().__init__(
@@ -261,6 +285,7 @@ class LargeRecurrentEquivariantGNN(ReadyRecurrentEquivariantGNN):
             n_steps=50,
             fuse_ports=fuse_ports,
             dtype=dtype,
+            scatter_dtype=scatter_dtype,
             seed=seed,
         )
 
@@ -287,7 +312,8 @@ class ExtraLargeRecurrentEquivariantGNN(ReadyRecurrentEquivariantGNN):
         in_structure: GraphStructure,
         out_structure: GraphStructure,
         fuse_ports: bool = True,
-        dtype: Dtype | None = jnp.bfloat16,
+        dtype: Dtype | None = None,
+        scatter_dtype: Dtype | None = None,
         seed: int = 0,
     ):
         super().__init__(
@@ -299,5 +325,6 @@ class ExtraLargeRecurrentEquivariantGNN(ReadyRecurrentEquivariantGNN):
             n_steps=200,
             fuse_ports=fuse_ports,
             dtype=dtype,
+            scatter_dtype=scatter_dtype,
             seed=seed,
         )

@@ -959,3 +959,42 @@ def test_local_sum_bf16_vmap_jit_safety():
     assert out_vmap.dtype == coordinates_batch.dtype
     assert out_vmap.shape[0] == coordinates_batch.shape[0]
     np.testing.assert_allclose(np.array(out_vmap), np.array(out_jit), rtol=2e-2, atol=2e-2)
+
+
+def test_local_sum_bf16_fp32_scatter_output_dtype_and_closeness():
+    kwargs = dict(
+        in_graph_structure=pb_loader.context_structure,
+        in_array_size=coordinates.shape[1],
+        hidden_sizes=[4],
+        activation=None,
+        out_size=3,
+        outer_activation=nnx.identity,
+    )
+    mf_fp32 = LocalSumMessagePassingFunction(**kwargs, seed=5)
+    mf_hybrid = LocalSumMessagePassingFunction(**kwargs, dtype=jnp.bfloat16, scatter_dtype=jnp.float32, seed=5)
+    out_fp32, _ = mf_fp32(graph=jax_context, coordinates=coordinates, get_info=False)
+    out_hybrid, _ = mf_hybrid(graph=jax_context, coordinates=coordinates, get_info=False)
+    # output is cast back to the coordinates dtype
+    assert out_hybrid.dtype == coordinates.dtype
+    assert out_hybrid.shape == out_fp32.shape
+    np.testing.assert_allclose(np.array(out_hybrid), np.array(out_fp32), rtol=0.05, atol=0.05)
+    # parameters remain stored in float32
+    for leaf in jax.tree.leaves(nnx.state(mf_hybrid, nnx.Param)):
+        assert leaf.dtype == jnp.float32
+
+
+def test_local_sum_scatter_dtype_none_is_unchanged():
+    kwargs = dict(
+        in_graph_structure=pb_loader.context_structure,
+        in_array_size=coordinates.shape[1],
+        hidden_sizes=[4],
+        activation=None,
+        out_size=3,
+        outer_activation=nnx.identity,
+        dtype=jnp.bfloat16,
+    )
+    mf_default = LocalSumMessagePassingFunction(**kwargs, seed=6)
+    mf_explicit = LocalSumMessagePassingFunction(**kwargs, scatter_dtype=None, seed=6)
+    out1, _ = mf_default(graph=jax_context, coordinates=coordinates, get_info=False)
+    out2, _ = mf_explicit(graph=jax_context, coordinates=coordinates, get_info=False)
+    np.testing.assert_array_equal(np.array(out1), np.array(out2))
