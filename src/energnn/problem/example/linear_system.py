@@ -9,23 +9,62 @@ from copy import deepcopy
 
 import jax.numpy as jnp
 import numpy as np
+import pandas as pd
 from omegaconf import DictConfig
 
-from energnn.graph import GraphStructure, HyperEdgeSetStructure
-from energnn.graph import Graph, GraphShape, HyperEdgeSet, JaxBackend, NumpyBackend, collate_graphs
+from energnn.converter import Converter, ElementsConverter
+from energnn.graph import Graph, GraphShape, GraphStructure, JaxBackend, NumpyBackend, collate_graphs
 from ..batch import ProblemBatch
 from ..loader import ProblemLoader
 from ..problem import Problem
 
-LINEAR_SYSTEM_CONTEXT_STRUCTURE = GraphStructure(
-    hyper_edge_sets={
-        "line": HyperEdgeSetStructure(port_list=["from", "to"], feature_list=["susceptance"]),
-        "bus": HyperEdgeSetStructure(port_list=["id"], feature_list=["active_power_injection"]),
-    }
-)
-LINEAR_SYSTEM_DECISION_STRUCTURE = GraphStructure(
-    hyper_edge_sets={"bus": HyperEdgeSetStructure(port_list=None, feature_list=["phase_angle"])}
-)
+
+class _LineElementsConverter(ElementsConverter):
+    """Extracts one hyper-edge per line from the strictly upper-triangular part of ``B``."""
+
+    def _get_table(self, *, B: np.ndarray, P: np.ndarray) -> pd.DataFrame:
+        rows, cols = np.nonzero(np.triu(B, k=1))
+        return pd.DataFrame({"from": rows, "to": cols, "susceptance": -B[rows, cols]})
+
+
+class _BusElementsConverter(ElementsConverter):
+    """Extracts one hyper-edge per bus, with its active power injection."""
+
+    def _get_table(self, *, B: np.ndarray, P: np.ndarray) -> pd.DataFrame:
+        return pd.DataFrame({"id": np.arange(P.shape[0]), "active_power_injection": P})
+
+
+class _OracleBusElementsConverter(ElementsConverter):
+    """Extracts one hyper-edge per bus, carrying the solution phase angle."""
+
+    def _get_table(self, *, theta: np.ndarray) -> pd.DataFrame:
+        return pd.DataFrame({"phase_angle": theta})
+
+
+class LinearSystemContextConverter(Converter):
+    """Converts a DC linear system ``(B, P)`` into a context :class:`energnn.graph.Graph`."""
+
+    def __init__(self):
+        self.elements_converter_dict = {
+            "line": _LineElementsConverter(port_list=["from", "to"], feature_list=["susceptance"]),
+            "bus": _BusElementsConverter(port_list=["id"], feature_list=["active_power_injection"]),
+        }
+
+
+class LinearSystemOracleConverter(Converter):
+    """Converts the solution vector ``theta`` into an oracle :class:`energnn.graph.Graph`.
+
+    Oracles only carry features: their hyper-edges have no ports, hence no address registry.
+    """
+
+    def __init__(self):
+        self.elements_converter_dict = {
+            "bus": _OracleBusElementsConverter(port_list=None, feature_list=["phase_angle"]),
+        }
+
+
+LINEAR_SYSTEM_CONTEXT_STRUCTURE = LinearSystemContextConverter().get_structure()
+LINEAR_SYSTEM_DECISION_STRUCTURE = LinearSystemOracleConverter().get_structure()
 
 
 class LinearSystemProblemBatch(ProblemBatch):
@@ -180,35 +219,22 @@ class LinearSystemProblemGenerator:
         self.seed = seed
         self.n_max = n_max
 
+        self.context_converter = LinearSystemContextConverter()
+        self.oracle_converter = LinearSystemOracleConverter()
+
         np.random.seed(seed)
 
     def generate_problem(self, backend: JaxBackend | NumpyBackend | None = None) -> LinearSystemProblem:
-        # Graphs are built with a numpy backend: their shapes vary from one problem to the next,
-        # and building them directly in jax would trigger one XLA compilation per new shape.
+        # The converters build graphs on a numpy backend: their shapes vary from one problem to
+        # the next, and building them directly in jax would trigger one XLA compilation per new shape.
         if backend is None:
             backend = JaxBackend()
         n = np.random.randint(2, self.n_max + 1)
         m = np.random.randint(n - 1, n * (n - 1) // 2 + 1)
         B, P, theta = _generate_sparse_linear_system(n, m)
 
-        # Context
-        # Use line for off-diagonal terms
-        rows, cols = np.nonzero(np.triu(B, k=1))
-        numpy_backend = NumpyBackend()
-        line = HyperEdgeSet.from_dict(
-            backend=numpy_backend, port_dict={"from": rows, "to": cols}, feature_dict={"susceptance": -B[rows, cols]}
-        )
-        bus_context = HyperEdgeSet.from_dict(
-            backend=numpy_backend, port_dict={"id": np.arange(n)}, feature_dict={"active_power_injection": P}
-        )
-        context = Graph.from_dict(
-            backend=numpy_backend, hyper_edge_set_dict={"line": line, "bus": bus_context}, n_addresses=np.array(n)
-        )
-
-        # Oracle
-        # Use bus for the solution (phase angles)
-        bus_oracle = HyperEdgeSet.from_dict(backend=numpy_backend, port_dict=None, feature_dict={"phase_angle": theta})
-        oracle = Graph.from_dict(backend=numpy_backend, hyper_edge_set_dict={"bus": bus_oracle}, n_addresses=np.array(n))
+        context = self.context_converter(B=B, P=P)
+        oracle = self.oracle_converter(theta=theta)
 
         if isinstance(backend, NumpyBackend):
             return LinearSystemProblem(context=context, oracle=oracle)
@@ -234,8 +260,9 @@ class LinearSystemProblemGenerator:
             },
             addresses=np.array(self.n_max),
         )
+        # Oracles carry no ports, hence an empty address registry.
         max_oracle_shape = GraphShape(
-            backend=numpy_backend, hyper_edge_sets={"bus": np.array(self.n_max)}, addresses=np.array(self.n_max)
+            backend=numpy_backend, hyper_edge_sets={"bus": np.array(self.n_max)}, addresses=np.array(0)
         )
 
         # Padding and collating are done in numpy (variable shapes are free there); the padded
