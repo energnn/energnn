@@ -12,11 +12,15 @@ import numpy as np
 
 def to_numpy(a: dict | np.ndarray | jax.Array | tuple | None) -> dict | np.ndarray | None:
     """
-    Converts a NumPy array, JAX array, or tuple of values into a NumPy array (dtype float32),
-    or converts the values in a dictionary accordingly.
+    Converts a NumPy array, JAX array, or tuple of values into a NumPy array preserving its
+    dtype, or converts the values in a dictionary accordingly.
+
+    Dtypes are preserved so that integer data (e.g. port addresses) never goes through a
+    floating representation, which would silently corrupt large values. Callers are in charge
+    of casting to their target dtype (e.g. float32 for features, int32 for ports).
 
     - If `a` is None, returns None.
-    - If `a` is a np.ndarray, jax.Array, jnp.ndarray, or tuple, it is converted to a np.ndarray (float32).
+    - If `a` is a np.ndarray, jax.Array, jnp.ndarray, or tuple, it is converted to a np.ndarray.
     - If `a` is a dict with some values being arrays or tuples, only those values are converted;
       others remain unchanged.
     - In all other cases, a TypeError is raised.
@@ -32,7 +36,7 @@ def to_numpy(a: dict | np.ndarray | jax.Array | tuple | None) -> dict | np.ndarr
     def _to_np(x: Any) -> Any:
         # On traite np.ndarray, jax.Array et tuple
         if isinstance(x, (np.ndarray, jax.Array, np.ndarray, tuple)):
-            return np.array(x, dtype=np.dtype("float32"))
+            return np.asarray(x)
         else:
             return x
 

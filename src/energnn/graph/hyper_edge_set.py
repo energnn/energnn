@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 from jax.tree_util import register_pytree_node_class
 
-from energnn.graph.backend import Backend, NumpyBackend
+from energnn.graph.backend import PRESERVE_DTYPE, Backend, NumpyBackend
 from energnn.graph.utils import to_numpy
 
 FEATURE_ARRAY = "feature_array"
@@ -31,8 +31,8 @@ class HyperEdgeSet(dict):
     NumPy and JAX pipelines.
 
     :param backend: Array backend (:class:`NumpyBackend` or :class:`JaxBackend`).
-    :param port_dict: Mapping from a port name to an array of shape ``(n_edges,)``
-                      or ``(batch, n_edges)``.
+    :param port_dict: Mapping from a port name to an integer address array of shape
+                      ``(n_edges,)`` or ``(batch, n_edges)``.
     :param feature_array: Array that contains all hyper-edge features.
     :param feature_names: Dictionary from feature names to index in ``feature_array``.
     :param non_fictitious: Mask array set to 1 for real objects and 0 for fictitious ones.
@@ -90,11 +90,15 @@ class HyperEdgeSet(dict):
         """
         Build a HyperEdgeSet from raw dicts of ports and features.
 
+        Ports are stored as ``int32`` (integer-valued float inputs are accepted and cast);
+        features are stored as ``float32``.
+
         :param port_dict: Port-name → address array mapping.
         :param feature_dict: Feature-name → feature array mapping.
         :param backend: Array backend to use.  Defaults to :class:`NumpyBackend`.
         :returns: A properly structured ``HyperEdgeSet`` instance.
-        :raises ValueError: If ports or features contain NaNs or if shapes mismatch.
+        :raises ValueError: If ports or features contain NaNs, if ports have fractional
+            values, or if shapes mismatch.
         """
         if backend is None:
             backend = NumpyBackend()
@@ -106,6 +110,12 @@ class HyperEdgeSet(dict):
 
         check_valid_ports(port_dict_np)
         check_no_nan(port_dict=port_dict_np, feature_dict=feature_dict_np)
+
+        # Ports are indices: int32. Features are values: float32.
+        if port_dict_np is not None:
+            port_dict_np = {k: v.astype(np.int32) for k, v in port_dict_np.items()}
+        if feature_dict_np is not None:
+            feature_dict_np = {k: v.astype(np.float32) for k, v in feature_dict_np.items()}
 
         # Convert to backend arrays
         port_dict_b = {k: xp.array(v) for k, v in port_dict_np.items()} if port_dict_np is not None else None
@@ -132,17 +142,19 @@ class HyperEdgeSet(dict):
     # ------------------------------------------------------------------
 
     def to_backend(self, new_backend: Backend) -> HyperEdgeSet:
-        """Return a copy of this ``HyperEdgeSet`` with arrays converted to ``new_backend``."""
+        """Return a copy of this ``HyperEdgeSet`` with arrays converted to ``new_backend``.
+
+        The backend's floating dtype only applies to ``feature_array`` and ``non_fictitious``;
+        ports and feature-name indices are integers and keep their dtype.
+        """
         port_dict_b = (
-            {k: new_backend.from_numpy(np.array(v)) for k, v in self.port_dict.items()}
+            {k: new_backend.from_numpy(np.asarray(v), dtype=PRESERVE_DTYPE) for k, v in self.port_dict.items()}
             if self.port_dict is not None
             else None
         )
-        feature_array_b = (
-            new_backend.from_numpy(np.array(self.feature_array)) if self.feature_array is not None else None
-        )
+        feature_array_b = new_backend.from_numpy(np.array(self.feature_array)) if self.feature_array is not None else None
         feature_names_b = (
-            {k: new_backend.from_numpy(np.array(v)) for k, v in self.feature_names.items()}
+            {k: new_backend.from_numpy(np.asarray(v), dtype=PRESERVE_DTYPE) for k, v in self.feature_names.items()}
             if self.feature_names is not None
             else None
         )
@@ -357,9 +369,12 @@ class HyperEdgeSet(dict):
             self.non_fictitious = self.non_fictitious[: int(target_shape)]
 
     def offset_addresses(self, offset) -> None:
-        """Add ``offset`` to every port address; used before graph concatenation."""
+        """Add ``offset`` to every port address; used before graph concatenation.
+
+        The offset is cast to each port array's dtype so that int32 ports stay int32.
+        """
         xp = self._backend.xp
-        self.port_dict = {k: a + xp.array(offset) for k, a in self.port_dict.items()}
+        self.port_dict = {k: a + xp.asarray(offset, dtype=a.dtype) for k, a in self.port_dict.items()}
 
 
 # ---------------------------------------------------------------------------
@@ -400,13 +415,14 @@ def collate_hyper_edge_sets(hyper_edge_set_list: list[HyperEdgeSet]) -> HyperEdg
         if first.port_dict is not None
         else None
     )
-    non_fictitious = (
-        xp.stack([e.non_fictitious for e in hyper_edge_set_list]) if first.non_fictitious is not None else None
-    )
+    non_fictitious = xp.stack([e.non_fictitious for e in hyper_edge_set_list]) if first.non_fictitious is not None else None
 
     return cls(
-        backend=backend, port_dict=port_dict, feature_array=feature_array,
-        feature_names=feature_names, non_fictitious=non_fictitious,
+        backend=backend,
+        port_dict=port_dict,
+        feature_array=feature_array,
+        feature_names=feature_names,
+        non_fictitious=non_fictitious,
     )
 
 
@@ -478,8 +494,11 @@ def concatenate_hyper_edge_sets(hyper_edge_set_list: list[HyperEdgeSet]) -> Hype
     non_fictitious = xp.concatenate([hes.non_fictitious for hes in hyper_edge_set_list])
 
     return cls(
-        backend=backend, port_dict=port_dict, feature_array=feature_array,
-        feature_names=feature_names, non_fictitious=non_fictitious,
+        backend=backend,
+        port_dict=port_dict,
+        feature_array=feature_array,
+        feature_names=feature_names,
+        non_fictitious=non_fictitious,
     )
 
 
@@ -513,18 +532,18 @@ def build_hyper_edge_set_shape(
     feature_dict: dict | None,
 ) -> np.ndarray:
     """
-    Return a scalar float32 NumPy array with the number of hyper-edges.
+    Return a scalar int32 NumPy array with the number of hyper-edges.
 
     :param port_dict: Port arrays, or None.
     :param feature_dict: Feature arrays, or None.
-    :return: ``np.array(n_objects, dtype=float32)``.
+    :return: ``np.array(n_objects, dtype=int32)``.
     :raises ValueError: If both inputs are None, or if their sizes conflict.
     """
     if port_dict is None and feature_dict is None:
         raise ValueError("At least one of port_dict or feature_dict must be provided.")
     n_objects = check_dict_shape(d=port_dict, n_objects=None)
     n_objects = check_dict_shape(d=feature_dict, n_objects=n_objects)
-    return np.array(n_objects, dtype=np.dtype("float32"))
+    return np.array(n_objects, dtype=np.dtype("int32"))
 
 
 def dict2array(features_dict: dict | None) -> np.ndarray | None:
@@ -556,13 +575,15 @@ def check_no_nan(*, port_dict: dict | None, feature_dict: dict | None) -> None:
     """
     Ensure there are no NaN values in port or feature arrays.
 
+    Integer arrays cannot hold NaN and are skipped.
+
     :raises ValueError: If any array contains NaN.
     """
     for name, arr in (port_dict or {}).items():
-        if np.any(np.isnan(arr)):
+        if np.issubdtype(arr.dtype, np.floating) and np.any(np.isnan(arr)):
             raise ValueError(f"NaN detected in port array for key '{name}'.")
     for name, arr in (feature_dict or {}).items():
-        if np.any(np.isnan(arr)):
+        if np.issubdtype(arr.dtype, np.floating) and np.any(np.isnan(arr)):
             raise ValueError(f"NaN detected in feature array for key '{name}'.")
 
 
@@ -570,10 +591,15 @@ def check_valid_ports(port_dict: dict | None) -> None:
     """
     Ensure all port arrays contain only integer-valued entries.
 
+    Integer-typed arrays are valid by construction; floating arrays (e.g. from legacy graphs)
+    are accepted as long as every value is exactly representable as an int32.
+
     :raises ValueError: If any port array has non-integer values.
     """
     for name, arr in (port_dict or {}).items():
-        if not np.allclose(arr, np.int32(arr)):
+        if np.issubdtype(arr.dtype, np.integer) or np.issubdtype(arr.dtype, np.bool_):
+            continue
+        if np.any(np.isnan(arr)) or not np.allclose(arr, np.int32(arr)):
             raise ValueError(f"Non-integer values detected in port array for key '{name}'.")
 
 

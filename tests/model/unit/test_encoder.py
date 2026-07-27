@@ -94,13 +94,15 @@ def test_mlp_encoder_single_shapes_and_feature_names():
 
 def test_mlp_encoder_handles_none_feature_array_gracefully():
     # Build a Graph with one edge having feature_array=None
-    edge_with_none = HyperEdgeSet(backend=JaxBackend(),
+    edge_with_none = HyperEdgeSet(
+        backend=JaxBackend(),
         port_dict=jax_context.hyper_edge_sets["line"].port_dict,
         feature_array=None,
         feature_names=None,
         non_fictitious=jax_context.hyper_edge_sets["line"].non_fictitious,
     )
-    custom_graph = Graph(backend=JaxBackend(),
+    custom_graph = Graph(
+        backend=JaxBackend(),
         hyper_edge_sets={"line": edge_with_none, "bus": jax_context.hyper_edge_sets["bus"]},
         non_fictitious_addresses=jax_context.non_fictitious_addresses,
         true_shape=jax_context.true_shape,
@@ -149,20 +151,23 @@ def test_mlp_encoder_multiple_edge_types_independent_processing():
     n_obj_line = _n_obj(line_edge)
     n_obj_bus = _n_obj(bus_edge)
 
-    e1 = HyperEdgeSet(backend=JaxBackend(),
+    e1 = HyperEdgeSet(
+        backend=JaxBackend(),
         port_dict=line_edge.port_dict,
         feature_array=jnp.ones((n_obj_line, 2), dtype=jnp.float32),
         feature_names={"a": jnp.array(0), "b": jnp.array(1)},
         non_fictitious=line_edge.non_fictitious,
     )
-    e2 = HyperEdgeSet(backend=JaxBackend(),
+    e2 = HyperEdgeSet(
+        backend=JaxBackend(),
         port_dict=bus_edge.port_dict,
         feature_array=jnp.ones((n_obj_bus, 3), dtype=jnp.float32),
         feature_names={"c": jnp.array(0), "d": jnp.array(1), "e": jnp.array(2)},
         non_fictitious=bus_edge.non_fictitious,
     )
 
-    custom_graph = Graph(backend=JaxBackend(),
+    custom_graph = Graph(
+        backend=JaxBackend(),
         hyper_edge_sets={"A": e1, "B": e2},
         non_fictitious_addresses=jax_context.non_fictitious_addresses,
         true_shape=jax_context.true_shape,
@@ -200,20 +205,23 @@ def test_mlp_encoder_numeric_identity():
     d = 4
 
     # Create edges with linear values to verify identity mapping
-    e_line = HyperEdgeSet(backend=JaxBackend(),
+    e_line = HyperEdgeSet(
+        backend=JaxBackend(),
         port_dict=line_edge.port_dict,
         feature_array=jnp.linspace(0.0, 1.0, num=n_obj_line * d, dtype=jnp.float32).reshape((n_obj_line, d)),
         feature_names={f"fa{i}": jnp.array(i) for i in range(d)},
         non_fictitious=line_edge.non_fictitious,
     )
-    e_bus = HyperEdgeSet(backend=JaxBackend(),
+    e_bus = HyperEdgeSet(
+        backend=JaxBackend(),
         port_dict=bus_edge.port_dict,
         feature_array=jnp.linspace(0.0, 1.0, num=n_obj_bus * d, dtype=jnp.float32).reshape((n_obj_bus, d)),
         feature_names={f"fs{i}": jnp.array(i) for i in range(d)},
         non_fictitious=bus_edge.non_fictitious,
     )
 
-    custom_graph = Graph(backend=JaxBackend(),
+    custom_graph = Graph(
+        backend=JaxBackend(),
         hyper_edge_sets={"line": e_line, "bus": e_bus},
         non_fictitious_addresses=jax_context.non_fictitious_addresses,
         true_shape=jax_context.true_shape,
@@ -238,19 +246,22 @@ def test_mlp_encoder_numeric_identity():
 
 def test_encoder_apply_preserves_none_feature_edges(monkeypatch):
     # Build graph with one edge having None features and another with features
-    node_edge_with_none = HyperEdgeSet(backend=JaxBackend(),
+    node_edge_with_none = HyperEdgeSet(
+        backend=JaxBackend(),
         port_dict=jax_context.hyper_edge_sets["bus"].port_dict,
         feature_array=None,
         feature_names=None,
         non_fictitious=jax_context.hyper_edge_sets["bus"].non_fictitious,
     )
-    edge_with_feat = HyperEdgeSet(backend=JaxBackend(),
+    edge_with_feat = HyperEdgeSet(
+        backend=JaxBackend(),
         port_dict=jax_context.hyper_edge_sets["line"].port_dict,
         feature_array=jnp.ones((jax_context.hyper_edge_sets["line"].feature_array.shape[0], 1), dtype=jnp.float32),
         feature_names={"susceptance": jnp.array(0)},
         non_fictitious=jax_context.hyper_edge_sets["line"].non_fictitious,
     )
-    g = Graph(backend=JaxBackend(),
+    g = Graph(
+        backend=JaxBackend(),
         hyper_edge_sets={"bus": node_edge_with_none, "line": edge_with_feat},
         non_fictitious_addresses=jax_context.non_fictitious_addresses,
         true_shape=jax_context.true_shape,

@@ -115,7 +115,7 @@ def gather(*, coordinates: jax.Array, addresses: jax.Array) -> jax.Array:
     :param addresses: Integer indices specifying which elements to gather.
     :returns: Gathered elements of the same shape as `addresses`.
     """
-    return coordinates.at[addresses.astype(int)].get(mode="drop", fill_value=0.0)
+    return coordinates.at[addresses].get(mode="drop", fill_value=0.0)
 
 
 def scatter_add(*, accumulator: jax.Array, increment: jax.Array, addresses: jax.Array) -> jax.Array:
@@ -127,4 +127,4 @@ def scatter_add(*, accumulator: jax.Array, increment: jax.Array, addresses: jax.
     :param addresses: Integer indices where increments should be added.
     :returns: Updated accumulator array after adding increments.
     """
-    return accumulator.at[addresses.astype(int)].add(increment, mode="drop")
+    return accumulator.at[addresses].add(increment, mode="drop")

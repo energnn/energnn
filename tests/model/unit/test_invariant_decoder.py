@@ -64,7 +64,8 @@ def test_sum_invariant_decoder_basic_and_masking():
     assert info == {}
 
     # mask all zeros stability: when mask is zero, numerator=0 -> phi(0) should be finite
-    ctx_masked = Graph(backend=JaxBackend(),
+    ctx_masked = Graph(
+        backend=JaxBackend(),
         hyper_edge_sets=jax_context.hyper_edge_sets,
         true_shape=jax_context.true_shape,
         current_shape=jax_context.current_shape,
@@ -111,7 +112,8 @@ def test_mean_invariant_decoder_shape_and_mask_behavior():
     assert info == {}
 
     # all-zero mask => numerator=0 => phi(0) should be finite (and for identity phi returns 0)
-    ctx_all_zero = Graph(backend=JaxBackend(),
+    ctx_all_zero = Graph(
+        backend=JaxBackend(),
         hyper_edge_sets=jax_context.hyper_edge_sets,
         true_shape=jax_context.true_shape,
         current_shape=jax_context.current_shape,

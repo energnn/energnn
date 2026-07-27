@@ -9,7 +9,7 @@ from __future__ import annotations
 import numpy as np
 from jax.tree_util import register_pytree_node_class
 
-from energnn.graph.backend import Backend, NumpyBackend
+from energnn.graph.backend import PRESERVE_DTYPE, Backend, NumpyBackend
 from energnn.graph.hyper_edge_set import HyperEdgeSet
 
 HYPER_EDGE_SETS = "hyper_edge_sets"
@@ -70,8 +70,10 @@ class GraphShape(dict):
                 backend = NumpyBackend()
         xp = backend.xp
 
-        hyper_edge_set_shape_dict = {k: xp.array(v.n_obj) for k, v in hyper_edge_set_dict.items()}
-        addresses = xp.array(non_fictitious.shape[0]) if non_fictitious is not None else xp.array([0])
+        hyper_edge_set_shape_dict = {k: xp.array(v.n_obj, dtype=xp.int32) for k, v in hyper_edge_set_dict.items()}
+        addresses = (
+            xp.array(non_fictitious.shape[0], dtype=xp.int32) if non_fictitious is not None else xp.array(0, dtype=xp.int32)
+        )
         return cls(backend=backend, hyper_edge_sets=hyper_edge_set_shape_dict, addresses=addresses)
 
     @classmethod
@@ -86,8 +88,8 @@ class GraphShape(dict):
         if backend is None:
             backend = NumpyBackend()
         xp = backend.xp
-        hyper_edge_sets = {k: xp.array(v) for k, v in count_shape[HYPER_EDGE_SETS].items()}
-        addresses = xp.array(count_shape[ADDRESSES])
+        hyper_edge_sets = {k: xp.array(v, dtype=xp.int32) for k, v in count_shape[HYPER_EDGE_SETS].items()}
+        addresses = xp.array(count_shape[ADDRESSES], dtype=xp.int32)
         return cls(backend=backend, hyper_edge_sets=hyper_edge_sets, addresses=addresses)
 
     def to_jsonable_dict(self) -> dict:
@@ -99,9 +101,15 @@ class GraphShape(dict):
     # ------------------------------------------------------------------
 
     def to_backend(self, new_backend: Backend) -> GraphShape:
-        """Return a copy of this GraphShape with arrays converted to ``new_backend``."""
-        hyper_edge_sets_b = {k: new_backend.from_numpy(np.array(v)) for k, v in self.hyper_edge_sets.items()}
-        addresses_b = new_backend.from_numpy(np.array(self.addresses))
+        """Return a copy of this GraphShape with arrays converted to ``new_backend``.
+
+        Shape counts are integers and keep their dtype: the backend's floating dtype never
+        applies to them.
+        """
+        hyper_edge_sets_b = {
+            k: new_backend.from_numpy(np.asarray(v), dtype=PRESERVE_DTYPE) for k, v in self.hyper_edge_sets.items()
+        }
+        addresses_b = new_backend.from_numpy(np.asarray(self.addresses), dtype=PRESERVE_DTYPE)
         return type(self)(backend=new_backend, hyper_edge_sets=hyper_edge_sets_b, addresses=addresses_b)
 
     @classmethod
@@ -121,13 +129,15 @@ class GraphShape(dict):
 
     @classmethod
     def max(cls, a: GraphShape, b: GraphShape) -> GraphShape:
-        """Return the element-wise maximum of two GraphShape objects."""
+        """Return the element-wise maximum of two GraphShape objects.
+
+        A class missing on one side defaults to 0 (counts are non-negative), which keeps
+        integer counts integer — a ``-inf`` default would promote them to float.
+        """
         backend = a._backend
         xp = backend.xp
         classes = set(list(a.hyper_edge_sets.keys()) + list(b.hyper_edge_sets.keys()))
-        hes_max = {
-            c: xp.maximum(a.hyper_edge_sets.get(c, -xp.inf), b.hyper_edge_sets.get(c, -xp.inf)) for c in classes
-        }
+        hes_max = {c: xp.maximum(a.hyper_edge_sets.get(c, 0), b.hyper_edge_sets.get(c, 0)) for c in classes}
         addresses = xp.maximum(a.addresses, b.addresses)
         return cls(backend=backend, hyper_edge_sets=hes_max, addresses=addresses)
 
@@ -136,9 +146,7 @@ class GraphShape(dict):
         """Return the element-wise sum of two GraphShape objects."""
         backend = a._backend
         classes = set(list(a.hyper_edge_sets.keys()) + list(b.hyper_edge_sets.keys()))
-        hes_sum = {
-            c: a.hyper_edge_sets.get(c, 0) + b.hyper_edge_sets.get(c, 0) for c in classes
-        }
+        hes_sum = {c: a.hyper_edge_sets.get(c, 0) + b.hyper_edge_sets.get(c, 0) for c in classes}
         addresses = a.addresses + b.addresses
         return cls(backend=backend, hyper_edge_sets=hes_sum, addresses=addresses)
 
