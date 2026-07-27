@@ -293,8 +293,9 @@ class GATv2MessagePassingFunction(MessagePassingFunction):
         value_size = self.out_size // self.n_heads
         neg_inf = jnp.float32(-1.0e30)
 
-        def masked_edge_input(hyper_edge_set):
-            """Concatenates hyper-edge features and gathered port coordinates, masking fictitious edges."""
+        def scores_and_values(edge_mlp_tuple):
+            """Evaluates the shared MLP once per port, returning masked scores and values per edge."""
+            hyper_edge_set, mlp_dict = edge_mlp_tuple
             input_array = []
             if hyper_edge_set.feature_names is not None:
                 input_array.append(hyper_edge_set.feature_array)
@@ -302,59 +303,49 @@ class GATv2MessagePassingFunction(MessagePassingFunction):
                 input_array.append(gather(coordinates=coordinates, addresses=port_array))
             input_array = jnp.concatenate(input_array, axis=-1)
             non_fictitious_mask = jnp.expand_dims(hyper_edge_set.non_fictitious, -1)
-            return input_array * non_fictitious_mask, non_fictitious_mask
+            masked_input = input_array * non_fictitious_mask
 
-        def max_over_edges(accumulator, edge_mlp_tuple):
-            """Accumulates the per-receiver, per-head maximum score over all ports of a hyper-edge set."""
-            hyper_edge_set, mlp_dict = edge_mlp_tuple
-            masked_input, non_fictitious_mask = masked_edge_input(hyper_edge_set)
-
-            def max_over_ports(accumulator, mlp_port):
-                """Accumulates the per-receiver, per-head maximum score over the ports of one hyper-edge set."""
-                mlp, port_array = mlp_port
-                score = jnp.where(non_fictitious_mask, mlp(masked_input)[:, : self.n_heads], neg_inf)
-                return scatter_max(accumulator=accumulator, increment=score, addresses=port_array)
-
-            mlp_port_dict = {port_name: (mlp, hyper_edge_set.port_dict[port_name]) for port_name, mlp in mlp_dict.items()}
-            return jax.tree.reduce(
-                max_over_ports, mlp_port_dict, initializer=accumulator, is_leaf=lambda x: isinstance(x, tuple)
-            )
-
-        def weight_over_edges(accumulator, edge_mlp_tuple):
-            """Accumulates the softmax-weighted value sum and weight sum over all ports of a hyper-edge set."""
-            hyper_edge_set, mlp_dict = edge_mlp_tuple
-            masked_input, non_fictitious_mask = masked_edge_input(hyper_edge_set)
-
-            def weight_over_ports(accumulator, mlp_port):
-                """Accumulates the softmax-weighted value sum and weight sum over the ports of one hyper-edge set."""
-                value_accumulator, weight_accumulator = accumulator
-                mlp, port_array = mlp_port
+            def score_and_value(mlp, port_array):
+                """Evaluates the fused MLP for one port, returning its masked score and value."""
                 output = mlp(masked_input)
-                score = output[:, : self.n_heads]
-                value = output[:, self.n_heads :].reshape(-1, self.n_heads, value_size)
-                max_at_receiver = gather(coordinates=max_scores, addresses=port_array)
-                shifted_score = jnp.where(non_fictitious_mask, score - max_at_receiver, jnp.zeros_like(score))
-                weight = jnp.exp(shifted_score) * non_fictitious_mask
-                weighted_value = (weight[:, :, None] * value).reshape(-1, self.out_size)
-                value_accumulator = scatter_add(accumulator=value_accumulator, increment=weighted_value, addresses=port_array)
-                weight_accumulator = scatter_add(accumulator=weight_accumulator, increment=weight, addresses=port_array)
-                return value_accumulator, weight_accumulator
+                score = jnp.where(non_fictitious_mask, output[:, : self.n_heads], neg_inf)
+                value = output[:, self.n_heads :].reshape(-1, self.n_heads, value_size) * non_fictitious_mask[:, :, None]
+                return score, value, port_array
 
-            mlp_port_dict = {port_name: (mlp, hyper_edge_set.port_dict[port_name]) for port_name, mlp in mlp_dict.items()}
-            return jax.tree.reduce(
-                weight_over_ports, mlp_port_dict, initializer=accumulator, is_leaf=lambda x: isinstance(x, tuple)
-            )
+            return {
+                port_name: score_and_value(mlp, hyper_edge_set.port_dict[port_name]) for port_name, mlp in mlp_dict.items()
+            }
 
-        edge_mlp_dict = {key: (hyper_edge_set, self.mlp_tree[key]) for key, hyper_edge_set in graph.hyper_edge_sets.items()}
+        edge_terms = {
+            key: scores_and_values((hyper_edge_set, self.mlp_tree[key]))
+            for key, hyper_edge_set in graph.hyper_edge_sets.items()
+        }
+
+        def max_over_ports(accumulator, term):
+            """Accumulates the per-receiver, per-head maximum score over one port."""
+            score, _, port_array = term
+            return scatter_max(accumulator=accumulator, increment=score, addresses=port_array)
+
         max_scores = jax.tree.reduce(
-            max_over_edges,
-            edge_mlp_dict,
+            max_over_ports,
+            edge_terms,
             initializer=jnp.full((n_addresses, self.n_heads), neg_inf),
             is_leaf=lambda x: isinstance(x, tuple),
         )
+
+        def weight_over_ports(accumulator, term):
+            """Accumulates the softmax-weighted value sum and weight sum over one port."""
+            value_accumulator, weight_accumulator = accumulator
+            score, value, port_array = term
+            weight = jnp.exp(score - gather(coordinates=max_scores, addresses=port_array))
+            weighted_value = (weight[:, :, None] * value).reshape(-1, self.out_size)
+            value_accumulator = scatter_add(accumulator=value_accumulator, increment=weighted_value, addresses=port_array)
+            weight_accumulator = scatter_add(accumulator=weight_accumulator, increment=weight, addresses=port_array)
+            return value_accumulator, weight_accumulator
+
         value_sum, weight_sum = jax.tree.reduce(
-            weight_over_edges,
-            edge_mlp_dict,
+            weight_over_ports,
+            edge_terms,
             initializer=(jnp.zeros((n_addresses, self.out_size)), jnp.zeros((n_addresses, self.n_heads))),
             is_leaf=lambda x: isinstance(x, tuple),
         )
