@@ -90,24 +90,23 @@ def _str_to_int(df_port_dict: dict[str, pd.DataFrame | None]) -> tuple[dict[str,
     :return: The translated tables and the total number of distinct addresses.
     """
 
-    # 1. Gather the set of all addresses.
-    all_addresses = set()
-    for df in df_port_dict.values():
-        if df is not None:
-            all_addresses.update(df.values.reshape(-1).tolist())
+    # 1. Gather the sorted array of all distinct addresses. The distinct values are collected
+    #    with a hash table (fast on string data) so that only the uniques need to be sorted.
+    address_arrays = [df.values.ravel() for df in df_port_dict.values() if df is not None]
+    if not address_arrays:
+        return dict.fromkeys(df_port_dict), 0
+    all_addresses = pd.Index(np.sort(pd.unique(np.concatenate(address_arrays))))
 
-    # 2. Create a deterministic mapping from addresses to integers.
-    str_to_int_dict = {address: i for i, address in enumerate(sorted(all_addresses))}
-
-    # 3. Apply the mapping to each DataFrame.
+    # 2. Translate each table through a vectorized hash lookup against the sorted addresses.
     out_dict = {}
     for k, df in df_port_dict.items():
         if df is not None:
-            out_dict[k] = df.map(lambda x: str_to_int_dict[x])
+            indices = all_addresses.get_indexer(df.values.ravel()).reshape(df.shape)
+            out_dict[k] = pd.DataFrame(indices, columns=df.columns, index=df.index)
         else:
             out_dict[k] = None
 
-    return out_dict, len(str_to_int_dict)
+    return out_dict, len(all_addresses)
 
 
 def _any_to_float(
@@ -133,10 +132,12 @@ def _any_to_float(
         if df is not None:
             df = df.copy()
 
-            # Convert categorical features into floats.
+            # Convert categorical features into floats: hash each distinct category once, then
+            # broadcast to the rows (there are usually far fewer categories than rows).
             for col in df.columns:
                 if df[col].dtype.kind in {"U", "S", "O"}:
-                    df[col] = np.float64([random.Random(x).random() for x in df[col]])
+                    hash_map = {value: random.Random(value).random() for value in df[col].dropna().unique()}
+                    df[col] = df[col].map(hash_map)
 
             df = df.astype(float)
             df = df.replace([-np.inf, np.inf], [min_val, max_val])
