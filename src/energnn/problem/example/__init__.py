@@ -5,6 +5,8 @@
 # SPDX-License-Identifier: MPL-2.0
 
 from .linear_system import (
+    LinearSystemContextConverter,
+    LinearSystemOracleConverter,
     LinearSystemProblem,
     LinearSystemProblemBatch,
     LinearSystemProblemGenerator,
@@ -12,6 +14,8 @@ from .linear_system import (
 )
 
 __all__ = [
+    "LinearSystemContextConverter",
+    "LinearSystemOracleConverter",
     "LinearSystemProblemGenerator",
     "LinearSystemProblemLoader",
     "LinearSystemProblem",
