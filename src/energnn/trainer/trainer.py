@@ -49,11 +49,6 @@ def _cast_cotangent_to_primal_dtype(cotangent_pytree, primal_pytree):
     return jax.tree.map(_cast_leaf, cotangent_pytree, primal_pytree)
 
 
-def _update_params_fn(optimizer: nnx.Optimizer, model: GNN, gradient: nnx.State) -> None:
-    """JIT-compatible function that applies the optimizer update."""
-    optimizer.update(model, gradient)
-
-
 def _setup_ckpt_mngr(checkpoint_manager: CheckpointManager, optim_mode: Literal["minimize", "maximize"]):
     checkpoint_manager._options.best_fn = lambda x: x["score"]
     if optim_mode == "minimize":
@@ -88,6 +83,10 @@ class Trainer:
     :type model: GNN
     :param gradient_transformation: Optax gradient transformation.
     :type gradient_transformation: optax.GradientTransformation
+    :param profile: If true, synchronize the device after each stage of the training step and log
+        per-stage timings. Synchronizations prevent asynchronous dispatch, so this slows training
+        down and should only be enabled to investigate performance.
+    :type profile: bool
     """
 
     def __init__(
@@ -95,21 +94,29 @@ class Trainer:
         *,
         model: GNN,
         gradient_transformation: GradientTransformation,
+        profile: bool = False,
     ):
         self.model: GNN = model
         self.optimizer = nnx.Optimizer(self.model, gradient_transformation, wrt=nnx.Param)
         self.train_step: int = 0
         self.best_score: float | None = None
+        self.profile = profile
 
         # Cache JIT-compiled wrappers to avoid NNX re-tracing overhead each step.
         # `get_info` is static because downstream code branches on its concrete value.
-        self._jit_apply = nnx.jit(self._apply_forward_vjp, static_argnames=("get_info",))
+        self._jit_forward_vjp = nnx.jit(self._forward_vjp, static_argnames=("get_info",))
+        # The vjp residuals are dead after the backward: donating them lets XLA reuse
+        # their buffers during the backward pass instead of allocating new ones.
+        self._jit_backward_update = nnx.jit(self._backward_update, donate_argnums=(2,))
         self._jit_eval_forward = nnx.jit(self._eval_forward)
-        self._jit_update_params = nnx.jit(_update_params_fn)
 
     @staticmethod
-    def _apply_forward_vjp(graphdef, params, rest, jax_context, get_info):
-        """Forward pass + VJP setup, designed to be JIT-compiled once and reused."""
+    def _forward_vjp(graphdef, params, rest, jax_context, get_info):
+        """Forward pass + VJP setup, designed to be JIT-compiled once and reused.
+
+        The returned ``vjp_fn`` is a pytree (residual arrays + a stable treedef), so it can be
+        passed to the compiled `_backward_update` without triggering a re-trace.
+        """
 
         def f_forward(p, r):
             model = nnx.merge(graphdef, p, r)
@@ -119,6 +126,25 @@ class Trainer:
 
         (jax_decision, rest_updated), vjp_fn = jax.vjp(f_forward, params, rest)
         return jax_decision, rest_updated, vjp_fn
+
+    @staticmethod
+    def _backward_update(optimizer: nnx.Optimizer, model: GNN, vjp_fn, jax_cotangent, jax_decision, rest_updated):
+        """Backward pass, optimizer update and non-param state update in a single compiled call.
+
+        Calling ``vjp_fn`` here instead of eagerly lets XLA compile and fuse the whole backward.
+        The zero cotangent on ``rest_updated`` is a compile-time constant, and the cotangent
+        w.r.t. the non-param state is discarded: XLA prunes the corresponding computations.
+        """
+        cotangent = _cast_cotangent_to_primal_dtype(jax_cotangent, jax_decision)
+        (grads_params, _) = vjp_fn((cotangent, jax.tree.map(jnp.zeros_like, rest_updated)))
+        optimizer.update(model, grads_params)
+        nnx.update(model, rest_updated)
+
+    def _log_stage(self, name: str, value, t_start: float) -> None:
+        """In profile mode, wait for `value` and log the elapsed time of a training-step stage."""
+        if self.profile:
+            jax.block_until_ready(value)
+            logger.info(f"[training_step {self.train_step}] {name}: {(time.perf_counter() - t_start) * 1000:.3f} ms")
 
     @staticmethod
     def _eval_forward(model, context):
@@ -341,56 +367,27 @@ class Trainer:
         """
         with TaskLogger(logger, f"Training step {self.train_step}"):
 
-            t_start = time.perf_counter()
             self.model.train()  # Set model to train mode
-            logger.info(f"[training_step {self.train_step}] model.train(): {(time.perf_counter() - t_start) * 1000:.3f} ms")
 
             infos = {}
             t_start = time.perf_counter()
             jax_context, infos["1_context"] = problem_batch.get_context(get_info=get_info, step=self.train_step)
-            jax.block_until_ready(jax_context)
-            logger.info(f"[training_step {self.train_step}] get_context: {(time.perf_counter() - t_start) * 1000:.3f} ms")
+            self._log_stage("get_context", jax_context, t_start)
 
             t_start = time.perf_counter()
             graphdef, params, rest = nnx.split(self.model, nnx.Param, ...)
-            logger.info(f"[training_step {self.train_step}] nnx.split: {(time.perf_counter() - t_start) * 1000:.3f} ms")
-
-            t_start = time.perf_counter()
-            jax_decision, rest_updated, vjp_fn = self._jit_apply(graphdef, params, rest, jax_context, get_info)
-            jax.block_until_ready(jax_decision)
-            logger.info(f"[training_step {self.train_step}] forward: {(time.perf_counter() - t_start) * 1000:.3f} ms")
-
-            t_start = time.perf_counter()
-            nnx.update(self.model, rest_updated)
-            logger.info(f"[training_step {self.train_step}] nnx.update: {(time.perf_counter() - t_start) * 1000:.3f} ms")
+            jax_decision, rest_updated, vjp_fn = self._jit_forward_vjp(graphdef, params, rest, jax_context, get_info)
+            self._log_stage("forward", jax_decision, t_start)
 
             t_start = time.perf_counter()
             jax_gradient, infos["3_gradient"] = problem_batch.get_gradient(
                 decision=jax_decision, get_info=get_info, step=self.train_step
             )
-            jax.block_until_ready(jax_gradient)
-            logger.info(f"[training_step {self.train_step}] get_gradient: {(time.perf_counter() - t_start) * 1000:.3f} ms")
+            self._log_stage("get_gradient", jax_gradient, t_start)
 
             t_start = time.perf_counter()
-            jax_cotangent = _cast_cotangent_to_primal_dtype(jax_gradient, jax_decision)
-            jax.block_until_ready(jax_cotangent)
-            logger.info(f"[training_step {self.train_step}] cast_cotangent: {(time.perf_counter() - t_start) * 1000:.3f} ms")
-
-            # Backward pass
-            t_start = time.perf_counter()
-            rest_cotangent = jax.tree.map(jnp.zeros_like, rest_updated)
-            jax.block_until_ready(rest_cotangent)
-            logger.info(f"[training_step {self.train_step}] rest_cotangent: {(time.perf_counter() - t_start) * 1000:.3f} ms")
-
-            t_start = time.perf_counter()
-            (grads_params, _) = vjp_fn((jax_cotangent, rest_cotangent))
-            jax.block_until_ready(grads_params)
-            logger.info(f"[training_step {self.train_step}] vjp_fn: {(time.perf_counter() - t_start) * 1000:.3f} ms")
-
-            t_start = time.perf_counter()
-            self._jit_update_params(self.optimizer, self.model, grads_params)
-            jax.block_until_ready(nnx.state(self.model))
-            logger.info(f"[training_step {self.train_step}] update_params: {(time.perf_counter() - t_start) * 1000:.3f} ms")
+            self._jit_backward_update(self.optimizer, self.model, vjp_fn, jax_gradient, jax_decision, rest_updated)
+            self._log_stage("backward_update", nnx.state(self.model), t_start)
 
             infos["4_update"] = {}
 

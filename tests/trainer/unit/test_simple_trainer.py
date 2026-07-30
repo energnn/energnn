@@ -275,12 +275,12 @@ class TestJitCaching:
         return create_tiny_model(loader.context_structure)
 
     @pytest.mark.parametrize("get_info", [True, False])
-    def test_apply_forward_vjp_roundtrip(self, model: GNN, batch: ProblemBatch, get_info: bool) -> None:
-        """_apply_forward_vjp returns a vjp_fn whose gradient tree matches params, for both get_info branches."""
+    def test_forward_vjp_roundtrip(self, model: GNN, batch: ProblemBatch, get_info: bool) -> None:
+        """_forward_vjp returns a vjp_fn whose gradient tree matches params, for both get_info branches."""
         jax_context, _ = batch.get_context(get_info=get_info, step=0)
         graphdef, params, rest = nnx.split(model, nnx.Param, ...)
 
-        decision, rest_updated, vjp_fn = Trainer._apply_forward_vjp(graphdef, params, rest, jax_context, get_info)
+        decision, rest_updated, vjp_fn = Trainer._forward_vjp(graphdef, params, rest, jax_context, get_info)
         (grads, _) = vjp_fn((jax.tree.map(jnp.zeros_like, decision), jax.tree.map(jnp.zeros_like, rest_updated)))
         assert jax.tree.structure(grads) == jax.tree.structure(params)
 
@@ -296,18 +296,51 @@ class TestJitCaching:
         assert all(jnp.all(jnp.isfinite(x)) for x in after)
         assert any(not jnp.allclose(b, a) for b, a in zip(before, after))
 
-    def test_apply_forward_vjp_traced_once_across_steps(self, model: GNN, batch: ProblemBatch) -> None:
-        """_apply_forward_vjp's Python body runs exactly once over repeated training steps."""
-        trace_count = [0]
-        original = Trainer._apply_forward_vjp
+    def test_forward_and_backward_traced_once_across_steps(self, model: GNN, batch: ProblemBatch) -> None:
+        """The Python bodies of _forward and _backward_update each run exactly once over repeated steps."""
+        counts = {"forward": 0, "backward": 0}
+        original_forward = Trainer._forward_vjp
+        original_backward = Trainer._backward_update
 
-        def counting(*args, **kwargs):
-            trace_count[0] += 1
-            return original(*args, **kwargs)
+        def counting_forward(*args, **kwargs):
+            counts["forward"] += 1
+            return original_forward(*args, **kwargs)
 
-        with mock.patch.object(Trainer, "_apply_forward_vjp", staticmethod(counting)):
+        def counting_backward(*args, **kwargs):
+            counts["backward"] += 1
+            return original_backward(*args, **kwargs)
+
+        with (
+            mock.patch.object(Trainer, "_forward_vjp", staticmethod(counting_forward)),
+            mock.patch.object(Trainer, "_backward_update", staticmethod(counting_backward)),
+        ):
             trainer = Trainer(model=model, gradient_transformation=optax.sgd(1e-3))
             for _ in range(5):
                 trainer.training_step(batch, get_info=False)
 
-        assert trace_count[0] == 1
+        assert counts == {"forward": 1, "backward": 1}
+
+    def test_normalizer_updated_exactly_once_per_training_step(self, loader: LinearSystemProblemLoader) -> None:
+        """The forward and the backward recomputation must not both commit normalizer state updates."""
+        from energnn.model.ready_to_use import ReadyRecurrentEquivariantGNN
+
+        model = ReadyRecurrentEquivariantGNN(
+            in_structure=loader.context_structure,
+            out_structure=loader.decision_structure,
+            n_breakpoints=4,
+            latent_dimension=4,
+            hidden_sizes=[4],
+            n_steps=2,
+        )
+        trainer = Trainer(model=model, gradient_transformation=optax.sgd(1e-3))
+        batch = next(iter(loader))
+        for _ in range(3):
+            trainer.training_step(batch, get_info=False)
+
+        checked = 0
+        for _, module in nnx.iter_graph(model):
+            if hasattr(module, "train_steps") and hasattr(module, "updates"):
+                assert int(module.train_steps[...][0]) == 3
+                assert int(module.updates[...][0]) == 3
+                checked += 1
+        assert checked > 0
