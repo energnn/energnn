@@ -52,12 +52,12 @@ html_short_title = "EnerGNN"
 
 html_static_path = ["_static"]
 html_theme_options = {
-    "light_logo": "energnn_title_black.png",
-    "dark_logo": "energnn_title_white.png",
+    "light_logo": "energnn-horizontal-color.png",
+    "dark_logo": "energnn-horizontal-color.png",
     "sidebar_hide_name": True,
     "navigation_with_keys": True,
 }
-html_favicon = "_static/energnn_favicon_white.png"
+html_favicon = "_static/energnn-icon-color.png"
 html_context = {"default_mode": "dark"}
 
 html_static_path = ["_static"]
