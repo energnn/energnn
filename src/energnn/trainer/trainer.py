@@ -299,7 +299,7 @@ class Trainer:
             "step": self.train_step,
             "score": score,
         }
-        checkpoint_manager.save(self.train_step, args=ocp.args.Composite(default=ocp.args.StandardSave(checkpoint_data)))
+        checkpoint_manager.save(self.train_step, args=ocp.args.StandardSave(checkpoint_data))
 
     def load_checkpoint(self, checkpoint_manager: CheckpointManager, step: int | None = None, best: bool = False) -> None:
         """Loads a checkpoint from the checkpoint manager.
@@ -316,10 +316,7 @@ class Trainer:
         _, model_state = nnx.split(self.model)
         _, opt_state = nnx.split(self.optimizer)
         abstract_checkpoint_data = {"model": model_state, "optimizer": opt_state, "step": self.train_step, "score": 0.0}
-        restored = checkpoint_manager.restore(
-            step, args=ocp.args.Composite(default=ocp.args.StandardRestore(abstract_checkpoint_data))
-        )
-        restored = restored["default"]
+        restored = checkpoint_manager.restore(step, args=ocp.args.StandardRestore(abstract_checkpoint_data))
         nnx.update(self.model, restored["model"])
         nnx.update(self.optimizer, restored["optimizer"])
         self.train_step = restored["step"]
