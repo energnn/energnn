@@ -98,20 +98,23 @@ def test_mlp_equivariant_decoder_single_shapes_and_masking():
     # set first element fictitious for bus edge to test masking
     node_nf = jnp.array(np.array(node_edge.non_fictitious))
     node_nf = node_nf.at[0].set(0)
-    e1 = HyperEdgeSet(backend=JaxBackend(),
+    e1 = HyperEdgeSet(
+        backend=JaxBackend(),
         port_dict=node_edge.port_dict,
         feature_array=jnp.ones((n_node, 2)),
         feature_names={"a": jnp.array(0), "b": jnp.array(1)},
         non_fictitious=node_nf,
     )
-    e2 = HyperEdgeSet(backend=JaxBackend(),
+    e2 = HyperEdgeSet(
+        backend=JaxBackend(),
         port_dict=edge_edge.port_dict,
         feature_array=jnp.ones((n_edge, 3)),
         feature_names={"c": jnp.array(0), "d": jnp.array(1), "e": jnp.array(2)},
         non_fictitious=edge_edge.non_fictitious,
     )
 
-    custom_graph = Graph(backend=JaxBackend(),
+    custom_graph = Graph(
+        backend=JaxBackend(),
         hyper_edge_sets={"bus": e1, "line": e2},
         non_fictitious_addresses=jax_context.non_fictitious_addresses,
         true_shape=jax_context.true_shape,

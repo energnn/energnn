@@ -20,9 +20,7 @@ class Decoder(ABC, nnx.Module):
     """
 
     @abstractmethod
-    def __call__(
-        self, *, graph: Graph, coordinates: jax.Array, get_info: bool = False
-    ) -> tuple[Graph | jax.Array, dict]:
+    def __call__(self, *, graph: Graph, coordinates: jax.Array, get_info: bool = False) -> tuple[Graph | jax.Array, dict]:
         """Decode latent coordinates into predictions.
 
         :param graph: Encoded graph providing context for decoding.

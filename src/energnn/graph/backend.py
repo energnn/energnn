@@ -11,6 +11,13 @@ import copy
 import numpy as np
 
 
+PRESERVE_DTYPE = "preserve"
+"""Sentinel for :meth:`Backend.from_numpy`: keep the input dtype instead of casting to the
+backend's floating dtype. Used for integer data (port addresses, shape counts, name indices),
+which must never go through a floating representation. The backend may still narrow 64-bit
+types to their 32-bit counterparts (e.g. JAX with x64 disabled)."""
+
+
 class Backend:
     """Abstract array backend. Subclasses wrap NumPy or JAX and expose a uniform interface."""
 
@@ -28,7 +35,11 @@ class Backend:
         raise NotImplementedError
 
     def from_numpy(self, x, dtype: str = "float32"):
-        """Convert a NumPy array or dict of NumPy arrays to this backend's native array type."""
+        """Convert a NumPy array or dict of NumPy arrays to this backend's native array type.
+
+        ``dtype`` is the target dtype; pass :data:`PRESERVE_DTYPE` to keep the input dtype
+        (up to 64→32-bit narrowing on backends that require it).
+        """
         raise NotImplementedError
 
     def to_numpy(self, x):
@@ -54,7 +65,9 @@ class NumpyBackend(Backend):
         if x is None:
             return None
         if isinstance(x, dict):
-            return {k: np.array(v, dtype=np.dtype(dtype)) for k, v in x.items()}
+            return {k: self.from_numpy(v, dtype) for k, v in x.items()}
+        if dtype == PRESERVE_DTYPE:
+            return np.array(x)
         return np.array(x, dtype=np.dtype(dtype))
 
     def to_numpy(self, x):
@@ -101,11 +114,9 @@ class JaxBackend(Backend):
         if x is None:
             return None
         if isinstance(x, dict):
-            result = {k: jnp.array(v, dtype=actual_dtype) for k, v in x.items()}
-            if self.device is not None:
-                result = {k: jax.device_put(v, self.device) for k, v in result.items()}
-            return result
-        arr = jnp.array(x, dtype=actual_dtype)
+            return {k: self.from_numpy(v, dtype) for k, v in x.items()}
+        # PRESERVE_DTYPE: let jnp.array keep the input dtype (with jax's default 64→32 narrowing).
+        arr = jnp.array(x) if actual_dtype == PRESERVE_DTYPE else jnp.array(x, dtype=actual_dtype)
         if self.device is not None:
             arr = jax.device_put(arr, self.device)
         return arr

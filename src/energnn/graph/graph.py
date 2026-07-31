@@ -291,15 +291,15 @@ class Graph(dict):
             for edge_key, edge in graph.hyper_edge_sets.items():
                 edge_h[edge_key] = []
                 for _, address_array in edge.port_dict.items():
-                    edge_h[edge_key].append(h_new_[address_array.astype(int)])
+                    edge_h[edge_key].append(h_new_[address_array])
                 edge_h[edge_key] = xp.stack(edge_h[edge_key], axis=0)
                 edge_h[edge_key] = xp.max(edge_h[edge_key], axis=0)
                 for _, address_array in edge.port_dict.items():
                     new_val = xp.max(
-                        xp.stack([edge_h[edge_key], h_new_[address_array.astype(int)]], axis=0),
+                        xp.stack([edge_h[edge_key], h_new_[address_array]], axis=0),
                         axis=0,
                     )
-                    h_new_ = backend.scatter_max(h_new_, address_array.astype(int), new_val)
+                    h_new_ = backend.scatter_max(h_new_, address_array, new_val)
             return h_new_
 
         if not self.is_single:
