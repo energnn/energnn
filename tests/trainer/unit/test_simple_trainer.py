@@ -188,7 +188,7 @@ def test_save_load_checkpoint(tmp_path):
     m_cp.latest_step.return_value = 42
     _, model_state = nnx.split(model)
     _, opt_state = nnx.split(trainer.optimizer)
-    restored_data = {"default": {"model": model_state, "optimizer": opt_state, "step": 42, "score": 0.123}}
+    restored_data = {"model": model_state, "optimizer": opt_state, "step": 42, "score": 0.123}
     m_cp.restore.return_value = restored_data
 
     trainer.train_step = 0  # reset
