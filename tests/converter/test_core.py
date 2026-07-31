@@ -132,6 +132,21 @@ def test_target_backend(backend):
         assert isinstance(graph.hyper_edge_sets["bus"].feature_array, jnp.ndarray)
 
 
+@pytest.mark.parametrize("backend", [None, JaxBackend()], ids=["numpy", "jax"])
+def test_output_dtypes(backend):
+    """Ports and shape counts are integers, features are float32, on every backend."""
+    graph = DummyConverter(backend=backend)(make_data())
+
+    for hes in graph.hyper_edge_sets.values():
+        if hes.port_dict is not None:
+            for port in hes.port_dict.values():
+                assert np.issubdtype(np.asarray(port).dtype, np.integer)
+        assert np.asarray(hes.feature_array).dtype == np.float32
+    assert np.issubdtype(np.asarray(graph.true_shape.addresses).dtype, np.integer)
+    for count in graph.true_shape.hyper_edge_sets.values():
+        assert np.issubdtype(np.asarray(count).dtype, np.integer)
+
+
 # ---------------------------------------------------------------------------
 # Shape conventions: pad and collate
 # ---------------------------------------------------------------------------
