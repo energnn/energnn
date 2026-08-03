@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 import numpy as np
 
@@ -15,13 +15,42 @@ if TYPE_CHECKING:
 
     from energnn.graph.graph import Graph
 
-# Colorblind-validated categorical palette; slot order is part of the validation.
-_PALETTE = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948"]
+
+class _Theme(NamedTuple):
+    palette: tuple[str, ...]
+    surface: str
+    ink: str
+
+
+# Colorblind-validated categorical palettes; slot order is part of the validation, and the
+# dark palette is the same hues re-stepped for a dark surface, not an automatic inversion.
+_THEMES = {
+    "light": _Theme(
+        palette=("#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948"),
+        surface="#fcfcfb",
+        ink="#0b0b0b",
+    ),
+    "dark": _Theme(
+        palette=("#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#008300", "#9085e9", "#e66767"),
+        surface="#1a1a19",
+        ink="#ffffff",
+    ),
+}
 # Marker shapes double the color encoding so classes stay separable without color.
 _MARKERS = ["s", "^", "D", "v", "P", "X", "p", "*"]
 _ADDRESS_COLOR = "#898781"
-_SURFACE = "#fcfcfb"
-_INK = "#0b0b0b"
+
+
+def _resolve_theme(theme: str) -> str:
+    """Return "light" or "dark"; "auto" follows the luminance of matplotlib's figure facecolor."""
+    if theme in _THEMES:
+        return theme
+    if theme != "auto":
+        raise ValueError("theme must be 'light', 'dark' or 'auto'.")
+    import matplotlib
+
+    r, g, b = matplotlib.colors.to_rgb(matplotlib.rcParams["figure.facecolor"])
+    return "dark" if 0.2126 * r + 0.7152 * g + 0.0722 * b < 0.5 else "light"
 
 
 def spring_layout(n_nodes: int, edges: np.ndarray, *, iterations: int = 150, seed: int = 0) -> np.ndarray:
@@ -68,6 +97,7 @@ def plot_graph(
     iterations: int = 150,
     seed: int = 0,
     node_size: float | None = None,
+    theme: str = "auto",
 ) -> Axes:
     """
     Plot a single (non-batched) Graph with one color and marker per hyper-edge class.
@@ -87,9 +117,11 @@ def plot_graph(
     :param iterations: Number of layout relaxation steps.
     :param seed: Seed for the layout's random initial positions.
     :param node_size: Address marker area; inferred from the number of addresses when None.
+    :param theme: ``"light"``, ``"dark"``, or ``"auto"`` to follow matplotlib's current
+        figure facecolor (e.g. dark notebook themes).
     :return: The matplotlib Axes containing the plot.
     :raises ImportError: If matplotlib is not installed.
-    :raises ValueError: If the graph is not single.
+    :raises ValueError: If the graph is not single, or if ``theme`` is invalid.
     """
     try:
         import matplotlib.pyplot as plt
@@ -98,6 +130,8 @@ def plot_graph(
 
     if not graph.is_single:
         raise ValueError("plot_graph only handles single graphs; use separate_graphs() on a batch first.")
+
+    palette, surface, ink = _THEMES[_resolve_theme(theme)]
 
     g = graph.to_numpy_backend()
     n_addr = int(np.asarray(g.non_fictitious_addresses).sum())
@@ -132,13 +166,14 @@ def plot_graph(
     pos = spring_layout(next_id, np.array(layout_edges, dtype=int).reshape(-1, 2), iterations=iterations, seed=seed)
 
     if ax is None:
-        _, ax = plt.subplots(figsize=(7, 7))
-    ax.set_facecolor(_SURFACE)
+        fig, ax = plt.subplots(figsize=(7, 7))
+        fig.set_facecolor(surface)
+    ax.set_facecolor(surface)
     ax.set_aspect("equal")
     ax.axis("off")
 
     for class_index, name in enumerate(classes):
-        color = _PALETTE[class_index % len(_PALETTE)]
+        color = palette[class_index % len(palette)]
         segments_x: list[Any] = []
         segments_y: list[Any] = []
         for i, edge_ports in enumerate(edges_by_class[name]):
@@ -159,7 +194,7 @@ def plot_graph(
         pos[:n_addr, 1],
         s=node_size,
         c=_ADDRESS_COLOR,
-        edgecolors=_SURFACE,
+        edgecolors=surface,
         linewidths=1.5,
         zorder=3,
         label="addresses",
@@ -169,7 +204,7 @@ def plot_graph(
             ax.annotate(str(i), pos[i], ha="center", va="center", fontsize=7, color="#ffffff", zorder=4)
 
     for class_index, name in enumerate(classes):
-        color = _PALETTE[class_index % len(_PALETTE)]
+        color = palette[class_index % len(palette)]
         marker = _MARKERS[class_index % len(_MARKERS)]
         xs, ys = [], []
         for i, edge_ports in enumerate(edges_by_class[name]):
@@ -187,8 +222,8 @@ def plot_graph(
             ys.append(point[1])
         if xs:
             ax.scatter(
-                xs, ys, s=0.45 * node_size, c=color, marker=marker, edgecolors=_SURFACE, linewidths=0.8, zorder=3.5, label=name
+                xs, ys, s=0.45 * node_size, c=color, marker=marker, edgecolors=surface, linewidths=0.8, zorder=3.5, label=name
             )
 
-    ax.legend(loc="upper left", bbox_to_anchor=(1.0, 1.0), frameon=False, labelcolor=_INK, fontsize=9)
+    ax.legend(loc="upper left", bbox_to_anchor=(1.0, 1.0), frameon=False, labelcolor=ink, fontsize=9)
     return ax

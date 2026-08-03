@@ -82,3 +82,20 @@ def test_plot_graph_rejects_batch(mixed_order_graph):
     batch = collate_graphs([mixed_order_graph, mixed_order_graph])
     with pytest.raises(ValueError, match="single"):
         plot_graph(batch)
+
+
+def test_plot_graph_dark_theme(mixed_order_graph):
+    ax = plot_graph(mixed_order_graph, theme="dark")
+    assert ax.get_facecolor() == matplotlib.colors.to_rgba("#1a1a19")
+    assert ax.figure.get_facecolor() == matplotlib.colors.to_rgba("#1a1a19")
+
+
+def test_plot_graph_auto_theme_follows_rcparams(mixed_order_graph):
+    with matplotlib.rc_context({"figure.facecolor": "#2b2b2b"}):
+        ax = plot_graph(mixed_order_graph)
+    assert ax.get_facecolor() == matplotlib.colors.to_rgba("#1a1a19")
+
+
+def test_plot_graph_invalid_theme(mixed_order_graph):
+    with pytest.raises(ValueError, match="theme"):
+        plot_graph(mixed_order_graph, theme="solarized")
