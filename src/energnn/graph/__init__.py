@@ -26,6 +26,7 @@ from .hyper_edge_set import (
     separate_hyper_edge_sets,
 )
 from .jax.utils import jnp_to_np, np_to_jnp
+from .plot import plot_graph
 from .shape import GraphShape, collate_shapes, max_shape, merge_shapes, separate_shapes, sum_shapes
 from .structure import GraphStructure, HyperEdgeSetStructure
 from .utils import to_numpy
@@ -48,6 +49,7 @@ __all__ = [
     "merge_graphs",
     "merge_hyper_edge_sets",
     "separate_graphs",
+    "plot_graph",
     "check_hyper_edge_set_dict_type",
     "GraphShape",
     "collate_shapes",
