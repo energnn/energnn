@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 
 from energnn.graph.graph import Graph, collate_graphs  # noqa: E402
 from energnn.graph.hyper_edge_set import HyperEdgeSet  # noqa: E402
-from energnn.graph.plot import plot_graph, spring_layout  # noqa: E402
+from energnn.graph.plot import InteractiveGraphPlot, plot_graph, plot_graph_interactive, spring_layout  # noqa: E402
 from energnn.graph.shape import GraphShape  # noqa: E402
 
 
@@ -99,3 +99,47 @@ def test_plot_graph_auto_theme_follows_rcparams(mixed_order_graph):
 def test_plot_graph_invalid_theme(mixed_order_graph):
     with pytest.raises(ValueError, match="theme"):
         plot_graph(mixed_order_graph, theme="solarized")
+
+
+def test_plot_graph_port_labels(mixed_order_graph):
+    ax = plot_graph(mixed_order_graph, port_labels=True)
+    texts = {t.get_text() for t in ax.texts}
+    assert {"from", "to", "bus", "hv", "mv", "lv"} <= texts
+
+
+def test_interactive_plot_content(mixed_order_graph):
+    plot = plot_graph_interactive(mixed_order_graph)
+    assert isinstance(plot, InteractiveGraphPlot)
+    fragment = plot._repr_html_()
+    # class names in the legend, address ids, port names, and feature values in tooltips
+    for expected in ["line", "gen", "trafo3w", ">3</text>", "hv", "mv", "lv", "1.02", "address 0"]:
+        assert expected in fragment
+    assert fragment.count('class="addr"') == 4
+    # one group per real hyper-edge: 3 lines + 2 gens + 1 trafo3w
+    assert fragment.count('class="obj"') == 6
+
+
+def test_interactive_plot_skips_fictitious(mixed_order_graph):
+    target = GraphShape(
+        hyper_edge_sets={"line": np.array(6), "gen": np.array(5), "trafo3w": np.array(2)},
+        addresses=np.array(7),
+    )
+    mixed_order_graph.pad(target)
+    fragment = plot_graph_interactive(mixed_order_graph)._repr_html_()
+    assert fragment.count('class="addr"') == 4
+    assert fragment.count('class="obj"') == 6
+
+
+def test_interactive_plot_rejects_batch(mixed_order_graph):
+    batch = collate_graphs([mixed_order_graph, mixed_order_graph])
+    with pytest.raises(ValueError, match="single"):
+        plot_graph_interactive(batch)
+
+
+def test_interactive_plot_save(mixed_order_graph, tmp_path):
+    path = str(tmp_path / "graph.html")
+    plot_graph_interactive(mixed_order_graph).save(path)
+    with open(path, encoding="utf-8") as handle:
+        content = handle.read()
+    assert content.startswith("<!DOCTYPE html>")
+    assert "trafo3w" in content
