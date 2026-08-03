@@ -104,13 +104,19 @@ class _PlotData(NamedTuple):
     hub_ids: dict[tuple[str, int], int]  # (class, object index) -> hub row in pos
 
 
-def _extract_plot_data(graph: Graph, *, iterations: int, seed: int) -> _PlotData:
-    """Collect real (non-fictitious) objects of a single Graph and lay them out."""
+def _extract_plot_data(graph: Graph, *, iterations: int, seed: int, positions: Any = None) -> _PlotData:
+    """Collect real (non-fictitious) objects of a single Graph and lay them out.
+
+    When ``positions`` is given, it provides the address coordinates (real addresses,
+    or padded length — fictitious rows are dropped); hyper-edge hubs are then placed
+    at the barycenter of their ports instead of being laid out by the spring model.
+    """
     if not graph.is_single:
         raise ValueError("plot_graph only handles single graphs; use separate_graphs() on a batch first.")
 
     g = graph.to_numpy_backend()
-    n_addr = int(np.asarray(g.non_fictitious_addresses).sum())
+    address_mask = np.asarray(g.non_fictitious_addresses) > 0
+    n_addr = int(address_mask.sum())
 
     classes = sorted(g.hyper_edge_sets)
     ports: dict[str, list[list[int]]] = {}
@@ -146,9 +152,105 @@ def _extract_plot_data(graph: Graph, *, iterations: int, seed: int) -> _PlotData
                 hub_ids[(name, i)] = next_id
                 layout_edges.extend((next_id, p) for p in edge_ports)
                 next_id += 1
-    pos = spring_layout(next_id, np.array(layout_edges, dtype=int).reshape(-1, 2), iterations=iterations, seed=seed)
+
+    if positions is None:
+        pos = spring_layout(next_id, np.array(layout_edges, dtype=int).reshape(-1, 2), iterations=iterations, seed=seed)
+    else:
+        addr_pos = np.asarray(positions, dtype=float)
+        if addr_pos.ndim == 2 and addr_pos.shape[0] == len(address_mask):
+            addr_pos = addr_pos[address_mask]
+        if addr_pos.shape != (n_addr, 2):
+            raise ValueError(f"positions must have shape ({n_addr}, 2) or (current addresses, 2); got {addr_pos.shape}.")
+        # Normalize to the [-1, 1] layout box so marker sizes and offsets stay consistent.
+        addr_pos = addr_pos - addr_pos.mean(axis=0)
+        scale = np.abs(addr_pos).max()
+        if scale > 0:
+            addr_pos = addr_pos / scale
+        pos = np.zeros((next_id, 2))
+        pos[:n_addr] = addr_pos
+        for (name, i), hub_id in hub_ids.items():
+            pos[hub_id] = addr_pos[ports[name][i]].mean(axis=0)
 
     return _PlotData(n_addr, classes, ports, port_names, features, pos, hub_ids)
+
+
+class _ObjGeom(NamedTuple):
+    lines: list[np.ndarray]  # polylines of shape (k, 2), layout coordinates
+    marker: np.ndarray  # marker position, shape (2,)
+    labels: list[np.ndarray]  # one label anchor per port
+
+
+_BEZIER_T = np.linspace(0.0, 1.0, 17)[:, None]
+
+
+def _bezier(a: np.ndarray, control: np.ndarray, b: np.ndarray) -> np.ndarray:
+    t = _BEZIER_T
+    return (1 - t) ** 2 * a + 2 * t * (1 - t) * control + t**2 * b
+
+
+def _rotate(u: np.ndarray, phi: float) -> np.ndarray:
+    c, s = np.cos(phi), np.sin(phi)
+    return np.array([c * u[0] - s * u[1], s * u[0] + c * u[1]])
+
+
+def _object_geometries(data: _PlotData) -> dict[tuple[str, int], _ObjGeom]:
+    """
+    Geometry of every hyper-edge object, in layout coordinates.
+
+    Order-2 edges sharing the same address pair (across all classes) are fanned out
+    as symmetric Bezier curves so parallel edges stay distinguishable, and
+    self-loops are drawn as small circles attached to their address.
+    """
+    pos = data.pos
+
+    pair_groups: dict[tuple[int, int], list[tuple[str, int]]] = {}
+    for name in data.classes:
+        for i, edge_ports in enumerate(data.ports[name]):
+            if len(edge_ports) == 2:
+                pair = (min(edge_ports), max(edge_ports))
+                pair_groups.setdefault(pair, []).append((name, i))
+
+    fan: dict[tuple[str, int], float] = {}
+    loop_rank: dict[tuple[str, int], tuple[int, int]] = {}
+    for (addr_a, addr_b), members in pair_groups.items():
+        for j, member in enumerate(members):
+            if addr_a == addr_b:
+                loop_rank[member] = (j, len(members))
+            else:
+                fan[member] = j - (len(members) - 1) / 2.0
+
+    geoms: dict[tuple[str, int], _ObjGeom] = {}
+    for class_index, name in enumerate(data.classes):
+        for i, edge_ports in enumerate(data.ports[name]):
+            key = (name, i)
+            if len(edge_ports) == 1:
+                # Deterministic radial offset so several order-1 edges on one address stay visible.
+                angle = 2.0 * np.pi * ((class_index * 0.37 + i * 0.61) % 1.0)
+                tip = pos[edge_ports[0]] + 0.05 * np.array([np.cos(angle), np.sin(angle)])
+                geoms[key] = _ObjGeom([np.stack([pos[edge_ports[0]], tip])], tip, [(pos[edge_ports[0]] + tip) / 2.0])
+            elif key in loop_rank:
+                # Self-loop: a small circle beside the address; several loops spread around it.
+                j, m = loop_rank[key]
+                u = np.array([np.cos(2.0 * np.pi * j / m + 0.6), np.sin(2.0 * np.pi * j / m + 0.6)])
+                r_loop = 0.055
+                center = pos[edge_ports[0]] + 1.7 * r_loop * u
+                theta = np.linspace(0.0, 2.0 * np.pi, 25)[:, None]
+                circle = center + r_loop * np.concatenate([np.cos(theta), np.sin(theta)], axis=1)
+                labels = [center + 1.6 * r_loop * _rotate(u, 0.9), center + 1.6 * r_loop * _rotate(u, -0.9)]
+                geoms[key] = _ObjGeom([circle], center + r_loop * u, labels)
+            elif len(edge_ports) == 2:
+                a, b = pos[edge_ports[0]], pos[edge_ports[1]]
+                chord = b - a
+                length = max(float(np.linalg.norm(chord)), 1e-9)
+                normal = np.array([-chord[1], chord[0]]) / length
+                height = fan[key] * min(0.3 * length, 0.09)
+                curve = _bezier(a, (a + b) / 2.0 + 2.0 * height * normal, b)
+                geoms[key] = _ObjGeom([curve], curve[8], [curve[3], curve[13]])
+            elif len(edge_ports) >= 3:
+                hub = pos[data.hub_ids[key]]
+                lines = [np.stack([hub, pos[p]]) for p in edge_ports]
+                geoms[key] = _ObjGeom(lines, hub, [(hub + pos[p]) / 2.0 for p in edge_ports])
+    return geoms
 
 
 def plot_graph(
@@ -157,6 +259,7 @@ def plot_graph(
     ax: Axes | None = None,
     address_labels: bool = True,
     port_labels: bool = False,
+    positions: Any = None,
     iterations: int = 150,
     seed: int = 0,
     node_size: float | None = None,
@@ -180,7 +283,10 @@ def plot_graph(
     :param ax: Axes to draw into; a new figure is created when None.
     :param address_labels: If True, write the address index on each address node.
     :param port_labels: If True, write the port name along each port connection.
-    :param iterations: Number of layout relaxation steps.
+    :param positions: Optional address coordinates of shape ``(n_addresses, 2)`` (e.g.
+        latent coordinates from a coupler); replaces the force-directed layout. Padded
+        graphs may pass the padded length, fictitious rows are dropped.
+    :param iterations: Number of layout relaxation steps (unused when ``positions`` is given).
     :param seed: Seed for the layout's random initial positions.
     :param node_size: Address marker area; inferred from the number of addresses when None.
     :param theme: ``"light"``, ``"dark"``, or ``"auto"`` to follow matplotlib's current
@@ -195,8 +301,9 @@ def plot_graph(
         raise ImportError("plot_graph requires matplotlib; install it with 'pip install matplotlib'.") from exc
 
     palette, surface, ink = _THEMES[_resolve_theme(theme)]
-    data = _extract_plot_data(graph, iterations=iterations, seed=seed)
+    data = _extract_plot_data(graph, iterations=iterations, seed=seed, positions=positions)
     n_addr, pos = data.n_addr, data.pos
+    geoms = _object_geometries(data)
 
     if node_size is None:
         node_size = float(np.clip(4000.0 / max(n_addr, 1), 12.0, 130.0))
@@ -216,21 +323,16 @@ def plot_graph(
         color = palette[class_index % len(palette)]
         segments_x: list[Any] = []
         segments_y: list[Any] = []
-        for i, edge_ports in enumerate(data.ports[name]):
-            if len(edge_ports) == 2:
-                a, b = pos[edge_ports[0]], pos[edge_ports[1]]
-                segments_x += [a[0], b[0], None]
-                segments_y += [a[1], b[1], None]
-                if port_labels:
-                    _port_label(data.port_names[name][0], a + 0.22 * (b - a))
-                    _port_label(data.port_names[name][1], b + 0.22 * (a - b))
-            elif len(edge_ports) >= 3:
-                hub = pos[data.hub_ids[(name, i)]]
-                for port_index, p in enumerate(edge_ports):
-                    segments_x += [hub[0], pos[p][0], None]
-                    segments_y += [hub[1], pos[p][1], None]
-                    if port_labels:
-                        _port_label(data.port_names[name][port_index], (hub + pos[p]) / 2.0)
+        for i in range(len(data.ports[name])):
+            geom = geoms.get((name, i))
+            if geom is None:
+                continue
+            for line in geom.lines:
+                segments_x += list(line[:, 0]) + [None]
+                segments_y += list(line[:, 1]) + [None]
+            if port_labels:
+                for port_name, at in zip(data.port_names[name], geom.labels):
+                    _port_label(port_name, at)
         if segments_x:
             ax.plot(segments_x, segments_y, color=color, linewidth=line_width, alpha=0.85, zorder=1)
 
@@ -252,21 +354,12 @@ def plot_graph(
         color = palette[class_index % len(palette)]
         marker = _MARKERS[class_index % len(_MARKERS)]
         xs, ys = [], []
-        for i, edge_ports in enumerate(data.ports[name]):
-            if len(edge_ports) == 1:
-                # Deterministic radial offset so several order-1 edges on one address stay visible.
-                angle = 2.0 * np.pi * ((class_index * 0.37 + i * 0.61) % 1.0)
-                point = pos[edge_ports[0]] + 0.045 * np.array([np.cos(angle), np.sin(angle)])
-                if port_labels:
-                    _port_label(data.port_names[name][0], point + np.array([0.0, -0.03]))
-            elif len(edge_ports) == 2:
-                point = (pos[edge_ports[0]] + pos[edge_ports[1]]) / 2.0
-            elif len(edge_ports) >= 3:
-                point = pos[data.hub_ids[(name, i)]]
-            else:
+        for i in range(len(data.ports[name])):
+            geom = geoms.get((name, i))
+            if geom is None:
                 continue
-            xs.append(point[0])
-            ys.append(point[1])
+            xs.append(geom.marker[0])
+            ys.append(geom.marker[1])
         if xs:
             ax.scatter(
                 xs, ys, s=0.45 * node_size, c=color, marker=marker, edgecolors=surface, linewidths=0.8, zorder=3.5, label=name
@@ -340,6 +433,7 @@ def _tip(title: str, port_lines: list[tuple[str, int]], feature_lines: dict[str,
 def plot_graph_interactive(
     graph: Graph,
     *,
+    positions: Any = None,
     iterations: int = 150,
     seed: int = 0,
     size: int = 640,
@@ -350,13 +444,17 @@ def plot_graph_interactive(
 
     Address indices are always visible; hovering any object (address, hyper-edge
     marker or line) shows a tooltip with its port addresses and feature values, and
-    reveals the port names along its connections. The result displays inline in
+    reveals the port names along its connections. The mouse wheel zooms, dragging
+    pans, and double-click resets the view. The result displays inline in
     Jupyter/IDE notebooks (via ``_repr_html_``) and can be written to a standalone
     HTML file with :meth:`InteractiveGraphPlot.save`. No dependency is required.
 
     :param graph: A single Graph; batched graphs must first go through
         :func:`energnn.graph.separate_graphs`.
-    :param iterations: Number of layout relaxation steps.
+    :param positions: Optional address coordinates of shape ``(n_addresses, 2)`` (e.g.
+        latent coordinates from a coupler); replaces the force-directed layout. Padded
+        graphs may pass the padded length, fictitious rows are dropped.
+    :param iterations: Number of layout relaxation steps (unused when ``positions`` is given).
     :param seed: Seed for the layout's random initial positions.
     :param size: Width and height of the drawing, in pixels.
     :param theme: ``"light"``, ``"dark"``, or ``"auto"`` to follow the viewer's
@@ -367,11 +465,16 @@ def plot_graph_interactive(
     if theme not in ("light", "dark", "auto"):
         raise ValueError("theme must be 'light', 'dark' or 'auto'.")
 
-    data = _extract_plot_data(graph, iterations=iterations, seed=seed)
-    n_addr, pos = data.n_addr, data.pos
+    data = _extract_plot_data(graph, iterations=iterations, seed=seed, positions=positions)
+    n_addr = data.n_addr
+    geoms = _object_geometries(data)
 
     pad = 30.0
-    xy = (pos + 1.0) / 2.0 * (size - 2 * pad) + pad
+
+    def _to_px(points: np.ndarray) -> np.ndarray:
+        return (points + 1.0) / 2.0 * (size - 2 * pad) + pad
+
+    xy = _to_px(data.pos)
     r_addr = float(np.clip(150.0 / np.sqrt(max(n_addr, 1)), 5.0, 13.0))
     r_mark = 0.62 * r_addr
     stroke = float(np.clip(r_addr / 6.0, 1.0, 2.0))
@@ -396,11 +499,13 @@ def plot_graph_interactive(
         f"#{uid} .lg span{{display:inline-flex;align-items:center;gap:5px}}"
         f"#{uid} .obj .pl{{opacity:0;fill:var(--ink);font-size:9px;pointer-events:none}}"
         f"#{uid} .obj:hover .pl{{opacity:1}}"
-        f"#{uid} .obj:hover line{{stroke-width:{2.2 * stroke:.1f}px}}"
+        f"#{uid} .obj:hover polyline{{stroke-width:{2.2 * stroke:.1f}px}}"
         f"#{uid} .obj:hover .mk,#{uid} .addr:hover circle{{stroke:var(--ink);stroke-width:1.5px}}"
         f"#{uid} .tip{{display:none;position:absolute;pointer-events:none;background:var(--surface);color:var(--ink);"
         f"border:1px solid {_ADDRESS_COLOR};border-radius:4px;padding:5px 8px;font-size:11px;line-height:1.5;"
         f"white-space:nowrap;z-index:10}}"
+        f"#{uid} svg.cv{{cursor:grab}}"
+        f"#{uid} svg.cv:active{{cursor:grabbing}}"
     )
 
     svg: list[str] = []
@@ -416,37 +521,23 @@ def plot_graph_interactive(
         )
         port_names = data.port_names[name]
         for i, edge_ports in enumerate(data.ports[name]):
+            geom = geoms.get((name, i))
+            if geom is None:
+                continue
             tip = _tip(f"{name} #{i}", list(zip(port_names, edge_ports)), data.features[name][i])
             body: list[str] = []
-
-            def _spoke(a: np.ndarray, b: np.ndarray, label: str, frac: float = 0.5) -> None:
+            for line in geom.lines:
+                points_attr = " ".join(f"{x:.1f},{y:.1f}" for x, y in _to_px(line))
                 body.append(
-                    f'<line x1="{a[0]:.1f}" y1="{a[1]:.1f}" x2="{b[0]:.1f}" y2="{b[1]:.1f}"'
+                    f'<polyline points="{points_attr}" fill="none"'
                     f' stroke="{color_var}" stroke-width="{stroke:.1f}" stroke-opacity="0.85"/>'
                 )
-                at = a + frac * (b - a)
+            for port_name, at in zip(port_names, geom.labels):
+                p = _to_px(at)
                 body.append(
-                    f'<text class="pl" x="{at[0]:.1f}" y="{at[1] - 3:.1f}" text-anchor="middle">{html.escape(label)}</text>'
+                    f'<text class="pl" x="{p[0]:.1f}" y="{p[1] - 3:.1f}" text-anchor="middle">{html.escape(port_name)}</text>'
                 )
-
-            if len(edge_ports) == 1:
-                angle = 2.0 * np.pi * ((class_index * 0.37 + i * 0.61) % 1.0)
-                point = xy[edge_ports[0]] + 2.2 * r_addr * np.array([np.cos(angle), np.sin(angle)])
-                _spoke(xy[edge_ports[0]], point, port_names[0], frac=0.55)
-            elif len(edge_ports) == 2:
-                a, b = xy[edge_ports[0]], xy[edge_ports[1]]
-                _spoke(a, b, port_names[0], frac=0.25)
-                body.append(
-                    f'<text class="pl" x="{(b + 0.25 * (a - b))[0]:.1f}" y="{(b + 0.25 * (a - b))[1] - 3:.1f}"'
-                    f' text-anchor="middle">{html.escape(port_names[1])}</text>'
-                )
-                point = (a + b) / 2.0
-            elif len(edge_ports) >= 3:
-                point = xy[data.hub_ids[(name, i)]]
-                for port_index, p in enumerate(edge_ports):
-                    _spoke(point, xy[p], port_names[port_index])
-            else:
-                continue
+            point = _to_px(geom.marker)
             body.append(_svg_marker(shape, point[0], point[1], r_mark, color_var, 'stroke="var(--surface)" stroke-width="1"'))
             svg.append(f'<g class="obj" data-tip="{tip}">{"".join(body)}</g>')
 
@@ -466,13 +557,25 @@ def plot_graph_interactive(
         f"el.addEventListener('mousemove',function(e){{tip.innerHTML=el.getAttribute('data-tip');"
         f"tip.style.display='block';var r=root.getBoundingClientRect();"
         f"tip.style.left=(e.clientX-r.left+14)+'px';tip.style.top=(e.clientY-r.top+14)+'px';}});"
-        f"el.addEventListener('mouseleave',function(){{tip.style.display='none';}});}});}})();"
+        f"el.addEventListener('mouseleave',function(){{tip.style.display='none';}});}});"
+        # wheel to zoom on the cursor, drag to pan, double-click to reset
+        f"var svg=root.querySelector('svg.cv');var vb=[0,0,{size},{size}];var drag=null;"
+        f"function apply(){{svg.setAttribute('viewBox',vb.join(' '));}}"
+        f"svg.addEventListener('wheel',function(e){{e.preventDefault();"
+        f"var k=e.deltaY<0?0.8:1.25;var r=svg.getBoundingClientRect();"
+        f"var mx=vb[0]+(e.clientX-r.left)/r.width*vb[2];var my=vb[1]+(e.clientY-r.top)/r.height*vb[3];"
+        f"vb=[mx-(mx-vb[0])*k,my-(my-vb[1])*k,vb[2]*k,vb[3]*k];apply();}},{{passive:false}});"
+        f"svg.addEventListener('mousedown',function(e){{e.preventDefault();drag=[e.clientX,e.clientY,vb[0],vb[1]];}});"
+        f"window.addEventListener('mousemove',function(e){{if(drag){{var r=svg.getBoundingClientRect();"
+        f"vb[0]=drag[2]-(e.clientX-drag[0])/r.width*vb[2];vb[1]=drag[3]-(e.clientY-drag[1])/r.height*vb[3];apply();}}}});"
+        f"window.addEventListener('mouseup',function(){{drag=null;}});"
+        f"svg.addEventListener('dblclick',function(){{vb=[0,0,{size},{size}];apply();}});}})();"
     )
 
     fragment = (
         f"<style>{css}</style>"
         f'<div id="{uid}"><div class="lg">{"".join(legend)}</div>'
-        f'<svg width="{size}" height="{size}" viewBox="0 0 {size} {size}">{"".join(svg)}</svg>'
+        f'<svg class="cv" width="{size}" height="{size}" viewBox="0 0 {size} {size}">{"".join(svg)}</svg>'
         f'<div class="tip"></div><script>{script}</script></div>'
     )
     return InteractiveGraphPlot(fragment)

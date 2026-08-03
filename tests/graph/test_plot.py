@@ -136,6 +136,73 @@ def test_interactive_plot_rejects_batch(mixed_order_graph):
         plot_graph_interactive(batch)
 
 
+@pytest.fixture
+def multi_graph() -> Graph:
+    """3 parallel lines 0-1, a self-loop on 2, and 2 parallel 3-port trafos."""
+    hes = {
+        "line": HyperEdgeSet.from_dict(
+            port_dict={"from": np.array([0, 0, 0, 2]), "to": np.array([1, 1, 1, 2])},
+            feature_dict={"x": np.array([0.1, 0.2, 0.3, 0.4])},
+        ),
+        "trafo3w": HyperEdgeSet.from_dict(
+            port_dict={"hv": np.array([0, 0]), "mv": np.array([1, 1]), "lv": np.array([2, 2])},
+            feature_dict={"ratio": np.array([1.0, 1.1])},
+        ),
+    }
+    return Graph.from_dict(hyper_edge_set_dict=hes, n_addresses=3)
+
+
+def test_parallel_edges_have_distinct_markers(multi_graph):
+    ax = plot_graph(multi_graph)
+    line_collection = next(c for c in ax.collections if c.get_label() == "line")
+    offsets = np.asarray(line_collection.get_offsets())
+    assert len(np.unique(np.round(offsets, 6), axis=0)) == 4
+
+
+def test_self_loop_is_visible(multi_graph):
+    ax = plot_graph(multi_graph)
+    line_collection = next(c for c in ax.collections if c.get_label() == "line")
+    loop_marker = np.asarray(line_collection.get_offsets())[3]
+    address_positions = np.asarray(next(c for c in ax.collections if c.get_label() == "addresses").get_offsets())
+    assert np.linalg.norm(address_positions - loop_marker, axis=1).min() > 0.05
+
+
+def test_parallel_hubs_are_separated(multi_graph):
+    ax = plot_graph(multi_graph)
+    trafo_offsets = np.asarray(next(c for c in ax.collections if c.get_label() == "trafo3w").get_offsets())
+    assert np.linalg.norm(trafo_offsets[0] - trafo_offsets[1]) > 0.01
+
+
+def test_interactive_multi_graph(multi_graph):
+    fragment = plot_graph_interactive(multi_graph)._repr_html_()
+    assert fragment.count('class="obj"') == 6
+
+
+def test_injected_positions(mixed_order_graph):
+    positions = np.array([[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0]])
+    ax = plot_graph(mixed_order_graph, positions=positions)
+    drawn = np.asarray(next(c for c in ax.collections if c.get_label() == "addresses").get_offsets())
+    # normalized to [-1, 1] but the square must be preserved
+    expected = np.array([[-1.0, -1.0], [1.0, -1.0], [1.0, 1.0], [-1.0, 1.0]])
+    np.testing.assert_allclose(drawn, expected, atol=1e-6)
+
+
+def test_injected_positions_padded_length(mixed_order_graph):
+    target = GraphShape(
+        hyper_edge_sets={"line": np.array(6), "gen": np.array(5), "trafo3w": np.array(2)},
+        addresses=np.array(7),
+    )
+    mixed_order_graph.pad(target)
+    positions = np.arange(14, dtype=float).reshape(7, 2)  # padded length: extra rows dropped
+    fragment = plot_graph_interactive(mixed_order_graph, positions=positions)._repr_html_()
+    assert fragment.count('class="addr"') == 4
+
+
+def test_injected_positions_bad_shape(mixed_order_graph):
+    with pytest.raises(ValueError, match="positions"):
+        plot_graph(mixed_order_graph, positions=np.zeros((3, 2)))
+
+
 def test_interactive_plot_save(mixed_order_graph, tmp_path):
     path = str(tmp_path / "graph.html")
     plot_graph_interactive(mixed_order_graph).save(path)
