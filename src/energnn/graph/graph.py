@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import pickle as pkl
+import warnings
 
 import numpy as np
 from jax.tree_util import register_pytree_node_class
@@ -155,7 +156,78 @@ class Graph(dict):
     def from_pickle(cls, *, file_path: str) -> Graph:
         """Load a graph from a pickle file."""
         with open(file_path, "rb") as handle:
-            return pkl.load(handle)
+            graph = pkl.load(handle)
+
+        if not isinstance(graph, Graph):
+            return graph
+
+        # Ensure all addresses and counts are integers (for compatibility with old pickles)
+        # 1. HyperEdgeSet port addresses and feature_names indices
+        for hes_name, hes in graph.hyper_edge_sets.items():
+            if hes.port_dict is not None:
+                xp = hes._backend.xp
+                new_port_dict = {}
+                for k, v in hes.port_dict.items():
+                    val = xp.array(v)
+                    if not xp.issubdtype(val.dtype, xp.integer):
+                        new_port_dict[k] = val.astype(xp.int32)
+                        if not xp.allclose(val, new_port_dict[k]):
+                            warnings.warn(
+                                f"Non-integer values detected in port array '{k}' of HyperEdgeSet '{hes_name}'. "
+                                "Casting to int32 truncated fractional parts.",
+                                UserWarning,
+                            )
+
+                    else:
+                        new_port_dict[k] = v
+                hes.port_dict = new_port_dict
+
+            if hes.feature_names is not None:
+                xp = hes._backend.xp
+                new_feature_names = {}
+                for k, v in hes.feature_names.items():
+                    val = xp.array(v)
+                    if not xp.issubdtype(val.dtype, xp.integer):
+                        new_feature_names[k] = val.astype(xp.int32)
+                        if not xp.allclose(val, new_feature_names[k]):
+                            warnings.warn(
+                                f"Non-integer values detected in feature_names index '{k}' of HyperEdgeSet '{hes_name}'. "
+                                "Casting to int32 truncated fractional parts.",
+                                UserWarning,
+                            )
+                    else:
+                        new_feature_names[k] = v
+                hes["feature_names"] = new_feature_names
+
+        # 2. GraphShape counts
+        for shape_name, shape in [("true_shape", graph.true_shape), ("current_shape", graph.current_shape)]:
+            xp = shape._backend.xp
+            addr_val = xp.array(shape.addresses)
+            if not xp.issubdtype(addr_val.dtype, xp.integer):
+                shape["addresses"] = addr_val.astype(xp.int32)
+                if not xp.allclose(addr_val, shape["addresses"]):
+                    warnings.warn(
+                        f"Non-integer value detected in addresses count of '{shape_name}'. "
+                        "Casting to int32 truncated fractional parts.",
+                        UserWarning,
+                    )
+
+            new_hes_shape = {}
+            for k, v in shape.hyper_edge_sets.items():
+                val = xp.array(v)
+                if not xp.issubdtype(val.dtype, xp.integer):
+                    new_hes_shape[k] = val.astype(xp.int32)
+                    if not xp.allclose(val, new_hes_shape[k]):
+                        warnings.warn(
+                            f"Non-integer value detected in HyperEdgeSet count '{k}' of '{shape_name}'. "
+                            "Casting to int32 truncated fractional parts.",
+                            UserWarning,
+                        )
+                else:
+                    new_hes_shape[k] = v
+            shape["hyper_edge_sets"] = new_hes_shape
+
+        return graph
 
     # ------------------------------------------------------------------
     # Properties
