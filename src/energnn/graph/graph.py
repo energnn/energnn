@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import pickle as pkl
+import warnings
 
 import numpy as np
 from jax.tree_util import register_pytree_node_class
@@ -24,6 +25,25 @@ HYPER_EDGE_SETS = "hyper_edge_sets"
 TRUE_SHAPE = "true_shape"
 CURRENT_SHAPE = "current_shape"
 NON_FICTITIOUS_ADDRESSES = "non_fictitious_addresses"
+
+
+def _ensure_int_dict(d: dict, xp, msg_template: str) -> dict:
+    """Helper function to ensure dictionary values are integers and warn if not."""
+    new_dict = {}
+    for k, v in d.items():
+        val = xp.array(v)
+        if not xp.issubdtype(val.dtype, xp.integer):
+            new_val = val.astype(xp.int32)
+            if not xp.allclose(val, new_val):
+                warnings.warn(
+                    f"Non-integer value detected in {msg_template.format(k=k)}. "
+                    "Casting to int32 truncated fractional parts.",
+                    UserWarning,
+                )
+            new_dict[k] = new_val
+        else:
+            new_dict[k] = v
+    return new_dict
 
 
 @register_pytree_node_class
@@ -155,7 +175,42 @@ class Graph(dict):
     def from_pickle(cls, *, file_path: str) -> Graph:
         """Load a graph from a pickle file."""
         with open(file_path, "rb") as handle:
-            return pkl.load(handle)
+            graph = pkl.load(handle)
+
+        if not isinstance(graph, Graph):
+            return graph
+
+        # Ensure all addresses and counts are integers (for compatibility with old pickles)
+        # 1. HyperEdgeSet port addresses and feature_names indices
+        for hes_name, hes in graph.hyper_edge_sets.items():
+            if hes.port_dict is not None:
+                hes.port_dict = _ensure_int_dict(
+                    hes.port_dict, hes._backend.xp, f"port array '{{k}}' of HyperEdgeSet '{hes_name}'"
+                )
+
+            if hes.feature_names is not None:
+                hes["feature_names"] = _ensure_int_dict(
+                    hes.feature_names, hes._backend.xp, f"feature_names index '{{k}}' of HyperEdgeSet '{hes_name}'"
+                )
+
+        # 2. GraphShape counts
+        for shape_name, shape in [("true_shape", graph.true_shape), ("current_shape", graph.current_shape)]:
+            xp = shape._backend.xp
+            addr_val = xp.array(shape.addresses)
+            if not xp.issubdtype(addr_val.dtype, xp.integer):
+                shape["addresses"] = addr_val.astype(xp.int32)
+                if not xp.allclose(addr_val, shape["addresses"]):
+                    warnings.warn(
+                        f"Non-integer value detected in addresses count of '{shape_name}'. "
+                        "Casting to int32 truncated fractional parts.",
+                        UserWarning,
+                    )
+
+            shape["hyper_edge_sets"] = _ensure_int_dict(
+                shape.hyper_edge_sets, xp, f"HyperEdgeSet count '{{k}}' of '{shape_name}'"
+            )
+
+        return graph
 
     # ------------------------------------------------------------------
     # Properties
