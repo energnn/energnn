@@ -27,6 +27,25 @@ CURRENT_SHAPE = "current_shape"
 NON_FICTITIOUS_ADDRESSES = "non_fictitious_addresses"
 
 
+def _ensure_int_dict(d: dict, xp, msg_template: str) -> dict:
+    """Helper function to ensure dictionary values are integers and warn if not."""
+    new_dict = {}
+    for k, v in d.items():
+        val = xp.array(v)
+        if not xp.issubdtype(val.dtype, xp.integer):
+            new_val = val.astype(xp.int32)
+            if not xp.allclose(val, new_val):
+                warnings.warn(
+                    f"Non-integer value detected in {msg_template.format(k=k)}. "
+                    "Casting to int32 truncated fractional parts.",
+                    UserWarning,
+                )
+            new_dict[k] = new_val
+        else:
+            new_dict[k] = v
+    return new_dict
+
+
 @register_pytree_node_class
 class Graph(dict):
     """
@@ -165,39 +184,14 @@ class Graph(dict):
         # 1. HyperEdgeSet port addresses and feature_names indices
         for hes_name, hes in graph.hyper_edge_sets.items():
             if hes.port_dict is not None:
-                xp = hes._backend.xp
-                new_port_dict = {}
-                for k, v in hes.port_dict.items():
-                    val = xp.array(v)
-                    if not xp.issubdtype(val.dtype, xp.integer):
-                        new_port_dict[k] = val.astype(xp.int32)
-                        if not xp.allclose(val, new_port_dict[k]):
-                            warnings.warn(
-                                f"Non-integer values detected in port array '{k}' of HyperEdgeSet '{hes_name}'. "
-                                "Casting to int32 truncated fractional parts.",
-                                UserWarning,
-                            )
-
-                    else:
-                        new_port_dict[k] = v
-                hes.port_dict = new_port_dict
+                hes.port_dict = _ensure_int_dict(
+                    hes.port_dict, hes._backend.xp, f"port array '{{k}}' of HyperEdgeSet '{hes_name}'"
+                )
 
             if hes.feature_names is not None:
-                xp = hes._backend.xp
-                new_feature_names = {}
-                for k, v in hes.feature_names.items():
-                    val = xp.array(v)
-                    if not xp.issubdtype(val.dtype, xp.integer):
-                        new_feature_names[k] = val.astype(xp.int32)
-                        if not xp.allclose(val, new_feature_names[k]):
-                            warnings.warn(
-                                f"Non-integer values detected in feature_names index '{k}' of HyperEdgeSet '{hes_name}'. "
-                                "Casting to int32 truncated fractional parts.",
-                                UserWarning,
-                            )
-                    else:
-                        new_feature_names[k] = v
-                hes["feature_names"] = new_feature_names
+                hes["feature_names"] = _ensure_int_dict(
+                    hes.feature_names, hes._backend.xp, f"feature_names index '{{k}}' of HyperEdgeSet '{hes_name}'"
+                )
 
         # 2. GraphShape counts
         for shape_name, shape in [("true_shape", graph.true_shape), ("current_shape", graph.current_shape)]:
@@ -212,20 +206,9 @@ class Graph(dict):
                         UserWarning,
                     )
 
-            new_hes_shape = {}
-            for k, v in shape.hyper_edge_sets.items():
-                val = xp.array(v)
-                if not xp.issubdtype(val.dtype, xp.integer):
-                    new_hes_shape[k] = val.astype(xp.int32)
-                    if not xp.allclose(val, new_hes_shape[k]):
-                        warnings.warn(
-                            f"Non-integer value detected in HyperEdgeSet count '{k}' of '{shape_name}'. "
-                            "Casting to int32 truncated fractional parts.",
-                            UserWarning,
-                        )
-                else:
-                    new_hes_shape[k] = v
-            shape["hyper_edge_sets"] = new_hes_shape
+            shape["hyper_edge_sets"] = _ensure_int_dict(
+                shape.hyper_edge_sets, xp, f"HyperEdgeSet count '{{k}}' of '{shape_name}'"
+            )
 
         return graph
 
