@@ -190,7 +190,26 @@ class Graph(dict):
         self[HYPER_EDGE_SETS] = hyper_edge_set_dict
 
     def __str__(self) -> str:
-        return "".join("{}\n{}\n".format(k, v) for k, v in sorted(self.hyper_edge_sets.items()))
+        sets = sorted(self.hyper_edge_sets.items()) if self.hyper_edge_sets is not None else []
+
+        header_parts = [f"{len(sets)} hyper-edge set{'s' if len(sets) != 1 else ''}"]
+        if sets and self.is_batch:
+            header_parts.insert(0, f"batch of {sets[0][1].n_batch}")
+        if self.true_shape is not None:
+            addresses = np.unique(np.asarray(self.true_shape.addresses).reshape(-1))
+            if addresses.size == 1:
+                header_parts.append(f"{int(addresses[0])} addresses")
+            elif addresses.size > 1:
+                header_parts.append(f"{int(addresses.min())}–{int(addresses.max())} addresses")
+        lines = ["Graph · " + " · ".join(header_parts)]
+
+        for i, (name, hyper_edge_set) in enumerate(sets):
+            last = i == len(sets) - 1
+            branch, continuation = ("└─ ", "   ") if last else ("├─ ", "│  ")
+            lines.append("│")
+            lines.append(f"{branch}{name} · {hyper_edge_set._summary()}")
+            lines.extend(continuation + line for line in hyper_edge_set._table_lines())
+        return "\n".join(lines)
 
     # ------------------------------------------------------------------
     # Batch detection

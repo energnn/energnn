@@ -4,8 +4,6 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 # SPDX-License-Identifier: MPL-2.0
 
-import pandas as pd
-
 HYPER_EDGE_SETS = "hyper_edge_sets"
 FEATURE_LIST = "feature_list"
 PORT_LIST = "port_list"
@@ -48,10 +46,16 @@ class GraphStructure(dict):
         return self[HYPER_EDGE_SETS]
 
     def __str__(self):
-        data = {
-            "Name": [edge_name for edge_name in self.hyper_edge_sets.keys()],
-            "Ports": [edge_structure.port_list for edge_structure in self.hyper_edge_sets.values()],
-            "Features": [edge_structure.feature_list for edge_structure in self.hyper_edge_sets.values()],
-        }
-        df = pd.DataFrame(data).set_index("Name")
-        return df.to_string()
+        items = list(self.hyper_edge_sets.items())
+        lines = [f"GraphStructure · {len(items)} hyper-edge set{'s' if len(items) != 1 else ''}"]
+        if not items:
+            return lines[0]
+
+        name_width = max(len(name) for name, _ in items)
+        port_cells = ["ports: " + (", ".join(s.port_list) if s.port_list else "—") for _, s in items]
+        port_width = max(len(cell) for cell in port_cells)
+        for i, ((name, structure), ports) in enumerate(zip(items, port_cells)):
+            branch = "└─ " if i == len(items) - 1 else "├─ "
+            features = "features: " + (", ".join(structure.feature_list) if structure.feature_list else "—")
+            lines.append(f"{branch}{name.ljust(name_width)}   {ports.ljust(port_width)}   {features}")
+        return "\n".join(lines)

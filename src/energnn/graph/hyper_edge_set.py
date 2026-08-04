@@ -9,10 +9,10 @@ from __future__ import annotations
 from typing import Any, Sequence
 
 import numpy as np
-import pandas as pd
 from jax.tree_util import register_pytree_node_class
 
 from energnn.graph.backend import PRESERVE_DTYPE, Backend, NumpyBackend
+from energnn.graph.formatting import format_float_column, format_int_column, render_grouped_table, select_rows
 from energnn.graph.utils import to_numpy
 
 FEATURE_ARRAY = "feature_array"
@@ -182,26 +182,58 @@ class HyperEdgeSet(dict):
     # String representation
     # ------------------------------------------------------------------
 
-    def __str__(self) -> str:
+    def _summary(self) -> str:
+        """One-line description: object, port and feature counts."""
+        parts = []
+        if self.is_batch:
+            parts.append(f"batch of {self.n_batch}")
+        n_obj = self.n_obj
+        obj_part = f"{n_obj} object{'s' if n_obj != 1 else ''}"
+        if self.non_fictitious is not None:
+            n_real = int(np.asarray(self.non_fictitious).sum())
+            n_total = int(np.asarray(self.non_fictitious).size)
+            if n_real != n_total and not self.is_batch:
+                obj_part += f" ({n_real} real)"
+        parts.append(obj_part)
+        n_ports = len(self.port_dict) if self.port_dict is not None else 0
+        parts.append(f"{n_ports} port{'s' if n_ports != 1 else ''}")
+        n_feat = len(self.feature_names) if self.feature_names is not None else 0
+        parts.append(f"{n_feat} feature{'s' if n_feat != 1 else ''}")
+        return " · ".join(parts)
+
+    def _table_lines(self) -> list[str]:
+        """Render ports and features as an aligned text table (no pandas)."""
         if self.is_single:
-            index = pd.MultiIndex.from_product([range(self.n_obj)], names=["object_id"])
+            n_rows = self.n_obj
+            index_values = [("", [str(i) for i in range(n_rows)])]
         elif self.is_batch:
-            index = pd.MultiIndex.from_product(
-                [range(self.n_batch), range(self.n_obj)],
-                names=["batch_id", "object_id"],
-            )
+            n_rows = self.n_batch * self.n_obj
+            index_values = [
+                ("batch", [str(b) for b in range(self.n_batch) for _ in range(self.n_obj)]),
+                ("obj", [str(i) for _ in range(self.n_batch) for i in range(self.n_obj)]),
+            ]
         else:
             raise ValueError("HyperEdgeSet is neither single nor batched.")
 
-        d: dict = {}
-        if self.port_names is not None:
-            for k, v in sorted(self.port_dict.items()):
-                d[("ports", k)] = np.array(v.reshape([-1]))
-        if self.feature_names is not None:
-            for k, v in sorted(self.feature_dict.items()):
-                d[("features", k)] = np.array(v.reshape([-1]))
+        rows, ellipsis_at = select_rows(n_rows)
 
-        return pd.DataFrame(d, index=index).__str__()
+        def take(cells: list[str]) -> list[str]:
+            return [cells[r] for r in rows]
+
+        index_columns = [(name, take(cells)) for name, cells in index_values]
+
+        groups = []
+        if self.port_dict is not None:
+            columns = [(k, take(format_int_column(np.asarray(v).reshape(-1)))) for k, v in sorted(self.port_dict.items())]
+            groups.append(("ports", columns))
+        if self.feature_names is not None:
+            columns = [(k, take(format_float_column(np.asarray(v).reshape(-1)))) for k, v in sorted(self.feature_dict.items())]
+            groups.append(("features", columns))
+
+        return render_grouped_table(index_columns, groups, ellipsis_at=ellipsis_at)
+
+    def __str__(self) -> str:
+        return "\n".join([f"HyperEdgeSet · {self._summary()}", *self._table_lines()])
 
     # ------------------------------------------------------------------
     # Core array properties
