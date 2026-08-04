@@ -215,6 +215,13 @@ class HyperEdgeSet(dict):
         else:
             raise ValueError("HyperEdgeSet is neither single nor batched.")
 
+        has_fictitious = False
+        if self.non_fictitious is not None:
+            mask = np.asarray(self.non_fictitious).reshape(-1)
+            if mask.size == n_rows and not np.all(mask):
+                has_fictitious = True
+                index_values.append(("", ["" if m else "×" for m in mask]))
+
         rows, ellipsis_at = select_rows(n_rows)
 
         def take(cells: list[str]) -> list[str]:
@@ -230,7 +237,10 @@ class HyperEdgeSet(dict):
             columns = [(k, take(format_float_column(np.asarray(v).reshape(-1)))) for k, v in sorted(self.feature_dict.items())]
             groups.append(("features", columns))
 
-        return render_grouped_table(index_columns, groups, ellipsis_at=ellipsis_at)
+        lines = render_grouped_table(index_columns, groups, ellipsis_at=ellipsis_at)
+        if has_fictitious:
+            lines.append("× fictitious object")
+        return lines
 
     def __str__(self) -> str:
         return "\n".join([f"HyperEdgeSet · {self._summary()}", *self._table_lines()])
