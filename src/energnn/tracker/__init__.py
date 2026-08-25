@@ -6,5 +6,6 @@
 
 from .mlflow import MlflowTracker
 from .tracker import Tracker
+from .aim import AimTracker
 
-__all__ = ["Tracker", "MlflowTracker"]
+__all__ = ["Tracker", "MlflowTracker", "AimTracker"]
