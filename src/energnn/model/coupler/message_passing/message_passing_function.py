@@ -20,7 +20,7 @@ class MessagePassingFunction(nnx.Module, ABC):
     r"""Interface for a message function :math:`\xi_\theta` in a GNN message passing scheme."""
 
     @abstractmethod
-    def __call__(self, graph: Graph, coordinates: jax.Array, get_info: bool = False) -> tuple[jax.Array, dict]:
+    def __call__(self, graph: Graph, coordinates: jax.Array, step_with_metrics: bool = False) -> tuple[jax.Array, dict]:
         """Should take as input a tuple (graph, coordinates) and return new coordinates."""
         raise NotImplementedError
 
@@ -181,7 +181,7 @@ class LocalSumMessagePassingFunction(MessagePassingFunction):
                 mlp_tree[key] = {port_key: build_mlp(self.out_size) for port_key in active_ports}
         return nnx.data(mlp_tree)
 
-    def __call__(self, *, graph: Graph, coordinates: jax.Array, get_info: bool = False) -> tuple[jax.Array, dict]:
+    def __call__(self, *, graph: Graph, coordinates: jax.Array, step_with_metrics: bool = False) -> tuple[jax.Array, dict]:
 
         out_dtype = coordinates.dtype
         compute_coordinates = coordinates if self.dtype is None else coordinates.astype(self.dtype)
@@ -247,5 +247,5 @@ class IdentityMessagePassingFunction(MessagePassingFunction):
     def __init__(self):
         pass
 
-    def __call__(self, *, graph: Graph, coordinates: jax.Array, get_info: bool = False) -> tuple[jax.Array, dict]:
+    def __call__(self, *, graph: Graph, coordinates: jax.Array, step_with_metrics: bool = False) -> tuple[jax.Array, dict]:
         return coordinates, {}

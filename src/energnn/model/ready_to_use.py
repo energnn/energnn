@@ -55,11 +55,14 @@ class ReadyRecurrentEquivariantGNN(GNN):
         dtype: Dtype | None = None,
         scatter_dtype: Dtype | None = None,
         seed: int = 0,
+        return_metrics: bool = False,
     ):
 
         rngs = nnx.Rngs(seed)
 
-        normalizer = TDigestNormalizer(in_structure=in_structure, n_breakpoints=n_breakpoints, update_limit=1000)
+        normalizer = TDigestNormalizer(
+            in_structure=in_structure, n_breakpoints=n_breakpoints, update_limit=1000, return_metrics=return_metrics
+        )
 
         encoder = MLPEncoder(
             in_structure=in_structure,
@@ -141,6 +144,8 @@ class TinyRecurrentEquivariantGNN(ReadyRecurrentEquivariantGNN):
     :type out_structure: GraphStructure
     :param seed: Seed for RNG streams.
     :type seed: int
+    :param return_metrics: If True, the normalizer returns feature quantiles as metrics on steps with metrics.
+    :type return_metrics: bool
     """
 
     def __init__(
@@ -152,6 +157,7 @@ class TinyRecurrentEquivariantGNN(ReadyRecurrentEquivariantGNN):
         dtype: Dtype | None = None,
         scatter_dtype: Dtype | None = None,
         seed: int = 0,
+        return_metrics: bool = False,
     ):
         super().__init__(
             in_structure=in_structure,
@@ -164,6 +170,7 @@ class TinyRecurrentEquivariantGNN(ReadyRecurrentEquivariantGNN):
             dtype=dtype,
             scatter_dtype=scatter_dtype,
             seed=seed,
+            return_metrics=return_metrics,
         )
 
 
@@ -182,6 +189,8 @@ class SmallRecurrentEquivariantGNN(ReadyRecurrentEquivariantGNN):
     :type out_structure: GraphStructure
     :param seed: Seed for RNG streams.
     :type seed: int
+    :param return_metrics: If True, the normalizer returns feature quantiles as metrics on steps with metrics.
+    :type return_metrics: bool
     """
 
     def __init__(
@@ -193,6 +202,7 @@ class SmallRecurrentEquivariantGNN(ReadyRecurrentEquivariantGNN):
         dtype: Dtype | None = None,
         scatter_dtype: Dtype | None = None,
         seed: int = 0,
+        return_metrics: bool = False,
     ):
         super().__init__(
             in_structure=in_structure,
@@ -205,6 +215,7 @@ class SmallRecurrentEquivariantGNN(ReadyRecurrentEquivariantGNN):
             dtype=dtype,
             scatter_dtype=scatter_dtype,
             seed=seed,
+            return_metrics=return_metrics,
         )
 
 
@@ -223,6 +234,8 @@ class MediumRecurrentEquivariantGNN(ReadyRecurrentEquivariantGNN):
     :type out_structure: GraphStructure
     :param seed: Seed for RNG streams.
     :type seed: int
+    :param return_metrics: If True, the normalizer returns feature quantiles as metrics on steps with metrics.
+    :type return_metrics: bool
     """
 
     def __init__(
@@ -234,6 +247,7 @@ class MediumRecurrentEquivariantGNN(ReadyRecurrentEquivariantGNN):
         dtype: Dtype | None = None,
         scatter_dtype: Dtype | None = None,
         seed: int = 0,
+        return_metrics: bool = False,
     ):
         super().__init__(
             in_structure=in_structure,
@@ -246,6 +260,7 @@ class MediumRecurrentEquivariantGNN(ReadyRecurrentEquivariantGNN):
             dtype=dtype,
             scatter_dtype=scatter_dtype,
             seed=seed,
+            return_metrics=return_metrics,
         )
 
 
@@ -264,6 +279,8 @@ class LargeRecurrentEquivariantGNN(ReadyRecurrentEquivariantGNN):
     :type out_structure: GraphStructure
     :param seed: Seed for RNG streams.
     :type seed: int
+    :param return_metrics: If True, the normalizer returns feature quantiles as metrics on steps with metrics.
+    :type return_metrics: bool
     """
 
     def __init__(
@@ -275,6 +292,7 @@ class LargeRecurrentEquivariantGNN(ReadyRecurrentEquivariantGNN):
         dtype: Dtype | None = None,
         scatter_dtype: Dtype | None = None,
         seed: int = 0,
+        return_metrics: bool = False,
     ):
         super().__init__(
             in_structure=in_structure,
@@ -287,6 +305,7 @@ class LargeRecurrentEquivariantGNN(ReadyRecurrentEquivariantGNN):
             dtype=dtype,
             scatter_dtype=scatter_dtype,
             seed=seed,
+            return_metrics=return_metrics,
         )
 
 
@@ -305,6 +324,8 @@ class ExtraLargeRecurrentEquivariantGNN(ReadyRecurrentEquivariantGNN):
     :type out_structure: GraphStructure
     :param seed: Seed for RNG streams.
     :type seed: int
+    :param return_metrics: If True, the normalizer returns feature quantiles as metrics on steps with metrics.
+    :type return_metrics: bool
     """
 
     def __init__(
@@ -315,6 +336,7 @@ class ExtraLargeRecurrentEquivariantGNN(ReadyRecurrentEquivariantGNN):
         dtype: Dtype | None = None,
         scatter_dtype: Dtype | None = None,
         seed: int = 0,
+        return_metrics: bool = False,
     ):
         super().__init__(
             in_structure=in_structure,
@@ -327,4 +349,5 @@ class ExtraLargeRecurrentEquivariantGNN(ReadyRecurrentEquivariantGNN):
             dtype=dtype,
             scatter_dtype=scatter_dtype,
             seed=seed,
+            return_metrics=return_metrics,
         )

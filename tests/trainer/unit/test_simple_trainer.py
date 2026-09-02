@@ -22,13 +22,13 @@ from energnn.trainer.trainer import _cast_cotangent_to_primal_dtype
 
 
 class IdentityNormalizer(nnx.Module):
-    def __call__(self, graph, get_info=False):
+    def __call__(self, graph, step_with_metrics=False):
         return graph, {}
 
 
 def create_tiny_model(context_structure):
     class SimpleDecoder(nnx.Module):
-        def __call__(self, coordinates, graph, get_info=False):
+        def __call__(self, coordinates, graph, step_with_metrics=False):
             # No params here, just pass through
             decision = Graph(
                 backend=JaxBackend(),
@@ -52,7 +52,7 @@ def create_tiny_model(context_structure):
             # One param to update
             self.linear = nnx.Linear(1, 1, rngs=nnx.Rngs(1))
 
-        def __call__(self, graph, get_info=False):
+        def __call__(self, graph, step_with_metrics=False):
             x = graph.hyper_edge_sets["bus"].feature_array
             return self.linear(x), {}
 
@@ -101,7 +101,7 @@ def test_training_step_basic():
     leaves_before = jax.tree.leaves(params)
 
     # Perform one training step
-    infos = trainer.training_step(batch, get_info=True)
+    infos = trainer.training_step(batch, step_with_metrics=True)
 
     assert isinstance(infos, dict)
     assert any(k.startswith("1_context") for k in infos.keys())
@@ -274,13 +274,13 @@ class TestJitCaching:
     def model(self, loader: LinearSystemProblemLoader) -> GNN:
         return create_tiny_model(loader.context_structure)
 
-    @pytest.mark.parametrize("get_info", [True, False])
-    def test_forward_vjp_roundtrip(self, model: GNN, batch: ProblemBatch, get_info: bool) -> None:
-        """_forward_vjp returns a vjp_fn whose gradient tree matches params, for both get_info branches."""
-        jax_context, _ = batch.get_context(get_info=get_info, step=0)
+    @pytest.mark.parametrize("step_with_metrics", [True, False])
+    def test_forward_vjp_roundtrip(self, model: GNN, batch: ProblemBatch, step_with_metrics: bool) -> None:
+        """_forward_vjp returns a vjp_fn whose gradient tree matches params, for both step_with_metrics branches."""
+        jax_context, _ = batch.get_context(step_with_metrics=step_with_metrics, step=0)
         graphdef, params, rest = nnx.split(model, nnx.Param, ...)
 
-        decision, rest_updated, vjp_fn = Trainer._forward_vjp(graphdef, params, rest, jax_context, get_info)
+        decision, rest_updated, vjp_fn = Trainer._forward_vjp(graphdef, params, rest, jax_context, step_with_metrics)
         (grads, _) = vjp_fn((jax.tree.map(jnp.zeros_like, decision), jax.tree.map(jnp.zeros_like, rest_updated)))
         assert jax.tree.structure(grads) == jax.tree.structure(params)
 
@@ -290,7 +290,7 @@ class TestJitCaching:
         before = [jnp.array(x) for x in jax.tree.leaves(nnx.state(model, nnx.Param))]
 
         for _ in range(5):
-            trainer.training_step(batch, get_info=False)
+            trainer.training_step(batch, step_with_metrics=False)
 
         after = jax.tree.leaves(nnx.state(model, nnx.Param))
         assert all(jnp.all(jnp.isfinite(x)) for x in after)
@@ -316,7 +316,7 @@ class TestJitCaching:
         ):
             trainer = Trainer(model=model, gradient_transformation=optax.sgd(1e-3))
             for _ in range(5):
-                trainer.training_step(batch, get_info=False)
+                trainer.training_step(batch, step_with_metrics=False)
 
         assert counts == {"forward": 1, "backward": 1}
 
@@ -335,7 +335,7 @@ class TestJitCaching:
         trainer = Trainer(model=model, gradient_transformation=optax.sgd(1e-3))
         batch = next(iter(loader))
         for _ in range(3):
-            trainer.training_step(batch, get_info=False)
+            trainer.training_step(batch, step_with_metrics=False)
 
         checked = 0
         for _, module in nnx.iter_graph(model):

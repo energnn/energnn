@@ -16,14 +16,15 @@ from energnn.graph import Graph
 class Encoder(nnx.Module, ABC):
 
     @abstractmethod
-    def __call__(self, graph: Graph, get_info: bool = False) -> tuple[Graph, dict]:
+    def __call__(self, graph: Graph, step_with_metrics: bool = False) -> tuple[Graph, dict]:
         """Encode the input graph into a graph with the same hyper-edge set classes and features.
 
         :param graph: Input graph to encode.
-        :param get_info: If True, returns additional info for tracking purpose.
+        :param step_with_metrics: Whether this step collects metrics. Implementations that produce metrics should
+            expose a `return_metrics` constructor flag and return them only when both are True.
         :return: A tuple containing:
             - Encoded graph with transformed features
-            - A dictionary with additional information if get_info=True, empty dict otherwise
+            - A dictionary of metrics for tracking purpose, empty dict when not collected
         :raises NotImplementedError: If the subclass does not override this method.
         """
         raise NotImplementedError
@@ -36,10 +37,11 @@ class IdentityEncoder(Encoder):
         \tilde{x} = x
     """
 
-    def __call__(self, graph: Graph, get_info: bool = False) -> tuple[Graph, dict]:
+    def __call__(self, graph: Graph, step_with_metrics: bool = False) -> tuple[Graph, dict]:
         """Apply the identity encoder and return the input graph without changes.
 
         :param context: Input graph to encode.
-        :param get_info: If True, returns additional info for tracking purpose.
+        :param step_with_metrics: Whether this step collects metrics. Implementations that produce metrics should
+            expose a `return_metrics` constructor flag and return them only when both are True.
         """
         return graph, {}

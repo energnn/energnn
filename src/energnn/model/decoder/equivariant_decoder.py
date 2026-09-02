@@ -137,13 +137,13 @@ class MLPEquivariantDecoder(EquivariantDecoder):
             )
         return nnx.data(mlp_dict)
 
-    def __call__(self, *, graph: Graph, coordinates: jax.Array, get_info: bool = False) -> tuple[Graph, dict]:
+    def __call__(self, *, graph: Graph, coordinates: jax.Array, step_with_metrics: bool = False) -> tuple[Graph, dict]:
         """Decode latent coordinates into an output graph.
 
         :param graph: Encoded graph providing context for decoding.
         :param coordinates: Latent coordinates array.
-        :param get_info: If True, returns additional info for tracking purpose.
-        :return: Tuple of decoded graph and info dictionary.
+        :param step_with_metrics: Whether this step collects metrics.
+        :return: Tuple of decoded graph and metrics dictionary.
         :raises KeyError: If an hyper-edge set class in the graph is not present in the decoder's MLP dictionary.
         """
 

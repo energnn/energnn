@@ -54,7 +54,7 @@ def test_ready_bf16_opt_in_propagates_to_all_components():
     # parameters remain stored in float32
     for leaf in jax.tree.leaves(nnx.state(model, nnx.Param)):
         assert leaf.dtype == jnp.float32
-    decision, _ = model.forward_batch(graph=context_batch, get_info=False)
+    decision, _ = model.forward_batch(graph=context_batch, step_with_metrics=False)
     assert decision.feature_flat_array.dtype == jnp.float32
     assert bool(jnp.all(jnp.isfinite(decision.feature_flat_array)))
 
@@ -63,7 +63,7 @@ def test_ready_defaults_forward_batch_is_finite_float32():
     model = TinyRecurrentEquivariantGNN(
         in_structure=pb_loader.context_structure, out_structure=pb_loader.decision_structure, seed=0
     )
-    decision, _ = model.forward_batch(graph=context_batch, get_info=False)
+    decision, _ = model.forward_batch(graph=context_batch, step_with_metrics=False)
     flat = decision.feature_flat_array
     assert flat.dtype == jnp.float32
     assert bool(jnp.all(jnp.isfinite(flat)))
@@ -81,7 +81,7 @@ def test_ready_opt_out_recovers_per_port():
     # per-port mode: one dict of MLPs per hyper-edge class
     for key in mf.mlp_tree:
         assert isinstance(mf.mlp_tree[key], dict)
-    decision, _ = model.forward_batch(graph=context_batch, get_info=False)
+    decision, _ = model.forward_batch(graph=context_batch, step_with_metrics=False)
     assert bool(jnp.all(jnp.isfinite(decision.feature_flat_array)))
 
 
@@ -89,8 +89,8 @@ def test_ready_bf16_close_to_fp32():
     kwargs = dict(in_structure=pb_loader.context_structure, out_structure=pb_loader.decision_structure, seed=0)
     model_bf16 = TinyRecurrentEquivariantGNN(**kwargs, dtype=jnp.bfloat16)
     model_fp32 = TinyRecurrentEquivariantGNN(**kwargs)
-    out_bf16, _ = model_bf16.forward_batch(graph=context_batch, get_info=False)
-    out_fp32, _ = model_fp32.forward_batch(graph=context_batch, get_info=False)
+    out_bf16, _ = model_bf16.forward_batch(graph=context_batch, step_with_metrics=False)
+    out_fp32, _ = model_fp32.forward_batch(graph=context_batch, step_with_metrics=False)
     np.testing.assert_allclose(
         np.array(out_bf16.feature_flat_array), np.array(out_fp32.feature_flat_array), rtol=0.1, atol=0.1
     )

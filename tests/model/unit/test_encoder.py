@@ -29,7 +29,7 @@ jax_context = jax.tree.map(lambda x: x[0], jax_context_batch)
 # IdentityEncoder tests
 def test_identity_encoder_single_roundtrip():
     enc = IdentityEncoder()
-    out, info = enc(graph=jax_context, get_info=True)
+    out, info = enc(graph=jax_context, step_with_metrics=True)
     # should return same graph and empty info
     chex.assert_trees_all_equal(out, jax_context)
     assert info == {}
@@ -38,10 +38,10 @@ def test_identity_encoder_single_roundtrip():
 def test_identity_encoder_batch_vmap_jit_consistency():
     enc = IdentityEncoder()
 
-    def apply_fn(graphs, get_info):
-        return enc(graph=graphs, get_info=get_info)
+    def apply_fn(graphs, step_with_metrics):
+        return enc(graph=graphs, step_with_metrics=step_with_metrics)
 
-    apply_vmap = jax.vmap(lambda g, gi: enc(graph=g, get_info=gi), in_axes=(0, None), out_axes=0)
+    apply_vmap = jax.vmap(lambda g, gi: enc(graph=g, step_with_metrics=gi), in_axes=(0, None), out_axes=0)
     out1, info1 = apply_vmap(jax_context_batch, False)
     out2, info2 = apply_vmap(jax_context_batch, True)
     out3, info3 = jax.jit(apply_vmap)(jax_context_batch, False)
@@ -66,8 +66,8 @@ def test_mlp_encoder_init_is_deterministic_and_returns_graph():
     enc1 = MLPEncoder(in_structure=pb_loader.context_structure, hidden_sizes=[8], out_size=4, activation=None, seed=1)
     enc2 = MLPEncoder(in_structure=pb_loader.context_structure, hidden_sizes=[8], out_size=4, activation=None, seed=1)
 
-    out1, info1 = enc1(graph=jax_context, get_info=False)
-    out2, info2 = enc2(graph=jax_context, get_info=False)
+    out1, info1 = enc1(graph=jax_context, step_with_metrics=False)
+    out2, info2 = enc2(graph=jax_context, step_with_metrics=False)
 
     chex.assert_trees_all_equal(out1, out2)
     assert info1 == {}
@@ -77,7 +77,7 @@ def test_mlp_encoder_init_is_deterministic_and_returns_graph():
 def test_mlp_encoder_single_shapes_and_feature_names():
     enc = MLPEncoder(in_structure=pb_loader.context_structure, hidden_sizes=[8], out_size=4, activation=None, seed=2)
 
-    out, infos = enc(graph=jax_context, get_info=True)
+    out, infos = enc(graph=jax_context, step_with_metrics=True)
 
     # Basic shape checks per edge
     for key, edge in out.hyper_edge_sets.items():
@@ -110,7 +110,7 @@ def test_mlp_encoder_handles_none_feature_array_gracefully():
     )
 
     enc = MLPEncoder(in_structure=pb_loader.context_structure, hidden_sizes=[4], out_size=3, activation=None, seed=3)
-    out, infos = enc(graph=custom_graph, get_info=False)
+    out, infos = enc(graph=custom_graph, step_with_metrics=False)
 
     assert out.hyper_edge_sets["line"].feature_array is None
     assert out.hyper_edge_sets["line"].feature_names is None
@@ -120,10 +120,10 @@ def test_mlp_encoder_handles_none_feature_array_gracefully():
 def test_mlp_encoder_jit_and_vmap_compatibility(mlp_encoder):
     enc = mlp_encoder
     # One call to ensure everything is fine (also consumes rngs safely)
-    _ = enc(graph=jax_context, get_info=False)
+    _ = enc(graph=jax_context, step_with_metrics=False)
 
     # Vectorize across leading batch axis: vmapping the callable that accepts a single graph
-    apply_vmap = jax.vmap(lambda g, gi: enc(graph=g, get_info=gi), in_axes=(0, None), out_axes=0)
+    apply_vmap = jax.vmap(lambda g, gi: enc(graph=g, step_with_metrics=gi), in_axes=(0, None), out_axes=0)
 
     out1, info1 = apply_vmap(jax_context_batch, False)
     out2, info2 = apply_vmap(jax_context_batch, True)
@@ -183,7 +183,7 @@ def test_mlp_encoder_multiple_edge_types_independent_processing():
     )
 
     enc = MLPEncoder(in_structure=custom_structure, hidden_sizes=[6], out_size=5, activation=None, seed=5)
-    out, infos = enc(graph=custom_graph, get_info=False)
+    out, infos = enc(graph=custom_graph, step_with_metrics=False)
 
     assert out.hyper_edge_sets["A"].feature_array.shape[-1] == 5
     assert out.hyper_edge_sets["B"].feature_array.shape[-1] == 5
@@ -233,7 +233,7 @@ def test_mlp_encoder_numeric_identity():
     enc.mlp_dict["line"] = lambda x: x
     enc.mlp_dict["bus"] = lambda x: x
 
-    out, _ = enc(graph=custom_graph, get_info=False)
+    out, _ = enc(graph=custom_graph, step_with_metrics=False)
 
     expected_line = e_line.feature_array * jnp.expand_dims(e_line.non_fictitious, -1)
     expected_bus = e_bus.feature_array * jnp.expand_dims(e_bus.non_fictitious, -1)
@@ -277,7 +277,7 @@ def test_encoder_apply_preserves_none_feature_edges(monkeypatch):
 
     d = 4
     enc = MLPEncoder(in_structure=in_structure, hidden_sizes=[], out_size=d, activation=None, seed=123)
-    out_graph, _ = enc(graph=g, get_info=False)
+    out_graph, _ = enc(graph=g, step_with_metrics=False)
 
     # bus edge had None -> must remain None
     assert out_graph.hyper_edge_sets["bus"].feature_array is None
@@ -291,8 +291,8 @@ def test_mlp_encoder_bf16_output_dtype_and_closeness():
     enc_bf16 = MLPEncoder(**kwargs, dtype=jnp.bfloat16, seed=7)
     enc_fp32 = MLPEncoder(**kwargs, seed=7)
 
-    out_bf16, _ = enc_bf16(graph=jax_context, get_info=False)
-    out_fp32, _ = enc_fp32(graph=jax_context, get_info=False)
+    out_bf16, _ = enc_bf16(graph=jax_context, step_with_metrics=False)
+    out_fp32, _ = enc_fp32(graph=jax_context, step_with_metrics=False)
 
     for key, hyper_edge_set in out_bf16.hyper_edge_sets.items():
         if hyper_edge_set.feature_array is not None:

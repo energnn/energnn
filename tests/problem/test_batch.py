@@ -36,25 +36,25 @@ class StubProblemBatch(ProblemBatch):
     def decision_structure(self) -> GraphStructure:
         return GraphStructure(hyper_edge_sets={})
 
-    def get_context(self, get_info: bool = False):
-        info = {"cinfo": True} if get_info else {}
+    def get_context(self, step_with_metrics: bool = False):
+        info = {"cinfo": True} if step_with_metrics else {}
         return self.context, info
 
-    def get_gradient(self, *, decision, get_info: bool = False):
-        info = {"ginfo": "ok"} if get_info else {}
+    def get_gradient(self, *, decision, step_with_metrics: bool = False):
+        info = {"ginfo": "ok"} if step_with_metrics else {}
         return decision, info
 
-    def get_score(self, *, decision, get_info: bool = False):
-        info = {"minfo": "m"} if get_info else {}
+    def get_score(self, *, decision, step_with_metrics: bool = False):
+        info = {"minfo": "m"} if step_with_metrics else {}
         return [0.0], info
 
-    def get_zero_decision(self, get_info: bool = False):
-        info = {"zinfo": 0} if get_info else {}
+    def get_zero_decision(self, step_with_metrics: bool = False):
+        info = {"zinfo": 0} if step_with_metrics else {}
         return self.decision, info
 
     def get_decision_structure(self) -> dict:
         """Utility method commonly expected in subclasses."""
-        zero_decision, _ = self.get_zero_decision(get_info=False)
+        zero_decision, _ = self.get_zero_decision(step_with_metrics=False)
         structure = {}
         for edge_key, edge in zero_decision.hyper_edge_sets.items():
             if edge.feature_names is not None:
@@ -69,24 +69,24 @@ def test_problembatch_is_abstract():
 
 
 def test_methods_return_tuple_and_info():
-    """Check each required method returns (Data, dict) and handles get_info flag."""
+    """Check each required method returns (Data, dict) and handles step_with_metrics flag."""
     dummy_graph = jax.tree.map(lambda x: x, {"edges": {}})
     pb = StubProblemBatch(context=dummy_graph, decision=dummy_graph)
 
     # get_context
-    _, info = pb.get_context(get_info=False)
+    _, info = pb.get_context(step_with_metrics=False)
     assert info == {}
-    _, info = pb.get_context(get_info=True)
+    _, info = pb.get_context(step_with_metrics=True)
     assert info == {"cinfo": True}
 
     # get_gradient
-    _, info = pb.get_gradient(decision=dummy_graph, get_info=False)
+    _, info = pb.get_gradient(decision=dummy_graph, step_with_metrics=False)
     assert info == {}
-    _, info = pb.get_gradient(decision=dummy_graph, get_info=True)
+    _, info = pb.get_gradient(decision=dummy_graph, step_with_metrics=True)
     assert info == {"ginfo": "ok"}
 
     # get_metrics
-    score, info = pb.get_score(decision=dummy_graph, get_info=True)
+    score, info = pb.get_score(decision=dummy_graph, step_with_metrics=True)
     assert isinstance(score, list)
     assert info == {"minfo": "m"}
 
@@ -129,7 +129,7 @@ def test_get_gradient_shapes_match_decision(pb_batch):
 
     # Use oracle as a valid decision to test gradient computation
     oracle, _ = pb_batch.get_oracle()
-    grad, _ = pb_batch.get_gradient(decision=oracle, get_info=False)
+    grad, _ = pb_batch.get_gradient(decision=oracle, step_with_metrics=False)
 
     # Check edge keys and shapes
     assert set(oracle.hyper_edge_sets.keys()) == set(grad.hyper_edge_sets.keys())

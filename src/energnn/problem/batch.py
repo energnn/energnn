@@ -30,47 +30,52 @@ class ProblemBatch(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def get_context(self, get_info: bool = False, step: int | None = None) -> tuple[Graph, dict]:
+    def get_context(self, step_with_metrics: bool = False, step: int | None = None) -> tuple[Graph, dict]:
         """
         Retrieve the batch of context graphs :math:`x`.
 
-        :param get_info: Flag indicating if additional information should be returned for tracking purpose.
+        :param step_with_metrics: Whether this step collects metrics. Return metrics only when True (and, by
+            convention, only if the problem was built to produce them).
         :param step: Training step number passed by the trainer. Useful for scheduling.
         :returns: A tuple of:
             - **Graph**: A batched context object.
-            - **dict**: A dictionary of additional information (empty if `get_info=False`).
+            - **dict**: A dictionary of metrics for tracking purpose (empty if `step_with_metrics=False`).
 
         :raises NotImplementedError: If the subclass does not override this constructor.
         """
         raise NotImplementedError
 
     @abstractmethod
-    def get_gradient(self, *, decision: Graph, get_info: bool = False, step: int | None = None) -> tuple[Graph, dict]:
+    def get_gradient(self, *, decision: Graph, step_with_metrics: bool = False, step: int | None = None) -> tuple[Graph, dict]:
         r"""
         Compute gradients :math:`\nabla_y f` for a batched of decision graphs :math:`y`.
 
         :param decision: Batched decision graph at which to evaluate gradient.
-        :param get_info: Flag indicating if additional information should be returned for tracking purpose.
+        :param step_with_metrics: Whether this step collects metrics. Return metrics only when True (and, by
+            convention, only if the problem was built to produce them).
         :param step: Training step number passed by the trainer. Useful for scheduling.
         :returns: A tuple of:
             - **Graph**: A batched context object.
-            - **dict**: A dictionary of additional information (empty if `get_info=False`).
+            - **dict**: A dictionary of metrics for tracking purpose (empty if `step_with_metrics=False`).
 
         :raises NotImplementedError: If the subclass does not override this constructor.
         """
         raise NotImplementedError
 
     @abstractmethod
-    def get_score(self, *, decision: Graph, get_info: bool = False, step: int | None = None) -> tuple[list[float], dict]:
+    def get_score(
+        self, *, decision: Graph, step_with_metrics: bool = False, step: int | None = None
+    ) -> tuple[list[float], dict]:
         """
         Evaluate a scalar `score` for each decision graph in the batch.
 
         :param decision: Batched decision graph to evaluate.
-        :param get_info: Flag indicating if additional information should be returned for tracking purpose.
+        :param step_with_metrics: Whether this step collects metrics. Return metrics only when True (and, by
+            convention, only if the problem was built to produce them).
         :param step: Training step number passed by the trainer. Useful for scheduling.
         :returns: A tuple of:
             - **list[float]**: list of score values.
-            - **dict**: A dictionary of additional information (empty if `get_info=False`).
+            - **dict**: A dictionary of metrics for tracking purpose (empty if `step_with_metrics=False`).
 
         :raises NotImplementedError: If the subclass does not override this constructor.
         """

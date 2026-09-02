@@ -103,15 +103,15 @@ class Trainer:
         self.profile = profile
 
         # Cache JIT-compiled wrappers to avoid NNX re-tracing overhead each step.
-        # `get_info` is static because downstream code branches on its concrete value.
-        self._jit_forward_vjp = nnx.jit(self._forward_vjp, static_argnames=("get_info",))
+        # `step_with_metrics` is static because downstream code branches on its concrete value.
+        self._jit_forward_vjp = nnx.jit(self._forward_vjp, static_argnames=("step_with_metrics",))
         # The vjp residuals are dead after the backward: donating them lets XLA reuse
         # their buffers during the backward pass instead of allocating new ones.
         self._jit_backward_update = nnx.jit(self._backward_update, donate_argnums=(2,))
         self._jit_eval_forward = nnx.jit(self._eval_forward)
 
     @staticmethod
-    def _forward_vjp(graphdef, params, rest, jax_context, get_info):
+    def _forward_vjp(graphdef, params, rest, jax_context, step_with_metrics):
         """Forward pass + VJP setup, designed to be JIT-compiled once and reused.
 
         The returned ``vjp_fn`` is a pytree (residual arrays + a stable treedef), so it can be
@@ -120,7 +120,7 @@ class Trainer:
 
         def f_forward(p, r):
             model = nnx.merge(graphdef, p, r)
-            decision, _ = model.forward_batch(graph=jax_context, get_info=get_info)
+            decision, _ = model.forward_batch(graph=jax_context, step_with_metrics=step_with_metrics)
             _, _, r_updated = nnx.split(model, nnx.Param, ...)
             return decision, r_updated
 
@@ -149,9 +149,9 @@ class Trainer:
     @staticmethod
     def _eval_forward(model, context):
         """Forward pass for evaluation, designed to be JIT-compiled once and reused."""
-        decision, info = model.forward_batch(graph=context, get_info=True)
+        decision, metrics = model.forward_batch(graph=context, step_with_metrics=True)
         _, _, r_updated = nnx.split(model, nnx.Param, ...)
-        return decision, info, r_updated
+        return decision, metrics, r_updated
 
     def train(
         self,
@@ -176,7 +176,8 @@ class Trainer:
         :param checkpoint_manager: Checkpoint manager for saving checkpoints.
         :param n_epochs: Number of training epochs to perform.
         :param tracker: Experiment tracker.
-        :param log_period: Number of training iterations between two logs, None for no logs.
+        :param log_period: Number of training iterations between two logs, None for no logs. Logged steps are run
+            with `step_with_metrics=True`, so components built with `return_metrics=True` report their metrics.
         :param eval_period: Number of training epochs between two evaluations, None for no evaluations.
         :param eval_before_training: If true, evaluate metrics over the full validation loader before training.
         :param eval_after_epoch: If true, evaluate metrics over the full validation loader after each epoch.
@@ -207,10 +208,10 @@ class Trainer:
 
                 # Perform one training step
                 if (log_period is not None) and (self.train_step % log_period == 0) and (tracker is not None):
-                    infos = self.training_step(problem_batch, get_info=True)
-                    tracker.run_append(infos={"train": infos}, step=self.train_step)
+                    metrics = self.training_step(problem_batch, step_with_metrics=True)
+                    tracker.run_append(metrics={"train": metrics}, step=self.train_step)
                 else:
-                    _ = self.training_step(problem_batch, get_info=False)
+                    _ = self.training_step(problem_batch, step_with_metrics=False)
 
                 # If True, run evaluation
                 if (eval_period is not None) and (self.train_step % eval_period == 0) and (val_loader is not None):
@@ -264,7 +265,7 @@ class Trainer:
         """
         self.model.eval()  # Set model to eval mode
 
-        mean_score, infos = self.eval(val_loader, progress_bar=progress_bar, position=position)
+        mean_score, metrics = self.eval(val_loader, progress_bar=progress_bar, position=position)
         if self.best_score is None:
             self.best_score = mean_score
         else:
@@ -274,7 +275,7 @@ class Trainer:
                 self.best_score = mean_score
 
         if tracker is not None:
-            tracker.run_append(infos={"eval": infos}, step=self.train_step)
+            tracker.run_append(metrics={"eval": metrics}, step=self.train_step)
 
         if checkpoint_manager is not None:
             self.save_checkpoint(checkpoint_manager=checkpoint_manager, score=mean_score)
@@ -330,55 +331,58 @@ class Trainer:
         :param position: Position of the progress bar if shown.
         :return: Average score obtained over the problem loader.
         """
-        score_list, infos_list = [], []
+        score_list, metrics_list = [], []
         pbar = tqdm(loader, desc="Validation", unit="batch", leave=True, disable=not progress_bar, position=position)
         for step, problem_batch in enumerate(pbar):
-            score_batch, info_batch = self.eval_step(step, problem_batch)
+            score_batch, metrics_batch = self.eval_step(step, problem_batch)
             score_list.append(score_batch)
-            infos_list.append(info_batch)
+            metrics_list.append(metrics_batch)
             if progress_bar:
                 pbar.set_postfix(score=f"{np.nanmean(np.concatenate(score_list)):.4e}")
 
         mean_score = np.nanmean(np.concatenate(score_list)).astype(float)
 
-        # Concatenate all infos together.
-        keys = set.union(*[set(info_batch.keys()) for info_batch in infos_list])
-        infos = {}
+        # Concatenate all metrics together.
+        keys = set.union(*[set(metrics_batch.keys()) for metrics_batch in metrics_list])
+        metrics = {}
         for k in keys:
-            vals = [infos.get(k, np.array([])) for infos in infos_list]
+            vals = [metrics.get(k, np.array([])) for metrics in metrics_list]
             if any(np.ndim(v) == 0 for v in vals):
-                infos[k] = np.stack(vals)
+                metrics[k] = np.stack(vals)
             else:
-                infos[k] = np.concatenate(vals)
-        infos["score"] = mean_score
+                metrics[k] = np.concatenate(vals)
+        metrics["score"] = mean_score
 
-        return mean_score, infos
+        return mean_score, metrics
 
-    def training_step(self, problem_batch: ProblemBatch, get_info: bool) -> dict:
+    def training_step(self, problem_batch: ProblemBatch, step_with_metrics: bool) -> dict:
         """
         Performs a training step to update model parameters.
 
         :param problem_batch: A batch of problems for training.
-        :param get_info: Whether to compute information or not.
-        :return: A dictionary of information about the training step, or list of dictionaries.
+        :param step_with_metrics: Whether this step collects metrics. Components only return metrics on such steps,
+            and only if they were built with `return_metrics=True`.
+        :return: A flat dictionary of metrics about the training step (empty entries when not collected).
         """
         with TaskLogger(logger, f"Training step {self.train_step}"):
 
             self.model.train()  # Set model to train mode
 
-            infos = {}
+            metrics = {}
             t_start = time.perf_counter()
-            jax_context, infos["1_context"] = problem_batch.get_context(get_info=get_info, step=self.train_step)
+            jax_context, metrics["1_context"] = problem_batch.get_context(
+                step_with_metrics=step_with_metrics, step=self.train_step
+            )
             self._log_stage("get_context", jax_context, t_start)
 
             t_start = time.perf_counter()
             graphdef, params, rest = nnx.split(self.model, nnx.Param, ...)
-            jax_decision, rest_updated, vjp_fn = self._jit_forward_vjp(graphdef, params, rest, jax_context, get_info)
+            jax_decision, rest_updated, vjp_fn = self._jit_forward_vjp(graphdef, params, rest, jax_context, step_with_metrics)
             self._log_stage("forward", jax_decision, t_start)
 
             t_start = time.perf_counter()
-            jax_gradient, infos["3_gradient"] = problem_batch.get_gradient(
-                decision=jax_decision, get_info=get_info, step=self.train_step
+            jax_gradient, metrics["3_gradient"] = problem_batch.get_gradient(
+                decision=jax_decision, step_with_metrics=step_with_metrics, step=self.train_step
             )
             self._log_stage("get_gradient", jax_gradient, t_start)
 
@@ -386,32 +390,34 @@ class Trainer:
             self._jit_backward_update(self.optimizer, self.model, vjp_fn, jax_gradient, jax_decision, rest_updated)
             self._log_stage("backward_update", nnx.state(self.model), t_start)
 
-            infos["4_update"] = {}
+            metrics["4_update"] = {}
 
-        # Flatten and numpify infos
-        infos = flatdict.FlatDict(infos, delimiter="/")
-        infos = {k: np.array(v) for k, v in infos.items()}
+        # Flatten and numpify metrics
+        metrics = flatdict.FlatDict(metrics, delimiter="/")
+        metrics = {k: np.array(v) for k, v in metrics.items()}
 
-        return infos
+        return metrics
 
     def eval_step(self, eval_step: int, problem_batch: ProblemBatch) -> tuple[list[float], dict]:
         """Evaluates the current gnn over a batch of problems.
 
         :param eval_step: Index of the current evaluation step.
         :param problem_batch: A problem batch.
-        :return: A batch of scores and a dictionary of batched information.
+        :return: A batch of scores and a dictionary of batched metrics.
         """
         with TaskLogger(logger, f"Eval step {eval_step}"):
-            infos = {}
+            metrics = {}
 
-            jax_context, infos["1_context"] = problem_batch.get_context(get_info=True, step=self.train_step)
+            jax_context, metrics["1_context"] = problem_batch.get_context(step_with_metrics=True, step=self.train_step)
 
-            jax_decision, infos["2_forward"], rest_updated = self._jit_eval_forward(model=self.model, context=jax_context)
+            jax_decision, metrics["2_forward"], rest_updated = self._jit_eval_forward(model=self.model, context=jax_context)
 
-            score, infos["3_score"] = problem_batch.get_score(decision=jax_decision, get_info=True, step=self.train_step)
+            score, metrics["3_score"] = problem_batch.get_score(
+                decision=jax_decision, step_with_metrics=True, step=self.train_step
+            )
 
-        # Flatten and numpify infos
-        infos = flatdict.FlatDict(infos, delimiter="/")
-        infos = {k: np.array(v) for k, v in infos.items()}
+        # Flatten and numpify metrics
+        metrics = flatdict.FlatDict(metrics, delimiter="/")
+        metrics = {k: np.array(v) for k, v in metrics.items()}
 
-        return score, infos
+        return score, metrics

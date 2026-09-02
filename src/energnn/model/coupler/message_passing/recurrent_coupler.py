@@ -59,13 +59,13 @@ class RecurrentCoupler(Coupler):
 
         self.dt = 1 / self.n_steps
 
-    def __call__(self, graph: Graph, get_info: bool = False) -> tuple[jax.Array, dict]:
+    def __call__(self, graph: Graph, step_with_metrics: bool = False) -> tuple[jax.Array, dict]:
 
         def F(t, coordinates, graph):
             """Residual function."""
             messages = []
             for m in self.message_functions:
-                message, info = m(graph=graph, coordinates=coordinates)
+                message, metrics = m(graph=graph, coordinates=coordinates)
                 messages.append(message)
             messages = jnp.concatenate(messages, axis=-1)
             return self.phi(messages)
