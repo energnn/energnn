@@ -423,7 +423,8 @@ class TDigestModule(nnx.Module):
     def __call__(self, array: jax.Array, non_fictitious: jax.Array) -> jax.Array:
         is_training = not self.use_running_average
         should_update = (
-            is_training & (self.updates[...] < self.update_limit)[0] & (self.train_steps[...] % self.update_frequency == 0)[0]
+            is_training & jnp.bool_(jnp.any(self.updates[...] < self.update_limit))
+            & jnp.bool_(jnp.any(self.train_steps[...] % self.update_frequency == 0))
         )
 
         if array.ndim == 3:
