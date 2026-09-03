@@ -174,6 +174,8 @@ class CenterReduceNormalizer(Normalizer):
         "soft" (applying tanh function), or None (no saturation). Defaults to None.
     :param clip_min: Minimum value for hard saturation. Required if saturation_strategy is "hard".
     :param clip_max: Maximum value for hard saturation. Required if saturation_strategy is "hard".
+    :param return_metrics: If True, feature quantiles of the input and output graphs are returned as metrics
+        on steps where metrics are collected (`step_with_metrics=True`). Defaults to False.
     """
 
     def __init__(
@@ -187,6 +189,7 @@ class CenterReduceNormalizer(Normalizer):
         saturation_strategy: str | None = None,
         clip_min: float | None = None,
         clip_max: float | None = None,
+        return_metrics: bool = False,
     ):
         if saturation_strategy not in [None, "hard", "soft"]:
             raise ValueError(f"saturation_strategy must be None, 'hard' or 'soft', got {saturation_strategy}")
@@ -205,6 +208,7 @@ class CenterReduceNormalizer(Normalizer):
         self.saturation_strategy = saturation_strategy
         self.clip_min = clip_min
         self.clip_max = clip_max
+        self.return_metrics = return_metrics
 
         self.module_dict = self._build_module_dict()
 
@@ -229,14 +233,15 @@ class CenterReduceNormalizer(Normalizer):
                 module_dict[key] = None
         return nnx.data(module_dict)
 
-    def __call__(self, *, graph: Graph, get_info: bool = False) -> tuple[Graph, dict]:
+    def __call__(self, *, graph: Graph, step_with_metrics: bool = False) -> tuple[Graph, dict]:
         """
         Apply normalization to hyper-edge sets within a Graph context using HyperEdgeSetCenterReduceNormalizer.
         This method normalizes the hyper-edge sets' feature arrays and updates the associated context graph accordingly.
 
         :param graph: Graph representing the graph structure containing hyper-edge sets with feature arrays to be
                       normalized.
-        :param get_info: Boolean flag that indicates whether to return additional information about input and output graphs.
+        :param step_with_metrics: Whether metrics are collected on this step. Quantiles of the input and output graphs
+                                 are returned only if `return_metrics` was set at construction.
         :return: A tuple containing the normalized Graph and an optional dictionary holding quantile information
                  about the input and output graphs.
         """
@@ -273,9 +278,9 @@ class CenterReduceNormalizer(Normalizer):
             current_shape=graph.current_shape,
         )
 
-        if get_info:
-            info = {"input_graph": graph.quantiles(), "output_graph": normalized_context.quantiles()}
+        if self.return_metrics and step_with_metrics:
+            metrics = {"input_graph": graph.quantiles(), "output_graph": normalized_context.quantiles()}
         else:
-            info = {}
+            metrics = {}
 
-        return normalized_context, info
+        return normalized_context, metrics

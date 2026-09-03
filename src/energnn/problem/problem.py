@@ -20,7 +20,7 @@ class Problem(ABC):
     Notes:
         - All returned Graph objects must adhere to the energnn.graph.Graph API.
         - Methods returning tuples will return additional information in the dict when
-          `get_info=True` for tracking purpose.
+          `step_with_metrics=True` for tracking purpose (metrics).
     """
 
     @abstractmethod
@@ -36,51 +36,54 @@ class Problem(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def get_context(self, get_info: bool = False, step: int | None = None) -> tuple[Graph, dict]:
+    def get_context(self, step_with_metrics: bool = False, step: int | None = None) -> tuple[Graph, dict]:
         """
         Retrieve the context graph math:`x` of the problem instance.
 
         The context graph encompasses all fixed inputs required to define
         the instance, such as node features, hyper-edge indices, and any static attributes.
 
-        :param get_info: Flag indicating if additional information should be returned for tracking purpose.
+        :param step_with_metrics: Whether this step collects metrics. Return metrics only when True (and, by
+            convention, only if the problem was built to produce them).
         :param step: Training step number passed by the trainer. Useful for scheduling.
         :return: A tuple containing:
             - **Graph**: The context graph object.
-            - **dict**: A dictionary of additional information (empty if `get_info=False`).
+            - **dict**: A dictionary of metrics for tracking purpose (empty if `step_with_metrics=False`).
 
         :raises NotImplementedError: If the subclass does not override this constructor.
         """
         raise NotImplementedError
 
     @abstractmethod
-    def get_gradient(self, *, decision: Graph, get_info: bool = False, step: int | None = None) -> tuple[Graph, dict]:
+    def get_gradient(self, *, decision: Graph, step_with_metrics: bool = False, step: int | None = None) -> tuple[Graph, dict]:
         r"""
         Compute the gradient graph :math:`\nabla_y f` for a given decision :math:`y`.
 
         The gradient guides optimization algorithms such as gradient descent.
 
         :param decision: A decision graph at which to evaluate the gradient.
-        :param get_info: Flag indicating if additional information should be returned for tracking purpose.
+        :param step_with_metrics: Whether this step collects metrics. Return metrics only when True (and, by
+            convention, only if the problem was built to produce them).
         :param step: Training step number passed by the trainer. Useful for scheduling.
         :return: A tuple containing:
             - **Graph**: The gradient graph with the same structure as decision.
-            - **dict**: A dictionary of additional information (empty if `get_info=False`).
+            - **dict**: A dictionary of metrics for tracking purpose (empty if `step_with_metrics=False`).
 
         :raises NotImplementedError: If the subclass does not override this constructor.
         """
         raise NotImplementedError
 
     @abstractmethod
-    def get_score(self, *, decision: Graph, get_info: bool = False, step: int | None = None) -> tuple[float, dict]:
+    def get_score(self, *, decision: Graph, step_with_metrics: bool = False, step: int | None = None) -> tuple[float, dict]:
         """Should return a scalar `score` that evaluates the decision graph :math:`y`.
 
         :param decision: The decision graph to evaluate.
-        :param get_info: Flag indicating if additional information should be returned for tracking purpose.
+        :param step_with_metrics: Whether this step collects metrics. Return metrics only when True (and, by
+            convention, only if the problem was built to produce them).
         :param step: Training step number passed by the trainer. Useful for scheduling.
         :return: A tuple containing:
             - **float**: A float as score value.
-            - **dict**: A dictionary of additional information (empty if `get_info=False`).
+            - **dict**: A dictionary of metrics for tracking purpose (empty if `step_with_metrics=False`).
 
         :raises NotImplementedError: If the subclass does not override this constructor.
         """

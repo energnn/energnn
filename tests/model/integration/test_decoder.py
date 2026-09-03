@@ -46,8 +46,8 @@ def test_mlp_equivariant_decoder():
     )
 
     def f(coupler, decoder, graph):
-        coordinates, _ = coupler(graph=graph, get_info=False)
-        return decoder(graph=graph, coordinates=coordinates, get_info=False)
+        coordinates, _ = coupler(graph=graph, step_with_metrics=False)
+        return decoder(graph=graph, coordinates=coordinates, step_with_metrics=False)
 
     encoder_vmap = nnx.jit(nnx.vmap(f, in_axes=(None, None, 0), out_axes=0))
 

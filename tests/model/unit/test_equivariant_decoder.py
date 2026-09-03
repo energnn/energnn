@@ -33,8 +33,8 @@ default_out_structure = GraphStructure(
 
 
 def assert_decoder_vmap_jit_output(*, decoder: MLPEquivariantDecoder, context: Graph, coordinates: jax.Array):
-    def apply(graph, coords, get_info):
-        return decoder(graph=graph, coordinates=coords, get_info=get_info)
+    def apply(graph, coords, step_with_metrics):
+        return decoder(graph=graph, coordinates=coords, step_with_metrics=step_with_metrics)
 
     # map over batch axis (graph batch and coords batch)
     apply_vmap = jax.vmap(apply, in_axes=(0, 0, None), out_axes=0)
@@ -74,8 +74,8 @@ def test_mlp_equivariant_decoder_init_deterministic():
         seed=3,
     )
 
-    out1, info1 = dec1(graph=jax_context, coordinates=coordinates, get_info=False)
-    out2, info2 = dec2(graph=jax_context, coordinates=coordinates, get_info=False)
+    out1, info1 = dec1(graph=jax_context, coordinates=coordinates, step_with_metrics=False)
+    out2, info2 = dec2(graph=jax_context, coordinates=coordinates, step_with_metrics=False)
 
     chex.assert_trees_all_close(out1, out2, atol=1e-6)
     assert info1 == {}
@@ -137,7 +137,7 @@ def test_mlp_equivariant_decoder_single_shapes_and_masking():
         seed=4,
     )
 
-    out, info = decoder(graph=custom_graph, coordinates=coordinates, get_info=True)
+    out, info = decoder(graph=custom_graph, coordinates=coordinates, step_with_metrics=True)
 
     # shapes
     assert set(out.hyper_edge_sets.keys()) == set(default_out_structure.hyper_edge_sets.keys())
@@ -214,7 +214,7 @@ def test_mlp_equivariant_decoder_numeric_identity_node():
 
     decoder.mlp_dict["bus"] = select_coords
 
-    out_graph, _ = decoder(graph=jax_context, coordinates=coordinates, get_info=False)
+    out_graph, _ = decoder(graph=jax_context, coordinates=coordinates, step_with_metrics=False)
     node_out = out_graph.hyper_edge_sets["bus"].feature_array  # shape (n_obj, d)
     node_edge = jax_context.hyper_edge_sets["bus"]
     addr = np.array(node_edge.port_dict["id"]).astype(int)
@@ -253,7 +253,7 @@ def test_mlp_equivariant_decoder_numeric_identity_edge():
 
     decoder.mlp_dict["line"] = identity
 
-    out_graph, _ = decoder(graph=jax_context, coordinates=coordinates, get_info=False)
+    out_graph, _ = decoder(graph=jax_context, coordinates=coordinates, step_with_metrics=False)
     edge_out = out_graph.hyper_edge_sets["line"].feature_array  # shape (n_obj, input_dim)
 
     edge = jax_context.hyper_edge_sets["line"]
@@ -282,8 +282,8 @@ def test_mlp_equivariant_decoder_bf16_output_dtype_and_closeness():
     dec_bf16 = MLPEquivariantDecoder(**kwargs, dtype=jnp.bfloat16, seed=7)
     dec_fp32 = MLPEquivariantDecoder(**kwargs, seed=7)
 
-    out_bf16, _ = dec_bf16(graph=jax_context, coordinates=coordinates, get_info=False)
-    out_fp32, _ = dec_fp32(graph=jax_context, coordinates=coordinates, get_info=False)
+    out_bf16, _ = dec_bf16(graph=jax_context, coordinates=coordinates, step_with_metrics=False)
+    out_fp32, _ = dec_fp32(graph=jax_context, coordinates=coordinates, step_with_metrics=False)
 
     for key, hyper_edge_set in out_bf16.hyper_edge_sets.items():
         # output is cast back to the coordinates dtype

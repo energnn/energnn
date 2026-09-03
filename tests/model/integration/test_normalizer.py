@@ -26,7 +26,7 @@ def test_center_reduce_normalizer():
     )
 
     def f(normalizer, graph):
-        return normalizer(graph=graph, get_info=False)
+        return normalizer(graph=graph, step_with_metrics=False)
 
     coordinates_batch, _ = nnx.jit(f)(normalizer=normalizer, graph=context_batch)
 
@@ -39,6 +39,6 @@ def test_t_digest_normalizer():
     normalizer = TDigestNormalizer(in_structure=loader.context_structure, n_breakpoints=100, update_limit=100)
 
     def f(normalizer, graph):
-        return normalizer(graph=graph, get_info=False)
+        return normalizer(graph=graph, step_with_metrics=False)
 
     coordinates_batch, _ = nnx.jit(f)(normalizer=normalizer, graph=context_batch)

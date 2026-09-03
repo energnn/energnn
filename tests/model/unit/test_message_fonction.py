@@ -150,7 +150,7 @@ def _assert_vmap_jit_consistent(mf, ctx_batch: Graph, coords_batch: jnp.ndarray,
     Ensure vmapped and vmapped+jit versions produce consistent outputs.
     Precondition: mf._build_missing_mlps must already have been called on a non-batched sample.
     """
-    apply_vmap = jax.vmap(lambda g, c, gi: mf(graph=g, coordinates=c, get_info=gi), in_axes=(0, 0, None), out_axes=0)
+    apply_vmap = jax.vmap(lambda g, c, gi: mf(graph=g, coordinates=c, step_with_metrics=gi), in_axes=(0, 0, None), out_axes=0)
     out1, info1 = apply_vmap(ctx_batch, coords_batch, False)
     out2, info2 = apply_vmap(ctx_batch, coords_batch, True)
     out3, info3 = jax.jit(apply_vmap)(ctx_batch, coords_batch, False)
@@ -166,7 +166,7 @@ def _assert_vmap_jit_consistent(mf, ctx_batch: Graph, coords_batch: jnp.ndarray,
 # Tests for IdentityMessageFunction
 def test_identity_returns_coordinates():
     imf = IdentityMessagePassingFunction()
-    out, info = imf(graph=jax_context, coordinates=coordinates, get_info=True)
+    out, info = imf(graph=jax_context, coordinates=coordinates, step_with_metrics=True)
     np.testing.assert_allclose(np.array(out), np.array(coordinates))
     assert info == {}
 
@@ -174,12 +174,12 @@ def test_identity_returns_coordinates():
 def test_identity_vmapped_and_jitted():
     imf = IdentityMessagePassingFunction()
     # batch vmapped
-    out_b, _ = jax.vmap(lambda g, c, gi: imf(graph=g, coordinates=c, get_info=gi), in_axes=(0, 0, None))(
+    out_b, _ = jax.vmap(lambda g, c, gi: imf(graph=g, coordinates=c, step_with_metrics=gi), in_axes=(0, 0, None))(
         jax_context_batch, coordinates_batch, False
     )
     np.testing.assert_allclose(np.array(out_b), np.array(coordinates_batch))
     # jit+vmap after simple call (no RNG) -> same
-    out_b_jit, _ = jax.jit(jax.vmap(lambda g, c, gi: imf(graph=g, coordinates=c, get_info=gi), in_axes=(0, 0, None)))(
+    out_b_jit, _ = jax.jit(jax.vmap(lambda g, c, gi: imf(graph=g, coordinates=c, step_with_metrics=gi), in_axes=(0, 0, None)))(
         jax_context_batch, coordinates_batch, False
     )
     np.testing.assert_allclose(np.array(out_b_jit), np.array(coordinates_batch))
@@ -187,7 +187,7 @@ def test_identity_vmapped_and_jitted():
 
 def test_identity_dtype_and_shape():
     imf = IdentityMessagePassingFunction()
-    out, _ = imf(graph=jax_context, coordinates=coordinates, get_info=False)
+    out, _ = imf(graph=jax_context, coordinates=coordinates, step_with_metrics=False)
     assert isinstance(out, jnp.ndarray)
     assert out.shape == coordinates.shape
 
@@ -247,7 +247,7 @@ def test_output_shape_and_dtype():
         outer_activation=nnx.identity,
         seed=3,
     )
-    out, info = mf(graph=jax_context, coordinates=coordinates, get_info=True)
+    out, info = mf(graph=jax_context, coordinates=coordinates, step_with_metrics=True)
     assert isinstance(out, jnp.ndarray)
     assert out.shape == (coordinates.shape[0], out_size)
     assert info == {}
@@ -293,7 +293,7 @@ def test_non_fictitious_masking():
         for pk in list(mf.mlp_tree[ek].keys()):
             mf.mlp_tree[ek][pk] = ConstantMLP(const)
 
-    out, _ = mf(graph=small_context, coordinates=coords, get_info=False)
+    out, _ = mf(graph=small_context, coordinates=coords, step_with_metrics=False)
     out_np = np.array(out)
     # contributions from object with non_fict==0 (index 1) must be zero
     # compute expected manually using compute_expected_local_sum
@@ -317,7 +317,7 @@ def test_final_activation_applied():
     for ek in list(mf.mlp_tree.keys()):
         for pk in list(mf.mlp_tree[ek].keys()):
             mf.mlp_tree[ek][pk] = ConstantMLP(jnp.array([1.0, -1.0]))
-    out, _ = mf(graph=jax_context, coordinates=coordinates, get_info=False)
+    out, _ = mf(graph=jax_context, coordinates=coordinates, step_with_metrics=False)
     # expected: tanh(accumulator)
     expected = np.array(jnp.tanh(compute_expected_local_sum(jax_context, coordinates, mf.mlp_tree, nnx.identity)))
     np.testing.assert_allclose(np.array(out), expected, rtol=1e-6, atol=1e-6)
@@ -357,7 +357,7 @@ def test_local_sum_numeric_identity_basic():
     )
     patch_all_mlps_to_identity(mf)
 
-    out, _ = mf(graph=small_context, coordinates=coords, get_info=False)
+    out, _ = mf(graph=small_context, coordinates=coords, step_with_metrics=False)
     expected = compute_expected_local_sum(small_context, coords, mf.mlp_tree, nnx.identity)
     np.testing.assert_allclose(np.array(out), np.array(expected), rtol=1e-6, atol=1e-6)
 
@@ -396,7 +396,7 @@ def test_local_sum_with_features_included():
     )
     patch_all_mlps_to_identity(mf)
 
-    out, _ = mf(graph=g, coordinates=coords, get_info=False)
+    out, _ = mf(graph=g, coordinates=coords, step_with_metrics=False)
     expected = compute_expected_local_sum(g, coords, mf.mlp_tree, nnx.identity)
     np.testing.assert_allclose(np.array(out), np.array(expected), rtol=1e-6, atol=1e-6)
 
@@ -441,7 +441,7 @@ def test_multiple_edges_and_ports_independent_processing():
     for pk in mf.mlp_tree["bus"].keys():
         mf.mlp_tree["bus"][pk] = ConstantMLP(jnp.array([0.0, 2.0]))
 
-    out, _ = mf(graph=g, coordinates=coords, get_info=False)
+    out, _ = mf(graph=g, coordinates=coords, step_with_metrics=False)
     # compute expected via compute_expected_local_sum with a custom mlp mapping
     mlp_map = {
         "line": {
@@ -474,8 +474,8 @@ def test_deterministic_with_seed():
         outer_activation=nnx.identity,
         seed=7,
     )
-    out1, _ = mf1(graph=jax_context, coordinates=coordinates, get_info=False)
-    out2, _ = mf2(graph=jax_context, coordinates=coordinates, get_info=False)
+    out1, _ = mf1(graph=jax_context, coordinates=coordinates, step_with_metrics=False)
+    out2, _ = mf2(graph=jax_context, coordinates=coordinates, step_with_metrics=False)
     chex.assert_trees_all_close(out1, out2, atol=1e-6)
 
 
@@ -508,7 +508,7 @@ def test_empty_graph_returns_zeros():
         outer_activation=nnx.identity,
         seed=9,
     )
-    out, _ = mf(graph=g, coordinates=jnp.zeros((5, 3)), get_info=False)
+    out, _ = mf(graph=g, coordinates=jnp.zeros((5, 3)), step_with_metrics=False)
     # Expect zeros with shape (n_addr, out_size)
     assert out.shape == (5, 3)
 
@@ -542,7 +542,7 @@ def test_addresses_out_of_bounds_handling():
         seed=15,
     )
     patch_all_mlps_to_identity(mf)
-    out, _ = mf(graph=g, coordinates=coords, get_info=False)
+    out, _ = mf(graph=g, coordinates=coords, step_with_metrics=False)
     # ensure it runs and shape is correct
     assert out.shape == (coords.shape[0], 4)
 
@@ -629,7 +629,7 @@ def test_fused_output_shape_and_dtype():
         outer_activation=nnx.identity,
         seed=3,
     )
-    out, info = mf(graph=jax_context, coordinates=coordinates, get_info=True)
+    out, info = mf(graph=jax_context, coordinates=coordinates, step_with_metrics=True)
     assert isinstance(out, jnp.ndarray)
     assert out.shape == (coordinates.shape[0], out_size)
     assert info == {}
@@ -671,7 +671,7 @@ def test_fused_numeric_correctness_with_constant_mlp():
     const = jnp.array([1.0, 2.0, 3.0, 4.0])
     mf.mlp_tree["line"] = ConstantMLP(const)
 
-    out, _ = mf(graph=small_context, coordinates=coords, get_info=False)
+    out, _ = mf(graph=small_context, coordinates=coords, step_with_metrics=False)
     expected = compute_expected_fused_local_sum(
         small_context, coords, {"line": ConstantMLP(const)}, mf.active_ports, out_size, nnx.identity
     )
@@ -724,7 +724,7 @@ def test_fused_blacklist_excluded_from_output_and_scatter():
 
     const = jnp.array([3.0, 4.0])
     mf.mlp_tree["line"] = ConstantMLP(const)
-    out, _ = mf(graph=small_context, coordinates=coords, get_info=False)
+    out, _ = mf(graph=small_context, coordinates=coords, step_with_metrics=False)
     # only "to" addresses (1, 2, 3) receive messages
     manual = np.zeros((n_addr, out_size))
     manual[1] += [3.0, 4.0]
@@ -777,7 +777,7 @@ def test_fused_fully_blacklisted_class_is_skipped():
         current_shape=None,
     )
     mf.mlp_tree["B"] = ConstantMLP(jnp.array([1.0, 0.0]))
-    out, _ = mf(graph=g, coordinates=coords, get_info=False)
+    out, _ = mf(graph=g, coordinates=coords, step_with_metrics=False)
     manual = np.zeros((3, 2))
     manual[0] += [1.0, 0.0]
     manual[2] += [1.0, 0.0]
@@ -803,8 +803,8 @@ def test_fused_deterministic_with_seed():
         outer_activation=nnx.identity,
         seed=7,
     )
-    out1, _ = mf1(graph=jax_context, coordinates=coordinates, get_info=False)
-    out2, _ = mf2(graph=jax_context, coordinates=coordinates, get_info=False)
+    out1, _ = mf1(graph=jax_context, coordinates=coordinates, step_with_metrics=False)
+    out2, _ = mf2(graph=jax_context, coordinates=coordinates, step_with_metrics=False)
     chex.assert_trees_all_close(out1, out2, atol=1e-6)
 
 
@@ -835,7 +835,7 @@ def test_fused_empty_graph_returns_zeros():
         outer_activation=nnx.identity,
         seed=9,
     )
-    out, _ = mf(graph=g, coordinates=jnp.zeros((5, 3)), get_info=False)
+    out, _ = mf(graph=g, coordinates=jnp.zeros((5, 3)), step_with_metrics=False)
     assert out.shape == (5, 3)
 
 
@@ -875,7 +875,7 @@ def test_local_sum_blacklist_excluded_from_scatter():
     )
     assert set(mf.mlp_tree["line"].keys()) == {"to"}
     mf.mlp_tree["line"]["to"] = ConstantMLP(jnp.array([3.0, 4.0]))
-    out, _ = mf(graph=small_context, coordinates=coords, get_info=False)
+    out, _ = mf(graph=small_context, coordinates=coords, step_with_metrics=False)
     manual = np.zeros((n_addr, out_size))
     manual[1] += [3.0, 4.0]
     manual[2] += [3.0, 4.0]
@@ -915,8 +915,8 @@ def test_local_sum_bf16_output_dtype_and_closeness():
         dtype=jnp.bfloat16,
         seed=5,
     )
-    out_fp32, _ = mf_fp32(graph=jax_context, coordinates=coordinates, get_info=False)
-    out_bf16, info = mf_bf16(graph=jax_context, coordinates=coordinates, get_info=False)
+    out_fp32, _ = mf_fp32(graph=jax_context, coordinates=coordinates, step_with_metrics=False)
+    out_bf16, info = mf_bf16(graph=jax_context, coordinates=coordinates, step_with_metrics=False)
     # output is cast back to the coordinates dtype
     assert out_bf16.dtype == coordinates.dtype
     assert out_bf16.shape == out_fp32.shape
@@ -936,8 +936,8 @@ def test_local_sum_dtype_none_is_unchanged():
     )
     mf_default = LocalSumMessagePassingFunction(**kwargs, seed=6)
     mf_explicit = LocalSumMessagePassingFunction(**kwargs, dtype=None, seed=6)
-    out1, _ = mf_default(graph=jax_context, coordinates=coordinates, get_info=False)
-    out2, _ = mf_explicit(graph=jax_context, coordinates=coordinates, get_info=False)
+    out1, _ = mf_default(graph=jax_context, coordinates=coordinates, step_with_metrics=False)
+    out2, _ = mf_explicit(graph=jax_context, coordinates=coordinates, step_with_metrics=False)
     assert out1.dtype == jnp.float32
     np.testing.assert_array_equal(np.array(out1), np.array(out2))
 
@@ -953,7 +953,7 @@ def test_local_sum_bf16_vmap_jit_safety():
         dtype=jnp.bfloat16,
         seed=8,
     )
-    apply_vmap = jax.vmap(lambda g, c: mf(graph=g, coordinates=c, get_info=False), in_axes=(0, 0), out_axes=0)
+    apply_vmap = jax.vmap(lambda g, c: mf(graph=g, coordinates=c, step_with_metrics=False), in_axes=(0, 0), out_axes=0)
     out_vmap, _ = apply_vmap(jax_context_batch, coordinates_batch)
     out_jit, _ = jax.jit(apply_vmap)(jax_context_batch, coordinates_batch)
     assert out_vmap.dtype == coordinates_batch.dtype
@@ -972,8 +972,8 @@ def test_local_sum_bf16_fp32_scatter_output_dtype_and_closeness():
     )
     mf_fp32 = LocalSumMessagePassingFunction(**kwargs, seed=5)
     mf_hybrid = LocalSumMessagePassingFunction(**kwargs, dtype=jnp.bfloat16, scatter_dtype=jnp.float32, seed=5)
-    out_fp32, _ = mf_fp32(graph=jax_context, coordinates=coordinates, get_info=False)
-    out_hybrid, _ = mf_hybrid(graph=jax_context, coordinates=coordinates, get_info=False)
+    out_fp32, _ = mf_fp32(graph=jax_context, coordinates=coordinates, step_with_metrics=False)
+    out_hybrid, _ = mf_hybrid(graph=jax_context, coordinates=coordinates, step_with_metrics=False)
     # output is cast back to the coordinates dtype
     assert out_hybrid.dtype == coordinates.dtype
     assert out_hybrid.shape == out_fp32.shape
@@ -995,6 +995,6 @@ def test_local_sum_scatter_dtype_none_is_unchanged():
     )
     mf_default = LocalSumMessagePassingFunction(**kwargs, seed=6)
     mf_explicit = LocalSumMessagePassingFunction(**kwargs, scatter_dtype=None, seed=6)
-    out1, _ = mf_default(graph=jax_context, coordinates=coordinates, get_info=False)
-    out2, _ = mf_explicit(graph=jax_context, coordinates=coordinates, get_info=False)
+    out1, _ = mf_default(graph=jax_context, coordinates=coordinates, step_with_metrics=False)
+    out2, _ = mf_explicit(graph=jax_context, coordinates=coordinates, step_with_metrics=False)
     np.testing.assert_array_equal(np.array(out1), np.array(out2))

@@ -20,14 +20,15 @@ class Coupler(nnx.Module, ABC):
     """
 
     @abstractmethod
-    def __call__(self, graph: Graph, get_info: bool = False) -> tuple[jax.Array, dict]:
+    def __call__(self, graph: Graph, step_with_metrics: bool = False) -> tuple[jax.Array, dict]:
         """Compute latent coordinates from the input graph.
 
         :param graph: Input graph to process.
-        :param get_info: If True, returns additional info for tracking purpose.
+        :param step_with_metrics: Whether this step collects metrics. Implementations that produce metrics should
+            expose a `return_metrics` constructor flag and return them only when both are True.
         :return: A tuple containing:
             - Latent coordinates array with shape (num_addresses, latent_dim)
-            - A dictionary with additional information if get_info=True, empty dict otherwise
+            - A dictionary of metrics for tracking purpose, empty dict when not collected
         :raises NotImplementedError: If the subclass does not override this method.
         """
         raise NotImplementedError

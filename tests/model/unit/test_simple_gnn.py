@@ -33,8 +33,8 @@ class DummyNormalizer(Normalizer):
         self._info = nnx.data({} if info is None else info)
         self.called_with = nnx.data(None)
 
-    def __call__(self, graph, get_info: bool = False):
-        self.called_with = nnx.data({"graph": graph, "get_info": get_info})
+    def __call__(self, graph, step_with_metrics: bool = False):
+        self.called_with = nnx.data({"graph": graph, "step_with_metrics": step_with_metrics})
         return self._out, self._info
 
 
@@ -45,8 +45,8 @@ class DummyEncoder(Encoder):
         self._info = nnx.data({} if info is None else info)
         self.called_with = nnx.data(None)
 
-    def __call__(self, graph, get_info: bool = False):
-        self.called_with = nnx.data({"graph": graph, "get_info": get_info})
+    def __call__(self, graph, step_with_metrics: bool = False):
+        self.called_with = nnx.data({"graph": graph, "step_with_metrics": step_with_metrics})
         return self._out, self._info
 
 
@@ -57,8 +57,8 @@ class DummyCoupler(Coupler):
         self._info = nnx.data({} if info is None else info)
         self.called_with = nnx.data(None)
 
-    def __call__(self, graph, get_info: bool = False):
-        self.called_with = nnx.data({"graph": graph, "get_info": get_info})
+    def __call__(self, graph, step_with_metrics: bool = False):
+        self.called_with = nnx.data({"graph": graph, "step_with_metrics": step_with_metrics})
         return self._out, self._info
 
 
@@ -69,8 +69,8 @@ class DummyDecoder(Decoder):
         self._info = nnx.data({} if info is None else info)
         self.called_with = nnx.data(None)
 
-    def __call__(self, coordinates, graph, get_info: bool = False):
-        self.called_with = nnx.data({"coordinates": coordinates, "graph": graph, "get_info": get_info})
+    def __call__(self, coordinates, graph, step_with_metrics: bool = False):
+        self.called_with = nnx.data({"coordinates": coordinates, "graph": graph, "step_with_metrics": step_with_metrics})
         return self._out, self._info
 
 
@@ -79,7 +79,7 @@ class FailingEncoder(Encoder):
         super().__init__()
         self.exc = exc
 
-    def __call__(self, graph, get_info: bool = False):
+    def __call__(self, graph, step_with_metrics: bool = False):
         raise self.exc
 
 
@@ -96,7 +96,7 @@ def test_pipeline_happy_path_graph_output():
 
     model = GNN(normalizer=norm, encoder=enc, coupler=coup, decoder=dec)
 
-    out, info = model(graph=jax_context, get_info=False)
+    out, info = model(graph=jax_context, step_with_metrics=False)
 
     assert out is decoded_graph
     assert set(info.keys()) == {"normalization", "encoding", "coupling", "decoding"}
@@ -116,13 +116,13 @@ def test_pipeline_happy_path_graph_output():
     assert dec.called_with["graph"] == encoded_graph
 
 
-def test_get_info_flag_propagation():
-    """When get_info=True the flag must be forwarded to all submodules and be reflected in info."""
+def test_step_with_metrics_flag_propagation():
+    """When step_with_metrics=True the flag must be forwarded to all submodules and be reflected in info."""
 
-    norm = DummyNormalizer(out="norm_out", info={"called_with_get_info": True})
-    enc = DummyEncoder(out="enc_out", info={"called_with_get_info": True})
-    coup = DummyCoupler(out=jnp.array([[0.0]]), info={"called_with_get_info": True})
-    dec = DummyDecoder(out=jnp.array([1.0]), info={"called_with_get_info": True})
+    norm = DummyNormalizer(out="norm_out", info={"called_with_step_with_metrics": True})
+    enc = DummyEncoder(out="enc_out", info={"called_with_step_with_metrics": True})
+    coup = DummyCoupler(out=jnp.array([[0.0]]), info={"called_with_step_with_metrics": True})
+    dec = DummyDecoder(out=jnp.array([1.0]), info={"called_with_step_with_metrics": True})
 
     model = GNN(
         normalizer=norm,
@@ -131,12 +131,12 @@ def test_get_info_flag_propagation():
         decoder=dec,
     )
 
-    _, info = model(graph=jax_context, get_info=True)
+    _, info = model(graph=jax_context, step_with_metrics=True)
 
-    assert info["normalization"]["called_with_get_info"] is True
-    assert info["encoding"]["called_with_get_info"] is True
-    assert info["coupling"]["called_with_get_info"] is True
-    assert info["decoding"]["called_with_get_info"] is True
+    assert info["normalization"]["called_with_step_with_metrics"] is True
+    assert info["encoding"]["called_with_step_with_metrics"] is True
+    assert info["coupling"]["called_with_step_with_metrics"] is True
+    assert info["decoding"]["called_with_step_with_metrics"] is True
 
 
 def test_decoder_returns_array_invariant_case():
@@ -149,7 +149,7 @@ def test_decoder_returns_array_invariant_case():
     dec = DummyDecoder(out=arr, info={"decoded": "ok"})
 
     model = GNN(normalizer=norm, encoder=enc, coupler=coup, decoder=dec)
-    out, info = model(graph=jax_context, get_info=True)
+    out, info = model(graph=jax_context, step_with_metrics=True)
 
     assert isinstance(out, (jax.Array, jnp.ndarray))
     np.testing.assert_allclose(np.array(out), np.array(arr))
@@ -165,7 +165,7 @@ def test_exception_propagation_from_submodule():
 
     model = GNN(normalizer=norm, encoder=enc_fail, coupler=coup, decoder=dec)
     with pytest.raises(ValueError):
-        _ = model(graph=jax_context, get_info=False)
+        _ = model(graph=jax_context, step_with_metrics=False)
 
 
 def test_forward_batch_execution():
@@ -194,7 +194,7 @@ def test_forward_batch_execution():
 
     model = GNN(normalizer=norm, encoder=enc, coupler=coup, decoder=dec)
 
-    out, info = model.forward_batch(graph=jax_context_batch, get_info=True)
+    out, info = model.forward_batch(graph=jax_context_batch, step_with_metrics=True)
 
     # Check output shape: (batch_size, ...)
     assert out.shape == (batch_size, 5)

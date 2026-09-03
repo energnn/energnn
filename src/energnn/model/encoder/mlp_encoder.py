@@ -102,13 +102,13 @@ class MLPEncoder(Encoder):
                 mlp_dict[key] = None
         return nnx.data(mlp_dict)
 
-    def __call__(self, graph: Graph, get_info: bool = False) -> tuple[Graph, dict]:
+    def __call__(self, graph: Graph, step_with_metrics: bool = False) -> tuple[Graph, dict]:
         """
         Apply the class-specific MLPs to the input graph and return the encoded graph.
 
         :param graph: Input graph with hyper-edge sets to encode.
-        :param get_info: Flag to return additional information for tracking purpose.
-        :return: Encoded graph and additional info dictionary.
+        :param step_with_metrics: Whether this step collects metrics.
+        :return: Encoded graph and additional metrics dictionary.
         :raises KeyError: If an hyper-edge sets class in the graph is not present in the encoder's MLP dictionary.
         """
 

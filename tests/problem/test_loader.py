@@ -34,17 +34,17 @@ class FakeProblemBatch(ProblemBatch):
         # Dummy empty structure for compatibility with abstract base class
         return GraphStructure(hyper_edge_sets={})
 
-    def get_context(self, get_info: bool = False):
+    def get_context(self, step_with_metrics: bool = False):
         # For testing we simply return the list as "context" and an empty info dict
         return self._instances, {}
 
-    def get_gradient(self, *, decision, get_info: bool = False, cfg=None):
+    def get_gradient(self, *, decision, step_with_metrics: bool = False, cfg=None):
         raise NotImplementedError
 
-    def get_score(self, *, decision, get_info: bool = False, cfg=None):
+    def get_score(self, *, decision, step_with_metrics: bool = False, cfg=None):
         raise NotImplementedError
 
-    def get_zero_decision(self, get_info: bool = False):
+    def get_zero_decision(self, step_with_metrics: bool = False):
         raise NotImplementedError
 
 

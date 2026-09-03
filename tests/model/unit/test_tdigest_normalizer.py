@@ -327,10 +327,10 @@ def test_tdigest_normalizer_init():
 def test_tdigest_normalizer_call():
     # Use jax_context and context_structure from the file setup
     struct = pb_batch.context_structure
-    normalizer = TDigestNormalizer(struct, update_limit=10)
+    normalizer = TDigestNormalizer(struct, update_limit=10, return_metrics=True)
 
     # Call normalizer
-    norm_graph, info = normalizer(graph=jax_context, get_info=True)
+    norm_graph, info = normalizer(graph=jax_context, step_with_metrics=True)
 
     assert isinstance(norm_graph, Graph)
     assert "input_graph" in info
@@ -430,3 +430,18 @@ def test_tdigest_normalizer_update_limit():
     normalizer(graph=graph)
 
     assert normalizer.module_dict["s1"].updates[...] == 2
+
+
+@pytest.mark.parametrize(
+    "return_metrics, step_with_metrics, expect_metrics",
+    [(True, True, True), (True, False, False), (False, True, False), (False, False, False)],
+)
+def test_tdigest_normalizer_return_metrics_switch(return_metrics, step_with_metrics, expect_metrics):
+    """Quantile metrics are returned only when enabled at construction AND on a step with metrics."""
+    struct = pb_batch.context_structure
+    normalizer = TDigestNormalizer(struct, update_limit=10, return_metrics=return_metrics)
+
+    _, metrics = normalizer(graph=jax_context, step_with_metrics=step_with_metrics)
+
+    assert ("input_graph" in metrics) is expect_metrics
+    assert ("output_graph" in metrics) is expect_metrics

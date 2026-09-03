@@ -20,15 +20,18 @@ class Decoder(ABC, nnx.Module):
     """
 
     @abstractmethod
-    def __call__(self, *, graph: Graph, coordinates: jax.Array, get_info: bool = False) -> tuple[Graph | jax.Array, dict]:
+    def __call__(
+        self, *, graph: Graph, coordinates: jax.Array, step_with_metrics: bool = False
+    ) -> tuple[Graph | jax.Array, dict]:
         """Decode latent coordinates into predictions.
 
         :param graph: Encoded graph providing context for decoding.
         :param coordinates: Latent coordinates array with shape (num_addresses, latent_dim).
-        :param get_info: If True, returns additional info for tracking purpose.
+        :param step_with_metrics: Whether this step collects metrics. Implementations that produce metrics should
+            expose a `return_metrics` constructor flag and return them only when both are True.
         :return: A tuple containing:
             - Either a new Graph with prediction features or a global output array
-            - A dictionary with additional information if get_info=True, empty dict otherwise
+            - A dictionary of metrics for tracking purpose, empty dict when not collected
         :raises NotImplementedError: If the subclass does not override this method.
         """
         raise NotImplementedError

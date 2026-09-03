@@ -384,7 +384,7 @@ class Graph(dict):
         if q_list is None:
             q_list = [0.0, 10.0, 25.0, 50.0, 75.0, 90.0, 100.0]
         xp = self._backend.xp
-        info = {}
+        metrics = {}
         for object_name, hes in self.hyper_edge_sets.items():
             if hes.feature_dict is not None:
                 for feature_name, array in hes.feature_dict.items():
@@ -396,8 +396,8 @@ class Graph(dict):
                                 value = xp.nanpercentile(array, q=q, axis=1)
                             else:
                                 raise ValueError("This graph is not single or batch and cannot be quantiled.")
-                            info[f"{object_name}/{feature_name}/{q}th-percentile"] = value
-        return info
+                            metrics[f"{object_name}/{feature_name}/{q}th-percentile"] = value
+        return metrics
 
 
 # ---------------------------------------------------------------------------
@@ -559,7 +559,7 @@ def get_statistics(graph: Graph, axis: int | None = None, norm_graph: Graph | No
             fictitious = (mask == 0)[..., None]
             graph.hyper_edge_sets[key].feature_array = xp.where(fictitious, float("nan"), hes.feature_array)
 
-    info = {}
+    metrics = {}
     for object_name, hes in graph.hyper_edge_sets.items():
         if hes.feature_dict is not None:
             for feature_name, array in hes.feature_dict.items():
@@ -567,30 +567,30 @@ def get_statistics(graph: Graph, axis: int | None = None, norm_graph: Graph | No
                     array = xp.array([[0.0]]) if axis == 1 else xp.array([0.0])
 
                 rmse = xp.sqrt(xp.nanmean(array**2, axis=axis))
-                info["{}/{}/rmse".format(object_name, feature_name)] = rmse
+                metrics["{}/{}/rmse".format(object_name, feature_name)] = rmse
                 if norm_graph is not None:
                     norm_array = norm_graph.hyper_edge_sets[object_name].feature_dict[feature_name]
                     norm_array = norm_array - xp.nanmean(norm_array)
-                    info["{}/{}/nrmse".format(object_name, feature_name)] = rmse / (
+                    metrics["{}/{}/nrmse".format(object_name, feature_name)] = rmse / (
                         xp.sqrt(xp.nanmean(norm_array**2, axis=axis)) + 1e-9
                     )
 
                 mae = xp.nanmean(xp.abs(array), axis=axis)
-                info["{}/{}/mae".format(object_name, feature_name)] = mae
+                metrics["{}/{}/mae".format(object_name, feature_name)] = mae
                 if norm_graph is not None:
                     norm_array = norm_graph.hyper_edge_sets[object_name].feature_dict[feature_name]
                     norm_array = norm_array - xp.nanmean(norm_array)
-                    info["{}/{}/nmae".format(object_name, feature_name)] = mae / (
+                    metrics["{}/{}/nmae".format(object_name, feature_name)] = mae / (
                         xp.nanmean(xp.abs(norm_array), axis=axis) + 1e-9
                     )
 
-                info["{}/{}/mean".format(object_name, feature_name)] = xp.nanmean(array, axis=axis)
-                info["{}/{}/std".format(object_name, feature_name)] = xp.nanstd(array, axis=axis)
-                info["{}/{}/max".format(object_name, feature_name)] = xp.nanmax(array, axis=axis)
-                info["{}/{}/90th".format(object_name, feature_name)] = xp.nanpercentile(array, q=90, axis=axis)
-                info["{}/{}/75th".format(object_name, feature_name)] = xp.nanpercentile(array, q=75, axis=axis)
-                info["{}/{}/50th".format(object_name, feature_name)] = xp.nanpercentile(array, q=50, axis=axis)
-                info["{}/{}/25th".format(object_name, feature_name)] = xp.nanpercentile(array, q=25, axis=axis)
-                info["{}/{}/10th".format(object_name, feature_name)] = xp.nanpercentile(array, q=10, axis=axis)
-                info["{}/{}/min".format(object_name, feature_name)] = xp.nanmin(array, axis=axis)
-    return info
+                metrics["{}/{}/mean".format(object_name, feature_name)] = xp.nanmean(array, axis=axis)
+                metrics["{}/{}/std".format(object_name, feature_name)] = xp.nanstd(array, axis=axis)
+                metrics["{}/{}/max".format(object_name, feature_name)] = xp.nanmax(array, axis=axis)
+                metrics["{}/{}/90th".format(object_name, feature_name)] = xp.nanpercentile(array, q=90, axis=axis)
+                metrics["{}/{}/75th".format(object_name, feature_name)] = xp.nanpercentile(array, q=75, axis=axis)
+                metrics["{}/{}/50th".format(object_name, feature_name)] = xp.nanpercentile(array, q=50, axis=axis)
+                metrics["{}/{}/25th".format(object_name, feature_name)] = xp.nanpercentile(array, q=25, axis=axis)
+                metrics["{}/{}/10th".format(object_name, feature_name)] = xp.nanpercentile(array, q=10, axis=axis)
+                metrics["{}/{}/min".format(object_name, feature_name)] = xp.nanmin(array, axis=axis)
+    return metrics

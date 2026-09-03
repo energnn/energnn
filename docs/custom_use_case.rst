@@ -90,9 +90,28 @@ And the following methods:
 - :meth:`~energnn.problem.Problem.get_score`: Computes :math:`f(y;x)` for a given **decision** :math:`y` as a :code:`float`.
 
 **Tracking relevant quantities**:
-All three methods have a key word argument :attr:`get_info` to trigger an optional behavior.
-If :code:`True`, these methods return optional dictionaries that are passed to your experiment tracker.
+All three methods have a key word argument :attr:`step_with_metrics` to trigger an optional behavior.
+If :code:`True`, the trainer is on a step where metrics are collected (every :code:`log_period` training steps,
+and during evaluation), and these methods may return dictionaries of metrics that are passed to your experiment tracker.
 It's useful for debugging and tracking, but not necessary in your first implementation.
+
+Which metrics are produced is a property of the component, not of the training loop: by convention, a component
+that can produce metrics exposes a :code:`return_metrics` constructor flag (default :code:`False`, so it can be set
+from a Hydra config) and returns metrics only when :code:`self.return_metrics and step_with_metrics`.
+The built-in normalizers follow this convention for their feature quantiles.
+
+.. code-block:: python
+
+    class MyProblemBatch(ProblemBatch):
+        def __init__(self, ..., return_metrics: bool = False):
+            self.return_metrics = return_metrics
+
+        def get_gradient(self, *, decision, step_with_metrics=False, step=None):
+            gradient = ...
+            metrics = {}
+            if self.return_metrics and step_with_metrics:
+                metrics["norm"] = float(jnp.linalg.norm(gradient.feature_flat_array))
+            return gradient, metrics
 
 **Data representation**:
 Contexts, decisions and gradients are all instantiated as :class:`~energnn.graph.Graph`.
@@ -127,15 +146,15 @@ improvement for a decision.
         def decision_structure(self) -> GraphStructure:
             return DECISION_STRUCTURE
 
-        def get_context(self, get_info: bool = False) -> tuple[Graph, dict[str, Any]]:
+        def get_context(self, step_with_metrics: bool = False) -> tuple[Graph, dict[str, Any]]:
             return self.context, {}
 
-        def get_gradient(self, *, decision: Graph, get_info: bool = False) -> tuple[Graph, dict[str, Any]]:
+        def get_gradient(self, *, decision: Graph, step_with_metrics: bool = False) -> tuple[Graph, dict[str, Any]]:
             # Implement your own gradient estimation method
             grad: Graph = self._estimate_gradient(decision, self.state)
             return grad, {}
 
-        def get_score(self, *, decision: Graph, get_info: bool = False) -> tuple[float, dict[str, Any]]:
+        def get_score(self, *, decision: Graph, step_with_metrics: bool = False) -> tuple[float, dict[str, Any]]:
             # Implement your own score estimation method
             grad: float = self._estimate_score(decision, self.state)
             return grad, {}
@@ -239,14 +258,14 @@ The following :class:`~energnn.problem.ProblemBatch` implementation assumes that
         def decision_structure(self) -> GraphStructure:
             return DECISION_STRUCTURE
 
-        def get_context(self, get_info: bool = False) -> tuple[Graph, dict[str, Any]]:
+        def get_context(self, step_with_metrics: bool = False) -> tuple[Graph, dict[str, Any]]:
             return self.context_batch, {}
 
-        def get_gradient(self, *, decision: Graph, get_info: bool = False) -> tuple[Graph, dict[str, Any]]:
+        def get_gradient(self, *, decision: Graph, step_with_metrics: bool = False) -> tuple[Graph, dict[str, Any]]:
             batch_grad = self._compute_batch_grad(decision, self.problem_list)
             return batch_grad, {}
 
-        def get_score(self, *, decision: Graph, get_info: bool = False) -> tuple[list[float], dict[str, Any]]:
+        def get_score(self, *, decision: Graph, step_with_metrics: bool = False) -> tuple[list[float], dict[str, Any]]:
             score_list = self._compute_score_list(decision, self.problem_list)
             return score_list, {}
 

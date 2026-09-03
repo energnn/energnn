@@ -42,7 +42,7 @@ def test_neural_ode_coupler():
     )
 
     def f(coupler, graph):
-        return coupler(graph=graph, get_info=False)
+        return coupler(graph=graph, step_with_metrics=False)
 
     coupler_vmap = nnx.jit(nnx.vmap(f, in_axes=(None, 0), out_axes=0))
 
@@ -72,7 +72,7 @@ def test_recurrent_coupler():
     )
 
     def f(coupler, graph):
-        return coupler(graph=graph, get_info=False)
+        return coupler(graph=graph, step_with_metrics=False)
 
     coupler_vmap = nnx.jit(nnx.vmap(f, in_axes=(None, 0), out_axes=0))
 

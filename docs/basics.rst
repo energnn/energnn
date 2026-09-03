@@ -186,7 +186,7 @@ It takes as input a model, a gradient transformation (via `optax`), and handles 
 
 Additionally, evaluation can be periodically run,
 checkpoints can be saved using `orbax`,
-and score / infos can be monitored using an experiment tracker.
+and score / metrics can be monitored using an experiment tracker.
 
 .. code-block:: python
 
@@ -202,6 +202,21 @@ and score / infos can be monitored using an experiment tracker.
         tracker=my_tracker,
         n_epochs=10
     )
+
+Metrics are collected every :code:`log_period` training steps and during evaluation.
+Each component decides structurally whether it produces metrics at all, through a :code:`return_metrics`
+constructor flag that defaults to :code:`False`. For instance, the built-in normalizers only compute feature quantiles
+when built with :code:`return_metrics=True`, which keeps the default training loop free of this extra cost:
+
+.. code-block:: python
+
+    model = TinyRecurrentEquivariantGNN(
+        in_structure=problem.context_structure,
+        out_structure=problem.decision_structure,
+        return_metrics=True,  # forwarded to the normalizer
+    )
+    trainer = Trainer(model=model, gradient_transformation=optax.adam(1e-3))
+    trainer.train(train_loader=loader, n_epochs=10, tracker=my_tracker, log_period=10)
 
 -----------------------------
 

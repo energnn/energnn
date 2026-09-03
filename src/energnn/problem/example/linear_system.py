@@ -87,20 +87,20 @@ class LinearSystemProblemBatch(ProblemBatch):
     def context_structure(self) -> GraphStructure:
         return LINEAR_SYSTEM_CONTEXT_STRUCTURE
 
-    def get_context(self, get_info: bool = False, step: int | None = None) -> tuple[Graph, dict]:
+    def get_context(self, step_with_metrics: bool = False, step: int | None = None) -> tuple[Graph, dict]:
         """Returns the context :class:`Graph` :math:`x`."""
         return deepcopy(self.context), {}
 
-    def get_oracle(self, get_info: bool = False) -> tuple[Graph, dict]:
+    def get_oracle(self, step_with_metrics: bool = False) -> tuple[Graph, dict]:
         r"""Returns the ground truth :class:`Graph` :math:`y^{\star}(x)`."""
         return deepcopy(self.oracle), {}
 
-    def get_zero_decision(self, get_info: bool = False) -> tuple[Graph, dict]:
+    def get_zero_decision(self, step_with_metrics: bool = False) -> tuple[Graph, dict]:
         """Returns a decision filled with zeros."""
         return deepcopy(self.zero_decision), {}
 
     def get_gradient(
-        self, decision: Graph, cfg: DictConfig | None = None, get_info: bool = False, step: int | None = None
+        self, decision: Graph, cfg: DictConfig | None = None, step_with_metrics: bool = False, step: int | None = None
     ) -> tuple[Graph, dict]:
         r"""Returns the gradient :class:`Graph` :math:`\nabla_y f(y;x) = y - y^{\star}(x)`."""
         # gradient = decision.to_numpy_graph()
@@ -110,7 +110,7 @@ class LinearSystemProblemBatch(ProblemBatch):
         return gradient, {}
 
     def get_score(
-        self, decision: Graph, cfg: DictConfig | None = None, get_info: bool = False, step: int | None = None
+        self, decision: Graph, cfg: DictConfig | None = None, step_with_metrics: bool = False, step: int | None = None
     ) -> tuple[list[float], dict]:
         """Returns the mean-squared error of the decision :class:`Graph` with regard to the oracle :class:`Graph`."""
         # gradient = decision.to_numpy_graph()
@@ -142,20 +142,20 @@ class LinearSystemProblem(Problem):
     def context_structure(self) -> GraphStructure:
         return LINEAR_SYSTEM_CONTEXT_STRUCTURE
 
-    def get_context(self, get_info: bool = False, step: int | None = None) -> tuple[Graph, dict]:
+    def get_context(self, step_with_metrics: bool = False, step: int | None = None) -> tuple[Graph, dict]:
         """Returns the context :class:`Graph` :math:`x`."""
         return deepcopy(self.context), {}
 
-    def get_oracle(self, get_info: bool = False) -> tuple[Graph, dict]:
+    def get_oracle(self, step_with_metrics: bool = False) -> tuple[Graph, dict]:
         r"""Returns the ground truth :class:`Graph` :math:`y^{\star}(x)`."""
         return deepcopy(self.oracle), {}
 
-    def get_zero_decision(self, get_info: bool = False) -> tuple[Graph, dict]:
+    def get_zero_decision(self, step_with_metrics: bool = False) -> tuple[Graph, dict]:
         """Returns a decision filled with zeros."""
         return deepcopy(self.zero_decision), {}
 
     def get_gradient(
-        self, decision: Graph, cfg: DictConfig | None = None, get_info: bool = False, step: int | None = None
+        self, decision: Graph, cfg: DictConfig | None = None, step_with_metrics: bool = False, step: int | None = None
     ) -> tuple[Graph, dict]:
         r"""Returns the gradient :class:`Graph` :math:`\nabla_y f(y;x) = y - y^{\star}(x)`."""
         # gradient = decision.to_numpy_graph()
@@ -165,7 +165,7 @@ class LinearSystemProblem(Problem):
         return gradient, {}
 
     def get_score(
-        self, decision: Graph, cfg: DictConfig | None = None, get_info: bool = False, step: int | None = None
+        self, decision: Graph, cfg: DictConfig | None = None, step_with_metrics: bool = False, step: int | None = None
     ) -> tuple[float, dict]:
         """Returns the mean-squared error of the decision :class:`Graph` with regard to the oracle :class:`Graph`."""
         # gradient = decision.to_numpy_graph()
