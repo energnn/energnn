@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import time
 from typing import Literal
 
@@ -99,7 +100,7 @@ class Trainer:
         self.model: GNN = model
         self.optimizer = nnx.Optimizer(self.model, gradient_transformation, wrt=nnx.Param)
         self.train_step: int = 0
-        self.best_score: float | None = None
+        self.best_score: float = float("nan")
         self.profile = profile
 
         # Cache JIT-compiled wrappers to avoid NNX re-tracing overhead each step.
@@ -248,7 +249,7 @@ class Trainer:
         *,
         val_loader,
         progress_bar: bool = True,
-        tracker: Tracker = None,
+        tracker: Tracker | None = None,
         checkpoint_manager: CheckpointManager | None = None,
         optim_mode: Literal["minimize", "maximize"] = "minimize",
         position: int = 0,
@@ -266,7 +267,7 @@ class Trainer:
         self.model.eval()  # Set model to eval mode
 
         mean_score, metrics = self.eval(val_loader, progress_bar=progress_bar, position=position)
-        if self.best_score is None:
+        if math.isnan(self.best_score):
             self.best_score = mean_score
         else:
             if (optim_mode == "minimize") and (mean_score < self.best_score):
@@ -376,7 +377,7 @@ class Trainer:
             self._log_stage("get_context", jax_context, t_start)
 
             t_start = time.perf_counter()
-            graphdef, params, rest = nnx.split(self.model, nnx.Param, ...)
+            graphdef, params, *rest = nnx.split(self.model, nnx.Param, ...)
             jax_decision, rest_updated, vjp_fn = self._jit_forward_vjp(graphdef, params, rest, jax_context, step_with_metrics)
             self._log_stage("forward", jax_decision, t_start)
 
@@ -393,10 +394,10 @@ class Trainer:
             metrics["4_update"] = {}
 
         # Flatten and numpify metrics
-        metrics = flatdict.FlatDict(metrics, delimiter="/")
-        metrics = {k: np.array(v) for k, v in metrics.items()}
+        flattened_metrics = flatdict.FlatDict(metrics, delimiter="/")
+        result_metrics = {k: np.array(v) for k, v in flattened_metrics.items()}
 
-        return metrics
+        return result_metrics
 
     def eval_step(self, eval_step: int, problem_batch: ProblemBatch) -> tuple[list[float], dict]:
         """Evaluates the current gnn over a batch of problems.
@@ -417,7 +418,7 @@ class Trainer:
             )
 
         # Flatten and numpify metrics
-        metrics = flatdict.FlatDict(metrics, delimiter="/")
-        metrics = {k: np.array(v) for k, v in metrics.items()}
+        flattened_metrics = flatdict.FlatDict(metrics, delimiter="/")
+        result_metrics = {k: np.array(v) for k, v in flattened_metrics.items()}
 
-        return score, metrics
+        return score, result_metrics

@@ -194,10 +194,10 @@ class HyperEdgeSet(dict):
             raise ValueError("HyperEdgeSet is neither single nor batched.")
 
         d: dict = {}
-        if self.port_names is not None:
+        if self.port_dict is not None:
             for k, v in sorted(self.port_dict.items()):
                 d[("ports", k)] = np.array(v.reshape([-1]))
-        if self.feature_names is not None:
+        if self.feature_dict is not None:
             for k, v in sorted(self.feature_dict.items()):
                 d[("features", k)] = np.array(v.reshape([-1]))
 
@@ -374,7 +374,8 @@ class HyperEdgeSet(dict):
         The offset is cast to each port array's dtype so that int32 ports stay int32.
         """
         xp = self._backend.xp
-        self.port_dict = {k: a + xp.asarray(offset, dtype=a.dtype) for k, a in self.port_dict.items()}
+        if self.port_dict is not None:
+            self.port_dict = {k: a + xp.asarray(offset, dtype=a.dtype) for k, a in self.port_dict.items()}
 
 
 # ---------------------------------------------------------------------------
@@ -406,12 +407,12 @@ def collate_hyper_edge_sets(hyper_edge_set_list: list[HyperEdgeSet]) -> HyperEdg
         xp.stack([e.feature_array for e in hyper_edge_set_list], axis=0) if first.feature_array is not None else None
     )
     feature_names = (
-        {k: xp.stack([e.feature_names[k] for e in hyper_edge_set_list]) for k in first.feature_names}
+        {k: xp.stack([e.feature_names[k] for e in hyper_edge_set_list if e.feature_names is not None]) for k in first.feature_names}
         if first.feature_names is not None
         else None
     )
     port_dict = (
-        {k: xp.stack([e.port_dict[k] for e in hyper_edge_set_list]) for k in first.port_dict}
+        {k: xp.stack([e.port_dict[k] for e in hyper_edge_set_list if e.port_dict is not None]) for k in first.port_dict}
         if first.port_dict is not None
         else None
     )
@@ -450,13 +451,13 @@ def separate_hyper_edge_sets(hyper_edge_set_batch: HyperEdgeSet) -> list[HyperEd
 
     if hyper_edge_set_batch.feature_names is not None:
         a = {k: xp.unstack(hyper_edge_set_batch.feature_names[k]) for k in hyper_edge_set_batch.feature_names}
-        feature_names_list = [dict(zip(a, t)) for t in zip(*a.values())]
+        feature_names_list: list[dict | None] = [dict(zip(a, t)) for t in zip(*a.values())]
     else:
         feature_names_list = [None] * n_batch
 
     if hyper_edge_set_batch.port_dict is not None:
         a = {k: xp.unstack(hyper_edge_set_batch.port_dict[k]) for k in hyper_edge_set_batch.port_dict}
-        port_dict_list = [dict(zip(a, t)) for t in zip(*a.values())]
+        port_dict_list: list[dict | None] = [dict(zip(a, t)) for t in zip(*a.values())]
     else:
         port_dict_list = [None] * n_batch
 
@@ -485,7 +486,7 @@ def concatenate_hyper_edge_sets(hyper_edge_set_list: list[HyperEdgeSet]) -> Hype
     first = hyper_edge_set_list[0]
 
     port_dict = (
-        {k: xp.concatenate([hes.port_dict[k] for hes in hyper_edge_set_list]) for k in first.port_dict}
+        {k: xp.concatenate([hes.port_dict[k] for hes in hyper_edge_set_list if hes.port_dict is not None]) for k in first.port_dict}
         if first.port_dict is not None
         else None
     )
@@ -622,7 +623,7 @@ def _check_keys_consistency(hes_1: HyperEdgeSet, hes_2: HyperEdgeSet) -> None:
         raise ValueError("Mismatch in presence of port_names among hyper-edge sets.")
     if (hes_1.feature_names is None) != (hes_2.feature_names is None):
         raise ValueError("Mismatch in presence of feature_names among hyper-edge sets.")
-    if hes_1.port_names and hes_1.port_names.keys() != hes_2.port_names.keys():
+    if hes_1.port_names and hes_2.port_names and hes_1.port_names.keys() != hes_2.port_names.keys():
         raise ValueError("Inconsistent port_names keys among hyper-edge sets.")
-    if hes_1.feature_names and hes_1.feature_names.keys() != hes_2.feature_names.keys():
+    if hes_1.feature_names and hes_2.feature_names and hes_1.feature_names.keys() != hes_2.feature_names.keys():
         raise ValueError("Inconsistent feature_names keys among hyper-edge sets.")

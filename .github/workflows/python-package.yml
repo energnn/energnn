@@ -42,6 +42,9 @@ jobs:
       - name: Lint with flake8
         run: uv run flake8 src/energnn --count --show-source --max-complexity=10 --max-line-length=127 --statistics
 
+      - name: Check typing with mypy
+        run: uv run mypy src/energnn
+
       - name: Test with pytest
         run: uv run pytest --cov=. tests
 

@@ -101,7 +101,7 @@ class MLPEquivariantDecoder(EquivariantDecoder):
             }
         )
 
-    def _build_mlp_dict(self, seed: int = 0, rngs: nnx.Rngs | None = None) -> dict[str, MLP]:
+    def _build_mlp_dict(self, seed: int | None, rngs: nnx.Rngs | None = None) -> dict[str, MLP]:
         if rngs is None:
             rngs = nnx.Rngs(seed)
         elif seed is not None:
@@ -111,6 +111,7 @@ class MLPEquivariantDecoder(EquivariantDecoder):
         for key, out_hyper_edge_set_structure in self.out_structure.hyper_edge_sets.items():
             assert key in self.in_graph_structure.hyper_edge_sets.keys()
             in_hyper_edge_set_structure = self.in_graph_structure.hyper_edge_sets[key]
+            assert in_hyper_edge_set_structure.port_list is not None
             assert len(in_hyper_edge_set_structure.port_list) > 0
             n_ports = len(in_hyper_edge_set_structure.port_list)
             in_size = self.in_array_size * n_ports

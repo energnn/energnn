@@ -267,8 +267,10 @@ class LinearSystemProblemGenerator:
 
         # Padding and collating are done in numpy (variable shapes are free there); the padded
         # batch has a fixed shape, so the final conversion to jax compiles only once.
-        [context.pad(target_shape=max_context_shape) for context in context_list]
-        [oracle.pad(target_shape=max_oracle_shape) for oracle in oracle_list]
+        for context in context_list:
+            context.pad(target_shape=max_context_shape)
+        for oracle in oracle_list:
+            oracle.pad(target_shape=max_oracle_shape)
         context_batch = collate_graphs(context_list).to_backend(JaxBackend())
         oracle_batch = collate_graphs(oracle_list).to_backend(JaxBackend())
 

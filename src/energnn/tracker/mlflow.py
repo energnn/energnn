@@ -7,6 +7,7 @@
 import json
 from datetime import datetime
 from tempfile import TemporaryDirectory
+from typing import Any
 
 import flatdict
 import mlflow
@@ -67,9 +68,7 @@ def stringify_unsupported(d, parent_key="", sep="/") -> dict:
 
     supported_datatypes = [int, float, str, datetime, bool, list, set]
 
-    items = {}
-    if not isinstance(d, (dict, list, tuple, set)):
-        return d if type(d) in supported_datatypes else str(d)
+    items: dict[str, Any] = {}
     if isinstance(d, dict):
         for k, v in d.items():
             new_key = f"{parent_key}{sep}{k}" if parent_key else k

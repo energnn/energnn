@@ -46,7 +46,7 @@ class MLPEncoder(Encoder):
         *,
         in_structure: GraphStructure,
         hidden_sizes: list[int],
-        activation: Activation | None = nnx.relu,
+        activation: Activation = nnx.relu,
         out_size: int = 1,
         use_bias: bool = True,
         kernel_init: Initializer = initializers.lecun_normal(),
@@ -76,13 +76,13 @@ class MLPEncoder(Encoder):
         self.mlp_dict = self._build_mlp_dict(seed=seed, rngs=rngs)
         self.feature_names = nnx.data({f"lat_{i}": jnp.array(i) for i in range(self.out_size)})
 
-    def _build_mlp_dict(self, seed: int = 0, rngs: nnx.Rngs | None = None) -> dict[str, MLP]:
+    def _build_mlp_dict(self, seed: int | None, rngs: nnx.Rngs | None = None) -> dict[str, MLP | None]:
         """Creates an MLP for each hyper-edge set class appearing in the input structure, initialized with the given seed."""
         if rngs is None:
             rngs = nnx.Rngs(seed)
         elif seed is not None:
             raise ValueError("Seed must be None when rngs are provided.")
-        mlp_dict = {}
+        mlp_dict: dict[str, MLP | None] = {}
         for key, hyper_edge_set_structure in self.in_structure.hyper_edge_sets.items():
             if hyper_edge_set_structure.feature_list is not None and len(hyper_edge_set_structure.feature_list) > 0:
                 in_size = len(hyper_edge_set_structure.feature_list)

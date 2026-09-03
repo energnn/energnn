@@ -5,6 +5,8 @@
 # SPDX-License-Identifier: MPL-2.0
 
 import logging
+import math
+
 import jax
 import jax.numpy as jnp
 from flax import nnx
@@ -28,8 +30,8 @@ class HyperEdgeSetCenterReduceNormalizer(nnx.Module):
         epsilon: float = 1e-6,
         use_running_average: bool = False,
         saturation_strategy: str | None = None,
-        clip_min: float | None = None,
-        clip_max: float | None = None,
+        clip_min: float = float("nan"),
+        clip_max: float = float("nan"),
     ):
         """
         Initializes the instance with the necessary configurations and state variables for
@@ -50,7 +52,7 @@ class HyperEdgeSetCenterReduceNormalizer(nnx.Module):
         if saturation_strategy not in [None, "hard", "soft"]:
             raise ValueError(f"saturation_strategy must be None, 'hard' or 'soft', got {saturation_strategy}")
         if saturation_strategy == "hard":
-            if clip_min is None or clip_max is None:
+            if math.isnan(clip_min) or math.isnan(clip_max):
                 raise ValueError("clip_min and clip_max must be provided when saturation_strategy is 'hard'")
             if clip_min >= clip_max:
                 raise ValueError(f"clip_min must be strictly less than clip_max, got {clip_min} >= {clip_max}")
@@ -69,7 +71,7 @@ class HyperEdgeSetCenterReduceNormalizer(nnx.Module):
         self.mean = nnx.Variable(jnp.zeros(n_features))
         self.var = nnx.Variable(jnp.ones(n_features))
 
-    def __call__(self, x: jax.Array, mask: jax.Array = None):
+    def __call__(self, x: jax.Array, mask: jax.Array):
 
         # Check input.
         if x.ndim == 2:
@@ -187,14 +189,14 @@ class CenterReduceNormalizer(Normalizer):
         epsilon: float = 1e-6,
         use_running_average: bool = False,
         saturation_strategy: str | None = None,
-        clip_min: float | None = None,
-        clip_max: float | None = None,
+        clip_min: float = float("nan"),
+        clip_max: float = float("nan"),
         return_metrics: bool = False,
     ):
         if saturation_strategy not in [None, "hard", "soft"]:
             raise ValueError(f"saturation_strategy must be None, 'hard' or 'soft', got {saturation_strategy}")
         if saturation_strategy == "hard":
-            if clip_min is None or clip_max is None:
+            if math.isnan(clip_min) or math.isnan(clip_max):
                 raise ValueError("clip_min and clip_max must be provided when saturation_strategy is 'hard'")
             if clip_min >= clip_max:
                 raise ValueError(f"clip_min must be strictly less than clip_max, got {clip_min} >= {clip_max}")
@@ -212,9 +214,9 @@ class CenterReduceNormalizer(Normalizer):
 
         self.module_dict = self._build_module_dict()
 
-    def _build_module_dict(self) -> dict[str, HyperEdgeSetCenterReduceNormalizer]:
+    def _build_module_dict(self) -> dict[str, HyperEdgeSetCenterReduceNormalizer | None]:
         """Creates a Center Reduce Normalizer module for each edge key in the graph structure."""
-        module_dict = {}
+        module_dict: dict[str, HyperEdgeSetCenterReduceNormalizer | None] = {}
         for key, hyper_edge_set_structure in self.in_structure.hyper_edge_sets.items():
             if hyper_edge_set_structure.feature_list is not None and len(hyper_edge_set_structure.feature_list) > 0:
                 in_size = len(hyper_edge_set_structure.feature_list)

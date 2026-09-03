@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import pickle as pkl
 import warnings
+from typing import Any
 
 import numpy as np
 from jax.tree_util import register_pytree_node_class
@@ -330,7 +331,7 @@ class Graph(dict):
     # Graph algorithms
     # ------------------------------------------------------------------
 
-    def count_connected_components(self) -> tuple[int, any]:
+    def count_connected_components(self) -> tuple[int, Any]:
         """
         Count connected components and return per-address component labels.
 
@@ -342,19 +343,20 @@ class Graph(dict):
 
         def _max_propagate(*, graph: Graph, h_):
             h_new_ = backend.copy(h_)
-            edge_h = {}
+            edge_h: dict[str, list[Any]] = {}
             for edge_key, edge in graph.hyper_edge_sets.items():
                 edge_h[edge_key] = []
-                for _, address_array in edge.port_dict.items():
-                    edge_h[edge_key].append(h_new_[address_array])
-                edge_h[edge_key] = xp.stack(edge_h[edge_key], axis=0)
-                edge_h[edge_key] = xp.max(edge_h[edge_key], axis=0)
-                for _, address_array in edge.port_dict.items():
-                    new_val = xp.max(
-                        xp.stack([edge_h[edge_key], h_new_[address_array]], axis=0),
-                        axis=0,
-                    )
-                    h_new_ = backend.scatter_max(h_new_, address_array, new_val)
+                if edge.port_dict is not None:
+                    for _, address_array in edge.port_dict.items():
+                        edge_h[edge_key].append(h_new_[address_array])
+                    edge_h[edge_key] = xp.stack(edge_h[edge_key], axis=0)
+                    edge_h[edge_key] = xp.max(edge_h[edge_key], axis=0)
+                    for _, address_array in edge.port_dict.items():
+                        new_val = xp.max(
+                            xp.stack([edge_h[edge_key], h_new_[address_array]], axis=0),
+                            axis=0,
+                        )
+                        h_new_ = backend.scatter_max(h_new_, address_array, new_val)
             return h_new_
 
         if not self.is_single:
@@ -498,9 +500,11 @@ def concatenate_graphs(graph_list: list[Graph]) -> Graph:
     true_shape = sum_shapes([g.true_shape for g in graph_list])
     current_shape = sum_shapes([g.current_shape for g in graph_list])
 
-    [g.offset_addresses(offset=offset) for g, offset in zip(graph_list, offset_list)]
+    for g, offset in zip(graph_list, offset_list):
+        g.offset_addresses(offset=offset)
     hes = {k: concatenate_hyper_edge_sets([g.hyper_edge_sets[k] for g in graph_list]) for k in graph_list[0].hyper_edge_sets}
-    [g.offset_addresses(offset=-offset) for g, offset in zip(graph_list, offset_list)]
+    for g, offset in zip(graph_list, offset_list):
+        g.offset_addresses(offset=-offset)
 
     return cls(
         backend=backend,
@@ -569,20 +573,24 @@ def get_statistics(graph: Graph, axis: int | None = None, norm_graph: Graph | No
                 rmse = xp.sqrt(xp.nanmean(array**2, axis=axis))
                 metrics["{}/{}/rmse".format(object_name, feature_name)] = rmse
                 if norm_graph is not None:
-                    norm_array = norm_graph.hyper_edge_sets[object_name].feature_dict[feature_name]
-                    norm_array = norm_array - xp.nanmean(norm_array)
-                    metrics["{}/{}/nrmse".format(object_name, feature_name)] = rmse / (
-                        xp.sqrt(xp.nanmean(norm_array**2, axis=axis)) + 1e-9
-                    )
+                    feature_dict = norm_graph.hyper_edge_sets[object_name].feature_dict
+                    if feature_dict is not None:
+                        norm_array = feature_dict[feature_name]
+                        norm_array = norm_array - xp.nanmean(norm_array)
+                        metrics["{}/{}/nrmse".format(object_name, feature_name)] = rmse / (
+                            xp.sqrt(xp.nanmean(norm_array**2, axis=axis)) + 1e-9
+                        )
 
                 mae = xp.nanmean(xp.abs(array), axis=axis)
                 metrics["{}/{}/mae".format(object_name, feature_name)] = mae
                 if norm_graph is not None:
-                    norm_array = norm_graph.hyper_edge_sets[object_name].feature_dict[feature_name]
-                    norm_array = norm_array - xp.nanmean(norm_array)
-                    metrics["{}/{}/nmae".format(object_name, feature_name)] = mae / (
-                        xp.nanmean(xp.abs(norm_array), axis=axis) + 1e-9
-                    )
+                    feature_dict = norm_graph.hyper_edge_sets[object_name].feature_dict
+                    if feature_dict is not None:
+                        norm_array = feature_dict[feature_name]
+                        norm_array = norm_array - xp.nanmean(norm_array)
+                        metrics["{}/{}/nmae".format(object_name, feature_name)] = mae / (
+                            xp.nanmean(xp.abs(norm_array), axis=axis) + 1e-9
+                        )
 
                 metrics["{}/{}/mean".format(object_name, feature_name)] = xp.nanmean(array, axis=axis)
                 metrics["{}/{}/std".format(object_name, feature_name)] = xp.nanstd(array, axis=axis)
