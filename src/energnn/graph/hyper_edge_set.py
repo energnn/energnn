@@ -407,7 +407,8 @@ def collate_hyper_edge_sets(hyper_edge_set_list: list[HyperEdgeSet]) -> HyperEdg
         xp.stack([e.feature_array for e in hyper_edge_set_list], axis=0) if first.feature_array is not None else None
     )
     feature_names = (
-        {k: xp.stack([e.feature_names[k] for e in hyper_edge_set_list if e.feature_names is not None]) for k in first.feature_names}
+        {k: xp.stack([e.feature_names[k] for e in hyper_edge_set_list if e.feature_names is not None])
+            for k in first.feature_names}
         if first.feature_names is not None
         else None
     )
@@ -486,7 +487,8 @@ def concatenate_hyper_edge_sets(hyper_edge_set_list: list[HyperEdgeSet]) -> Hype
     first = hyper_edge_set_list[0]
 
     port_dict = (
-        {k: xp.concatenate([hes.port_dict[k] for hes in hyper_edge_set_list if hes.port_dict is not None]) for k in first.port_dict}
+        {k: xp.concatenate([hes.port_dict[k] for hes in hyper_edge_set_list if hes.port_dict is not None])
+            for k in first.port_dict}
         if first.port_dict is not None
         else None
     )

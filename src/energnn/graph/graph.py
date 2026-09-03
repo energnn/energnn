@@ -571,7 +571,9 @@ def get_statistics(graph: Graph, axis: int | None = None, norm_graph: Graph | No
                     array = xp.array([[0.0]]) if axis == 1 else xp.array([0.0])
 
                 rmse = xp.sqrt(xp.nanmean(array**2, axis=axis))
+                mae = xp.nanmean(xp.abs(array), axis=axis)
                 metrics["{}/{}/rmse".format(object_name, feature_name)] = rmse
+                metrics["{}/{}/mae".format(object_name, feature_name)] = mae
                 if norm_graph is not None:
                     feature_dict = norm_graph.hyper_edge_sets[object_name].feature_dict
                     if feature_dict is not None:
@@ -580,16 +582,8 @@ def get_statistics(graph: Graph, axis: int | None = None, norm_graph: Graph | No
                         metrics["{}/{}/nrmse".format(object_name, feature_name)] = rmse / (
                             xp.sqrt(xp.nanmean(norm_array**2, axis=axis)) + 1e-9
                         )
-
-                mae = xp.nanmean(xp.abs(array), axis=axis)
-                metrics["{}/{}/mae".format(object_name, feature_name)] = mae
-                if norm_graph is not None:
-                    feature_dict = norm_graph.hyper_edge_sets[object_name].feature_dict
-                    if feature_dict is not None:
-                        norm_array = feature_dict[feature_name]
-                        norm_array = norm_array - xp.nanmean(norm_array)
                         metrics["{}/{}/nmae".format(object_name, feature_name)] = mae / (
-                            xp.nanmean(xp.abs(norm_array), axis=axis) + 1e-9
+                                xp.nanmean(xp.abs(norm_array), axis=axis) + 1e-9
                         )
 
                 metrics["{}/{}/mean".format(object_name, feature_name)] = xp.nanmean(array, axis=axis)
