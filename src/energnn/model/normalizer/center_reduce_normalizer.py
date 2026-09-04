@@ -103,11 +103,11 @@ class HyperEdgeSetCenterReduceNormalizer(nnx.Module):
 
     def _update_stats(self, x: jax.Array, mask: jax.Array, is_batched: bool, is_training: bool):
         if is_batched:
-            current_mean = x.mean(axis=(0, 1), where=(mask != 0.0))
-            current_var = x.var(axis=(0, 1), where=(mask != 0.0))
+            current_mean = x.mean(axis=(0, 1), where=jnp.isclose(mask, 1.))
+            current_var = x.var(axis=(0, 1), where=jnp.isclose(mask, 1.))
         else:
-            current_mean = x.mean(axis=0, where=(mask != 0.0))
-            current_var = x.var(axis=0, where=(mask != 0.0))
+            current_mean = x.mean(axis=0, where=jnp.isclose(mask, 1.))
+            current_var = x.var(axis=0, where=jnp.isclose(mask, 1.))
 
         if self.mean._can_update or self.var._can_update:
             stop_gradient = jax.lax.stop_gradient
