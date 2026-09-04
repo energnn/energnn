@@ -9,23 +9,62 @@ from copy import deepcopy
 
 import jax.numpy as jnp
 import numpy as np
+import pandas as pd
 from omegaconf import DictConfig
 
-from energnn.graph import GraphStructure, HyperEdgeSetStructure
-from energnn.graph import Graph, GraphShape, HyperEdgeSet, JaxBackend, collate_graphs
+from energnn.converter import Converter, ElementsConverter
+from energnn.graph import Graph, GraphShape, GraphStructure, JaxBackend, NumpyBackend, collate_graphs
 from ..batch import ProblemBatch
 from ..loader import ProblemLoader
 from ..problem import Problem
 
-LINEAR_SYSTEM_CONTEXT_STRUCTURE = GraphStructure(
-    hyper_edge_sets={
-        "line": HyperEdgeSetStructure(port_list=["from", "to"], feature_list=["susceptance"]),
-        "bus": HyperEdgeSetStructure(port_list=["id"], feature_list=["active_power_injection"]),
-    }
-)
-LINEAR_SYSTEM_DECISION_STRUCTURE = GraphStructure(
-    hyper_edge_sets={"bus": HyperEdgeSetStructure(port_list=None, feature_list=["phase_angle"])}
-)
+
+class _LineElementsConverter(ElementsConverter):
+    """Extracts one hyper-edge per line from the strictly upper-triangular part of ``B``."""
+
+    def _get_table(self, *, B: np.ndarray, P: np.ndarray) -> pd.DataFrame:
+        rows, cols = np.nonzero(np.triu(B, k=1))
+        return pd.DataFrame({"from": rows, "to": cols, "susceptance": -B[rows, cols]})
+
+
+class _BusElementsConverter(ElementsConverter):
+    """Extracts one hyper-edge per bus, with its active power injection."""
+
+    def _get_table(self, *, B: np.ndarray, P: np.ndarray) -> pd.DataFrame:
+        return pd.DataFrame({"id": np.arange(P.shape[0]), "active_power_injection": P})
+
+
+class _OracleBusElementsConverter(ElementsConverter):
+    """Extracts one hyper-edge per bus, carrying the solution phase angle."""
+
+    def _get_table(self, *, theta: np.ndarray) -> pd.DataFrame:
+        return pd.DataFrame({"phase_angle": theta})
+
+
+class LinearSystemContextConverter(Converter):
+    """Converts a DC linear system ``(B, P)`` into a context :class:`energnn.graph.Graph`."""
+
+    def __init__(self):
+        self.elements_converter_dict = {
+            "line": _LineElementsConverter(port_list=["from", "to"], feature_list=["susceptance"]),
+            "bus": _BusElementsConverter(port_list=["id"], feature_list=["active_power_injection"]),
+        }
+
+
+class LinearSystemOracleConverter(Converter):
+    """Converts the solution vector ``theta`` into an oracle :class:`energnn.graph.Graph`.
+
+    Oracles only carry features: their hyper-edges have no ports, hence no address registry.
+    """
+
+    def __init__(self):
+        self.elements_converter_dict = {
+            "bus": _OracleBusElementsConverter(port_list=None, feature_list=["phase_angle"]),
+        }
+
+
+LINEAR_SYSTEM_CONTEXT_STRUCTURE = LinearSystemContextConverter().get_structure()
+LINEAR_SYSTEM_DECISION_STRUCTURE = LinearSystemOracleConverter().get_structure()
 
 
 class LinearSystemProblemBatch(ProblemBatch):
@@ -48,20 +87,20 @@ class LinearSystemProblemBatch(ProblemBatch):
     def context_structure(self) -> GraphStructure:
         return LINEAR_SYSTEM_CONTEXT_STRUCTURE
 
-    def get_context(self, get_info: bool = False, step: int | None = None) -> tuple[Graph, dict]:
+    def get_context(self, step_with_metrics: bool = False, step: int | None = None) -> tuple[Graph, dict]:
         """Returns the context :class:`Graph` :math:`x`."""
         return deepcopy(self.context), {}
 
-    def get_oracle(self, get_info: bool = False) -> tuple[Graph, dict]:
+    def get_oracle(self, step_with_metrics: bool = False) -> tuple[Graph, dict]:
         r"""Returns the ground truth :class:`Graph` :math:`y^{\star}(x)`."""
         return deepcopy(self.oracle), {}
 
-    def get_zero_decision(self, get_info: bool = False) -> tuple[Graph, dict]:
+    def get_zero_decision(self, step_with_metrics: bool = False) -> tuple[Graph, dict]:
         """Returns a decision filled with zeros."""
         return deepcopy(self.zero_decision), {}
 
     def get_gradient(
-        self, decision: Graph, cfg: DictConfig | None = None, get_info: bool = False, step: int | None = None
+        self, decision: Graph, cfg: DictConfig | None = None, step_with_metrics: bool = False, step: int | None = None
     ) -> tuple[Graph, dict]:
         r"""Returns the gradient :class:`Graph` :math:`\nabla_y f(y;x) = y - y^{\star}(x)`."""
         # gradient = decision.to_numpy_graph()
@@ -71,7 +110,7 @@ class LinearSystemProblemBatch(ProblemBatch):
         return gradient, {}
 
     def get_score(
-        self, decision: Graph, cfg: DictConfig | None = None, get_info: bool = False, step: int | None = None
+        self, decision: Graph, cfg: DictConfig | None = None, step_with_metrics: bool = False, step: int | None = None
     ) -> tuple[list[float], dict]:
         """Returns the mean-squared error of the decision :class:`Graph` with regard to the oracle :class:`Graph`."""
         # gradient = decision.to_numpy_graph()
@@ -103,20 +142,20 @@ class LinearSystemProblem(Problem):
     def context_structure(self) -> GraphStructure:
         return LINEAR_SYSTEM_CONTEXT_STRUCTURE
 
-    def get_context(self, get_info: bool = False, step: int | None = None) -> tuple[Graph, dict]:
+    def get_context(self, step_with_metrics: bool = False, step: int | None = None) -> tuple[Graph, dict]:
         """Returns the context :class:`Graph` :math:`x`."""
         return deepcopy(self.context), {}
 
-    def get_oracle(self, get_info: bool = False) -> tuple[Graph, dict]:
+    def get_oracle(self, step_with_metrics: bool = False) -> tuple[Graph, dict]:
         r"""Returns the ground truth :class:`Graph` :math:`y^{\star}(x)`."""
         return deepcopy(self.oracle), {}
 
-    def get_zero_decision(self, get_info: bool = False) -> tuple[Graph, dict]:
+    def get_zero_decision(self, step_with_metrics: bool = False) -> tuple[Graph, dict]:
         """Returns a decision filled with zeros."""
         return deepcopy(self.zero_decision), {}
 
     def get_gradient(
-        self, decision: Graph, cfg: DictConfig | None = None, get_info: bool = False, step: int | None = None
+        self, decision: Graph, cfg: DictConfig | None = None, step_with_metrics: bool = False, step: int | None = None
     ) -> tuple[Graph, dict]:
         r"""Returns the gradient :class:`Graph` :math:`\nabla_y f(y;x) = y - y^{\star}(x)`."""
         # gradient = decision.to_numpy_graph()
@@ -126,7 +165,7 @@ class LinearSystemProblem(Problem):
         return gradient, {}
 
     def get_score(
-        self, decision: Graph, cfg: DictConfig | None = None, get_info: bool = False, step: int | None = None
+        self, decision: Graph, cfg: DictConfig | None = None, step_with_metrics: bool = False, step: int | None = None
     ) -> tuple[float, dict]:
         """Returns the mean-squared error of the decision :class:`Graph` with regard to the oracle :class:`Graph`."""
         # gradient = decision.to_numpy_graph()
@@ -145,25 +184,18 @@ def _generate_sparse_linear_system(n, m):
     B = np.zeros((n, n))
     nodes = np.arange(n)
     np.random.shuffle(nodes)
-    for i in range(n - 1):
-        u, v = nodes[i], nodes[i + 1]
-        weight = np.random.rand() + 0.5
-        B[u, v] = B[v, u] = -weight
+    u, v = nodes[:-1], nodes[1:]
+    weights = np.random.rand(n - 1) + 0.5
+    B[u, v] = B[v, u] = -weights
 
-    # Add remaining m - (n-1) edges
-    possible_edges = []
-    for i in range(n):
-        for j in range(i + 1, n):
-            if B[i, j] == 0:
-                possible_edges.append((i, j))
-
-    if possible_edges and m > n - 1:
-        n_extra = min(m - (n - 1), len(possible_edges))
-        idx = np.random.choice(len(possible_edges), n_extra, replace=False)
-        for i in idx:
-            u, v = possible_edges[i]
-            weight = np.random.rand() + 0.5
-            B[u, v] = B[v, u] = -weight
+    # Add remaining m - (n-1) edges among the still-free upper-triangular pairs
+    iu, ju = np.triu_indices(n, k=1)
+    free = np.flatnonzero(B[iu, ju] == 0)
+    n_extra = min(m - (n - 1), free.size)
+    if n_extra > 0:
+        idx = np.random.choice(free, n_extra, replace=False)
+        weights = np.random.rand(n_extra) + 0.5
+        B[iu[idx], ju[idx]] = B[ju[idx], iu[idx]] = -weights
 
     # B is Laplacian matrix-like (off-diagonal < 0, diagonal = -sum(off-diagonal))
     # For a DC network: P = B * theta. B is the susceptance matrix.
@@ -171,8 +203,7 @@ def _generate_sparse_linear_system(n, m):
     # Here we'll add a small shunt to ensure invertibility if needed,
     # but the usual DC power flow has sum(P) = 0.
     # Let's make it more generic: B theta = P where B is the susceptance matrix.
-    for i in range(n):
-        B[i, i] = -np.sum(B[i, :]) + 0.1  # 0.1 for shunt conductance to ground to ensure invertibility
+    np.fill_diagonal(B, -B.sum(axis=1) + 0.1)  # 0.1 for shunt conductance to ground to ensure invertibility
 
     theta = np.random.randn(n)
     P = B @ theta
@@ -188,62 +219,60 @@ class LinearSystemProblemGenerator:
         self.seed = seed
         self.n_max = n_max
 
+        self.context_converter = LinearSystemContextConverter()
+        self.oracle_converter = LinearSystemOracleConverter()
+
         np.random.seed(seed)
 
-    def generate_problem(self) -> LinearSystemProblem:
+    def generate_problem(self, backend: JaxBackend | NumpyBackend | None = None) -> LinearSystemProblem:
+        # The converters build graphs on a numpy backend: their shapes vary from one problem to
+        # the next, and building them directly in jax would trigger one XLA compilation per new shape.
+        if backend is None:
+            backend = JaxBackend()
         n = np.random.randint(2, self.n_max + 1)
         m = np.random.randint(n - 1, n * (n - 1) // 2 + 1)
         B, P, theta = _generate_sparse_linear_system(n, m)
 
-        # Context
-        # Use line for off-diagonal terms
-        rows, cols = np.nonzero(np.triu(B, k=1))
-        jax_backend = JaxBackend()
-        line = HyperEdgeSet.from_dict(
-            backend=jax_backend, port_dict={"from": rows, "to": cols}, feature_dict={"susceptance": -B[rows, cols]}
-        )
-        bus_context = HyperEdgeSet.from_dict(
-            backend=jax_backend, port_dict={"id": np.arange(n)}, feature_dict={"active_power_injection": P}
-        )
-        context = Graph.from_dict(
-            backend=jax_backend, hyper_edge_set_dict={"line": line, "bus": bus_context}, n_addresses=jnp.array(n)
-        )
+        context = self.context_converter(B=B, P=P)
+        oracle = self.oracle_converter(theta=theta)
 
-        # Oracle
-        # Use bus for the solution (phase angles)
-        bus_oracle = HyperEdgeSet.from_dict(backend=jax_backend, port_dict=None, feature_dict={"phase_angle": theta})
-        oracle = Graph.from_dict(backend=jax_backend, hyper_edge_set_dict={"bus": bus_oracle}, n_addresses=jnp.array(n))
-
-        return LinearSystemProblem(context=context, oracle=oracle)
+        if isinstance(backend, NumpyBackend):
+            return LinearSystemProblem(context=context, oracle=oracle)
+        return LinearSystemProblem(context=context.to_backend(backend), oracle=oracle.to_backend(backend))
 
     def generate_problem_batch(self, batch_size: int = 8) -> LinearSystemProblemBatch:
 
         context_list, oracle_list = [], []
 
+        numpy_backend = NumpyBackend()
         for _ in range(batch_size):
-            problem = self.generate_problem()
+            problem = self.generate_problem(backend=numpy_backend)
             context = problem.context
             oracle = problem.oracle
             context_list.append(context)
             oracle_list.append(oracle)
 
-        jax_backend = JaxBackend()
         max_context_shape = GraphShape(
-            backend=jax_backend,
+            backend=numpy_backend,
             hyper_edge_sets={
-                "line": jnp.array(self.n_max * (self.n_max - 1) // 2),
-                "bus": jnp.array(self.n_max),
+                "line": np.array(self.n_max * (self.n_max - 1) // 2),
+                "bus": np.array(self.n_max),
             },
-            addresses=jnp.array(self.n_max),
+            addresses=np.array(self.n_max),
         )
+        # Oracles carry no ports, hence an empty address registry.
         max_oracle_shape = GraphShape(
-            backend=jax_backend, hyper_edge_sets={"bus": jnp.array(self.n_max)}, addresses=jnp.array(self.n_max)
+            backend=numpy_backend, hyper_edge_sets={"bus": np.array(self.n_max)}, addresses=np.array(0)
         )
 
-        [context.pad(target_shape=max_context_shape) for context in context_list]
-        [oracle.pad(target_shape=max_oracle_shape) for oracle in oracle_list]
-        context_batch = collate_graphs(context_list)
-        oracle_batch = collate_graphs(oracle_list)
+        # Padding and collating are done in numpy (variable shapes are free there); the padded
+        # batch has a fixed shape, so the final conversion to jax compiles only once.
+        for context in context_list:
+            context.pad(target_shape=max_context_shape)
+        for oracle in oracle_list:
+            oracle.pad(target_shape=max_oracle_shape)
+        context_batch = collate_graphs(context_list).to_backend(JaxBackend())
+        oracle_batch = collate_graphs(oracle_list).to_backend(JaxBackend())
 
         return LinearSystemProblemBatch(context=context_batch, oracle=oracle_batch)
 
@@ -268,6 +297,9 @@ class LinearSystemProblemLoader(ProblemLoader):
         self.current_step = 0
 
         self.generator = LinearSystemProblemGenerator(seed=seed, n_max=n_max)
+        # The loader resets its RNG at each epoch, so every epoch regenerates the exact same
+        # batches: they are generated once and cached.
+        self._batch_cache: list[LinearSystemProblemBatch] = []
 
     @property
     def decision_structure(self) -> GraphStructure:
@@ -289,7 +321,11 @@ class LinearSystemProblemLoader(ProblemLoader):
         batch_end = min(self.current_step + self.batch_size, self.len)
         self.current_step = batch_end
         n_batch = batch_end - batch_start
+        batch_index = batch_start // self.batch_size
+        if batch_index < len(self._batch_cache):
+            return self._batch_cache[batch_index]
         batch = self.generator.generate_problem_batch(batch_size=n_batch)
+        self._batch_cache.append(batch)
         return batch
 
     def __len__(self):

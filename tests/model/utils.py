@@ -67,7 +67,7 @@ def make_dummy_coupling_mock():
         zeros = jnp.zeros_like(coordinates)
         return (zeros, {}), {"dummy": 1}
 
-    def apply(params, context, coordinates, get_info=False):
+    def apply(params, context, coordinates, step_with_metrics=False):
         # returns zero update (same shape as coordinates) and info
         return jnp.zeros_like(coordinates), {"stub": jnp.array(1.0)}
 
@@ -85,22 +85,27 @@ def make_stub_solver_mock(coords_out):
         # return zeros shaped array based on context
         return jnp.zeros([jnp.shape(context.non_fictitious_addresses)[0], coords_out.shape[1]])
 
-    def solve(solver, *, params, function, context, coordinates_init, get_info=False):
+    def solve(solver, *, params, function, context, coordinates_init, step_with_metrics=False):
         solver.called = True
         return coords_out, {"stub_solve": jnp.array(1.0)}
 
     m = MagicMock(spec=SolvingMethod)
     m.called = False
     m.initialize_coordinates = initialize_coordinates
-    m.solve = lambda *, params, function, context, coordinates_init, get_info=False: solve(
-        m, params=params, function=function, context=context, coordinates_init=coordinates_init, get_info=get_info
+    m.solve = lambda *, params, function, context, coordinates_init, step_with_metrics=False: solve(
+        m,
+        params=params,
+        function=function,
+        context=context,
+        coordinates_init=coordinates_init,
+        step_with_metrics=step_with_metrics,
     )
     return m
 
 
 def assert_coupler_single(*, coupler: Coupler, graph: Graph):
-    output_3, infos_3 = coupler(graph=graph, get_info=False)
-    output_4, infos_4 = coupler(graph=graph, get_info=True)
+    output_3, infos_3 = coupler(graph=graph, step_with_metrics=False)
+    output_4, infos_4 = coupler(graph=graph, step_with_metrics=True)
 
     chex.assert_trees_all_equal(output_3, output_4)
 
@@ -109,8 +114,8 @@ def assert_coupler_single(*, coupler: Coupler, graph: Graph):
 
 def assert_coupler_batch(*, coupler: Coupler, graph: Graph):
 
-    def apply(coupler, graph, get_info):
-        return coupler(graph, get_info=get_info)
+    def apply(coupler, graph, step_with_metrics):
+        return coupler(graph, step_with_metrics=step_with_metrics)
 
     apply_vmap = jax.vmap(apply, in_axes=[None, 0, None], out_axes=0)
     output_batch_1, infos_1 = apply_vmap(coupler, graph, False)

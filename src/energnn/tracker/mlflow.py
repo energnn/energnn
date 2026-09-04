@@ -7,6 +7,7 @@
 import json
 from datetime import datetime
 from tempfile import TemporaryDirectory
+from typing import Any
 
 import flatdict
 import mlflow
@@ -42,13 +43,13 @@ class MlflowTracker(Tracker):
                 json.dump(infos, f, indent=2)
             mlflow.log_artifact(f"{tmp_dir}/infos.json", artifact_path=f"datasets/{target_path}")
 
-    def run_append(self, *, infos: dict, step: int) -> None:
-        flat_infos = flatdict.FlatDict(infos, delimiter="/")
-        for k, val in flat_infos.items():
+    def run_append(self, *, metrics: dict, step: int) -> None:
+        flat_metrics = flatdict.FlatDict(metrics, delimiter="/")
+        for k, val in flat_metrics.items():
             if (isinstance(val, dict)) or (np.size(val) == 0) or (np.all(np.isnan(val))):
-                flat_infos.pop(k)
-        metrics = {k: np.nanmean(v) for k, v in flat_infos.items()}
-        mlflow.log_metrics(metrics, step=step)
+                flat_metrics.pop(k)
+        reduced = {k: np.nanmean(v) for k, v in flat_metrics.items()}
+        mlflow.log_metrics(reduced, step=step)
 
 
 def stringify_unsupported(d, parent_key="", sep="/") -> dict:
@@ -67,9 +68,7 @@ def stringify_unsupported(d, parent_key="", sep="/") -> dict:
 
     supported_datatypes = [int, float, str, datetime, bool, list, set]
 
-    items = {}
-    if not isinstance(d, (dict, list, tuple, set)):
-        return d if type(d) in supported_datatypes else str(d)
+    items: dict[str, Any] = {}
     if isinstance(d, dict):
         for k, v in d.items():
             new_key = f"{parent_key}{sep}{k}" if parent_key else k

@@ -24,13 +24,13 @@ class InvariantDecoder(Decoder, ABC):
     """
 
     @abstractmethod
-    def __call__(self, *, graph: Graph, coordinates: jax.Array, get_info: bool = False) -> tuple[jax.Array, dict]:
+    def __call__(self, *, graph: Graph, coordinates: jax.Array, step_with_metrics: bool = False) -> tuple[jax.Array, dict]:
         """Decode latent coordinates into a global decision vector.
 
         :param graph: Input graph to decode.
         :param coordinates: Coordinates stored as JAX array.
-        :param get_info: If True, returns additional info for tracking purpose.
-        :return: Tuple containing decision vector and info dictionary.
+        :param step_with_metrics: Whether this step collects metrics.
+        :return: Tuple containing decision vector and metrics dictionary.
         :raises NotImplementedError: If subclass does not override this method.
         """
         raise NotImplementedError
@@ -54,7 +54,7 @@ class SumInvariantDecoder(InvariantDecoder):
         self.psi = psi
         self.phi = phi
 
-    def __call__(self, *, graph: Graph, coordinates: jax.Array, get_info: bool = False) -> tuple[jax.Array, dict]:
+    def __call__(self, *, graph: Graph, coordinates: jax.Array, step_with_metrics: bool = False) -> tuple[jax.Array, dict]:
         h = self.psi(coordinates)
         h = h * jnp.expand_dims(graph.non_fictitious_addresses, -1)
         h = jnp.sum(h, axis=0)
@@ -80,7 +80,7 @@ class MeanInvariantDecoder(InvariantDecoder):
         self.psi = psi
         self.phi = phi
 
-    def __call__(self, *, graph: Graph, coordinates: jax.Array, get_info: bool = False) -> tuple[jax.Array, dict]:
+    def __call__(self, *, graph: Graph, coordinates: jax.Array, step_with_metrics: bool = False) -> tuple[jax.Array, dict]:
         numerator = self.psi(coordinates)
         numerator = numerator * jnp.expand_dims(graph.non_fictitious_addresses, -1)
         numerator = jnp.sum(numerator, axis=0)

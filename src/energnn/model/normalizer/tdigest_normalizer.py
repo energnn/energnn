@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Sequence, Union
 import logging
@@ -197,7 +198,7 @@ class JaxTDigest:
     def tree_unflatten(cls, aux_data, children):
         return cls(*aux_data, *children)
 
-    def is_empty(self) -> bool:
+    def is_empty(self) -> FloatArray | bool:
         return self.mass == 0
 
     @property
@@ -205,15 +206,15 @@ class JaxTDigest:
         return self.centroids.shape[0]
 
     @property
-    def mass(self) -> float:
+    def mass(self) -> FloatArray | float:
         return self.stats[..., 0]
 
     @property
-    def min_value(self) -> float:
+    def min_value(self) -> FloatArray | float:
         return self.stats[..., 1]
 
     @property
-    def max_value(self) -> float:
+    def max_value(self) -> FloatArray | float:
         return self.stats[..., 2]
 
     def _merge_unsorted(self, x: FloatArray, w: FloatArray) -> "JaxTDigest":
@@ -328,8 +329,8 @@ class TDigestModule(nnx.Module):
         max_centroids: int,
         use_running_average: bool,
         saturation_strategy: str | None = None,
-        clip_min: float | None = None,
-        clip_max: float | None = None,
+        clip_min: float = float("nan"),
+        clip_max: float = float("nan"),
         update_frequency: int = 1,
     ):
         """
@@ -346,11 +347,13 @@ class TDigestModule(nnx.Module):
         :param clip_max: Maximum value for hard saturation. Required if saturation_strategy is "hard".
         :param update_frequency: Frequency of update steps. Defaults to 1 (update at every step).
             Updates are always performed at the first step (step 0).
+        :param return_metrics: If True, feature quantiles of the input and output graphs are returned as metrics
+            on steps where metrics are collected (`step_with_metrics=True`). Defaults to False.
         """
         if saturation_strategy not in [None, "hard", "soft"]:
             raise ValueError(f"saturation_strategy must be None, 'hard' or 'soft', got {saturation_strategy}")
         if saturation_strategy == "hard":
-            if clip_min is None or clip_max is None:
+            if math.isnan(clip_min) or math.isnan(clip_max):
                 raise ValueError("clip_min and clip_max must be provided when saturation_strategy is 'hard'")
             if clip_min >= clip_max:
                 raise ValueError(f"clip_min must be strictly less than clip_max, got {clip_min} >= {clip_max}")
@@ -420,7 +423,8 @@ class TDigestModule(nnx.Module):
     def __call__(self, array: jax.Array, non_fictitious: jax.Array) -> jax.Array:
         is_training = not self.use_running_average
         should_update = (
-            is_training & (self.updates[...] < self.update_limit)[0] & (self.train_steps[...] % self.update_frequency == 0)[0]
+            is_training & jnp.bool_(jnp.any(self.updates[...] < self.update_limit))
+            & jnp.bool_(jnp.any(self.train_steps[...] % self.update_frequency == 0))
         )
 
         if array.ndim == 3:
@@ -515,9 +519,10 @@ class TDigestNormalizer(Normalizer):
         max_centroids: int = 1000,
         use_running_average: bool = False,
         saturation_strategy: str | None = None,
-        clip_min: float | None = None,
-        clip_max: float | None = None,
+        clip_min: float = float("nan"),
+        clip_max: float = float("nan"),
         update_frequency: int = 1,
+        return_metrics: bool = False,
     ):
         """
         Initializes the TDigestNormalizer.
@@ -533,11 +538,13 @@ class TDigestNormalizer(Normalizer):
         :param clip_max: Maximum value for hard saturation. Required if saturation_strategy is "hard".
         :param update_frequency: Frequency of update steps for each T-Digest. Defaults to 1 (update at every step).
             Updates are always performed at the first step (step 0).
+        :param return_metrics: If True, feature quantiles of the input and output graphs are returned as metrics
+            on steps where metrics are collected (`step_with_metrics=True`). Defaults to False.
         """
         if saturation_strategy not in [None, "hard", "soft"]:
             raise ValueError(f"saturation_strategy must be None, 'hard' or 'soft', got {saturation_strategy}")
         if saturation_strategy == "hard":
-            if clip_min is None or clip_max is None:
+            if math.isnan(clip_min) or math.isnan(clip_max):
                 raise ValueError("clip_min and clip_max must be provided when saturation_strategy is 'hard'")
             if clip_min >= clip_max:
                 raise ValueError(f"clip_min must be strictly less than clip_max, got {clip_min} >= {clip_max}")
@@ -551,12 +558,13 @@ class TDigestNormalizer(Normalizer):
         self.saturation_strategy = saturation_strategy
         self.clip_min = clip_min
         self.clip_max = clip_max
+        self.return_metrics = return_metrics
 
         self.module_dict = self._build_module_dict()
 
-    def _build_module_dict(self) -> dict[str, dict[str, TDigestModule]]:
+    def _build_module_dict(self) -> dict[str, TDigestModule | None]:
         """Creates a TDigest module for each hyper-edge set key in the graph structure."""
-        module_dict = {}
+        module_dict: dict[str, TDigestModule | None] = {}
         for key, hyper_edge_set_structure in self.in_structure.hyper_edge_sets.items():
             if hyper_edge_set_structure.feature_list is not None:
                 in_size = len(hyper_edge_set_structure.feature_list)
@@ -586,14 +594,15 @@ class TDigestNormalizer(Normalizer):
             if module is not None:
                 module.use_running_average = use
 
-    def __call__(self, *, graph: Graph, get_info: bool = False) -> tuple[Graph, dict]:
+    def __call__(self, *, graph: Graph, step_with_metrics: bool = False) -> tuple[Graph, dict]:
         """
         Apply normalization to hyper-edge sets within a Graph context using TDigest modules. This method normalizes the
         hyper-edge sets' feature arrays and updates the associated context graph accordingly.
 
         :param graph: Graph representing the graph structure containing hyper-edge sets with feature arrays
                       to be normalized.
-        :param get_info: Boolean flag that indicates whether to return additional information about input and output graphs.
+        :param step_with_metrics: Whether metrics are collected on this step. Quantiles of the input and output graphs
+                                 are returned only if `return_metrics` was set at construction.
         :return: A tuple containing the normalized Graph and an optional dictionary holding quantile information
                  about the input and output graphs.
         """
@@ -634,9 +643,9 @@ class TDigestNormalizer(Normalizer):
             current_shape=graph.current_shape,
         )
 
-        if get_info:
-            info = {"input_graph": graph.quantiles(), "output_graph": normalized_context.quantiles()}
+        if self.return_metrics and step_with_metrics:
+            metrics = {"input_graph": graph.quantiles(), "output_graph": normalized_context.quantiles()}
         else:
-            info = {}
+            metrics = {}
 
-        return normalized_context, info
+        return normalized_context, metrics

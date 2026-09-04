@@ -24,12 +24,12 @@ coordinates_batch = jnp.array(np.random.uniform(size=(4, 10, 7)))
 
 def assert_vmap_jit_consistent(decoder: InvariantDecoder, ctx_batch: Graph, coords_batch: jax.Array, rtol=1e-3, atol=1e-3):
     """
-    Vmap over (batched) graphs and coordinates and compare jit vs non-jit and get_info variations.
+    Vmap over (batched) graphs and coordinates and compare jit vs non-jit and step_with_metrics variations.
     Works for nnx decoders that are already built in __init__ (no lazy RNG consumption on first call).
     """
 
-    def apply_fn(graph, coords, get_info):
-        return decoder(graph=graph, coordinates=coords, get_info=get_info)
+    def apply_fn(graph, coords, step_with_metrics):
+        return decoder(graph=graph, coordinates=coords, step_with_metrics=step_with_metrics)
 
     apply_vmap = jax.vmap(apply_fn, in_axes=(0, 0, None), out_axes=0)
 
@@ -58,19 +58,20 @@ def test_sum_invariant_decoder_basic_and_masking():
     decoder = SumInvariantDecoder(psi=psi, phi=phi)
 
     # single forward
-    out, info = decoder(graph=jax_context, coordinates=coordinates, get_info=True)
+    out, info = decoder(graph=jax_context, coordinates=coordinates, step_with_metrics=True)
     assert isinstance(out, jnp.ndarray)
     assert out.shape == (4,)
     assert info == {}
 
     # mask all zeros stability: when mask is zero, numerator=0 -> phi(0) should be finite
-    ctx_masked = Graph(backend=JaxBackend(),
+    ctx_masked = Graph(
+        backend=JaxBackend(),
         hyper_edge_sets=jax_context.hyper_edge_sets,
         true_shape=jax_context.true_shape,
         current_shape=jax_context.current_shape,
         non_fictitious_addresses=jnp.zeros_like(jax_context.non_fictitious_addresses),
     )
-    out_masked, _ = decoder(graph=ctx_masked, coordinates=coordinates, get_info=False)
+    out_masked, _ = decoder(graph=ctx_masked, coordinates=coordinates, step_with_metrics=False)
     assert np.all(np.isfinite(np.array(out_masked)))
     assert out_masked.shape == out.shape
 
@@ -91,7 +92,7 @@ def test_sum_invariant_decoder_numeric_identity():
     decoder.psi = lambda x: x
     decoder.phi = lambda x: x
 
-    out, _ = decoder(graph=jax_context, coordinates=coordinates, get_info=False)
+    out, _ = decoder(graph=jax_context, coordinates=coordinates, step_with_metrics=False)
     mask = np.array(jax_context.non_fictitious_addresses)
     coords_np = np.array(coordinates)
     expected = np.sum(coords_np * mask[:, None], axis=0)
@@ -104,14 +105,15 @@ def test_mean_invariant_decoder_shape_and_mask_behavior():
     phi = MLP(in_size=5, hidden_sizes=[8], out_size=6, activation=None, seed=3)
     decoder = MeanInvariantDecoder(psi=psi, phi=phi)
 
-    out, info = decoder(graph=jax_context, coordinates=coordinates, get_info=True)
+    out, info = decoder(graph=jax_context, coordinates=coordinates, step_with_metrics=True)
     assert isinstance(out, jnp.ndarray)
     # NNX Mean returns a global vector of size out_size
     assert out.shape == (6,)
     assert info == {}
 
     # all-zero mask => numerator=0 => phi(0) should be finite (and for identity phi returns 0)
-    ctx_all_zero = Graph(backend=JaxBackend(),
+    ctx_all_zero = Graph(
+        backend=JaxBackend(),
         hyper_edge_sets=jax_context.hyper_edge_sets,
         true_shape=jax_context.true_shape,
         current_shape=jax_context.current_shape,
@@ -138,7 +140,7 @@ def test_mean_invariant_decoder_numeric_identity():
     decoder.psi = lambda x: x
     decoder.phi = lambda x: x
 
-    out, _ = decoder(graph=jax_context, coordinates=coordinates, get_info=False)
+    out, _ = decoder(graph=jax_context, coordinates=coordinates, step_with_metrics=False)
     mask = np.array(jax_context.non_fictitious_addresses)
     coords_np = np.array(coordinates)
     numerator = np.sum(coords_np * mask[:, None], axis=0)

@@ -49,11 +49,11 @@ class Tracker(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def run_append(self, *, infos: dict, step: int) -> None:
+    def run_append(self, *, metrics: dict, step: int) -> None:
         """
-        Should track the `infos` dictionary.
+        Should track the `metrics` dictionary.
 
-        :param infos: Information dictionary
-        :param step: Training or evaluation step associated with these infos.
+        :param metrics: Metrics dictionary (possibly nested).
+        :param step: Training or evaluation step associated with these metrics.
         """
         raise NotImplementedError

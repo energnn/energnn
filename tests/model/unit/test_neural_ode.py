@@ -95,7 +95,7 @@ def test_neuralodecoupler_numeric_integration_basic():
         max_steps=10,
     )
 
-    out, info = coupler(graph=jax_context, get_info=False)
+    out, info = coupler(graph=jax_context, step_with_metrics=False)
 
     # Check shapes and types
     n_addr = int(jax_context.non_fictitious_addresses.shape[0])
@@ -124,7 +124,7 @@ def test_neuralodecoupler_solver_respects_max_steps_and_raises():
     )
 
     with pytest.raises(Exception):
-        _ = coupler(graph=jax_context, get_info=False)
+        _ = coupler(graph=jax_context, step_with_metrics=False)
 
 
 def test_neuralodecoupler_adaptive_solvers_consistency():
@@ -146,11 +146,11 @@ def test_neuralodecoupler_adaptive_solvers_consistency():
 
     # Tsit5
     coupler_tsit = make_coupler(solver=diffrax.Tsit5(), **common_kwargs)
-    out_tsit, _ = coupler_tsit(graph=jax_context, get_info=False)
+    out_tsit, _ = coupler_tsit(graph=jax_context, step_with_metrics=False)
 
     # Dopri5
     coupler_dopri = make_coupler(solver=diffrax.Dopri5(), **common_kwargs)
-    out_dopri, _ = coupler_dopri(graph=jax_context, get_info=False)
+    out_dopri, _ = coupler_dopri(graph=jax_context, step_with_metrics=False)
 
     # They should be numerically close
     np.testing.assert_allclose(np.array(out_tsit), np.array(out_dopri), rtol=1e-5, atol=1e-5)
@@ -177,7 +177,7 @@ def test_neuralodecoupler_multiple_message_functions_and_concatenation_shape():
         solver=diffrax.Euler(),
         max_steps=20,
     )
-    out, _ = coupler(graph=jax_context, get_info=False)
+    out, _ = coupler(graph=jax_context, step_with_metrics=False)
 
     n_addr = int(jax_context.non_fictitious_addresses.shape[0])
     assert out.shape == (n_addr, 3)
@@ -199,11 +199,11 @@ def test_neuralodecoupler_vmap_jit_compatibility():
     )
 
     # Vectorize and JIT
-    apply_vmap = jax.vmap(lambda g, gi: coupler(graph=g, get_info=gi), in_axes=(0, None), out_axes=0)
+    apply_vmap = jax.vmap(lambda g, gi: coupler(graph=g, step_with_metrics=gi), in_axes=(0, None), out_axes=0)
     apply_vmap_jit = jax.jit(apply_vmap)
 
     # Call once to initialize any internal state (though identity phi has none)
-    _ = coupler(graph=jax_context, get_info=False)
+    _ = coupler(graph=jax_context, step_with_metrics=False)
 
     out1, info1 = apply_vmap(jax_context_batch, False)
     out2, info2 = apply_vmap_jit(jax_context_batch, False)

@@ -11,87 +11,87 @@ import jax
 import numpy as np
 
 
-def numpify_info_dict(infos: dict) -> dict:
+def numpify_metrics_dict(metrics: dict) -> dict:
     """
     Convert all numeric entries in an information dictionary to numpy scalar arrays.
 
-    This function iterates over the provided `infos` dictionary and ensures that each
+    This function iterates over the provided `metrics` dictionary and ensures that each
     value is converted to a numpy scalar. 1-dimensional arrays (jax.Array, numpy.ndarray,
     or list) are averaged along their only axis. Scalar values are wrapped with `np.array`.
     Nested dictionaries are not supported, and a warning will be emitted if encountered.
 
-    :param infos: A mapping from string keys to values that are either:
+    :param metrics: A mapping from string keys to values that are either:
         - jax.Array or numpy.ndarray of dimension < 2
         - Python list of numbers (dimension < 2)
         - Python int or float
         - dict (unsupported, emits a warning)
     :raises ValueError:
-        If a value in `infos` is not one of the supported types.
+        If a value in `metrics` is not one of the supported types.
     :returns:
-        A new dictionary with the same keys as `infos` and numpy scalar values.
+        A new dictionary with the same keys as `metrics` and numpy scalar values.
         All numeric arrays or lists are reduced via their mean, and scalars are
         converted to zero-dimensional numpy arrays.
     """
-    np_info_dict = {}
-    for k, numerical_info in infos.items():
-        if isinstance(numerical_info, jax.Array) or isinstance(numerical_info, np.ndarray):
-            assert numerical_info.ndim < 2
-            np_info_dict[k] = np.mean(np.asarray(numerical_info))
-        elif isinstance(numerical_info, list):
-            metric_array = np.asarray(numerical_info)
+    np_metrics_dict = {}
+    for k, numerical_metric in metrics.items():
+        if isinstance(numerical_metric, jax.Array) or isinstance(numerical_metric, np.ndarray):
+            assert numerical_metric.ndim < 2
+            np_metrics_dict[k] = np.mean(np.asarray(numerical_metric))
+        elif isinstance(numerical_metric, list):
+            metric_array = np.asarray(numerical_metric)
             assert metric_array.ndim < 2
-            np_info_dict[k] = np.mean(metric_array)
-        elif isinstance(numerical_info, (float, int)):
-            np_info_dict[k] = np.array(numerical_info)
-        elif isinstance(numerical_info, dict):
+            np_metrics_dict[k] = np.mean(metric_array)
+        elif isinstance(numerical_metric, (float, int)):
+            np_metrics_dict[k] = np.array(numerical_metric)
+        elif isinstance(numerical_metric, dict):
             warnings.warn("Nested information dict are not supported.")
         else:
-            raise ValueError(f"Unsupported metric : {numerical_info}, of type {type(numerical_info)} with key: {k}")
-    return np_info_dict
+            raise ValueError(f"Unsupported metric : {numerical_metric}, of type {type(numerical_metric)} with key: {k}")
+    return np_metrics_dict
 
 
-def append_metrics_and_infos(
-    metrics_acc: np.ndarray,
-    infos_acc: dict[str, np.ndarray],
-    metrics_batch: np.ndarray,
-    infos_batch: dict[str, np.ndarray],
+def append_scores_and_metrics(
+    scores_acc: np.ndarray,
+    metrics_acc: dict[str, np.ndarray],
+    scores_batch: np.ndarray,
+    metrics_batch: dict[str, np.ndarray],
 ) -> tuple[np.ndarray, dict[str, np.ndarray]]:
     """
     Append batched metrics and information arrays to existing accumulators.
 
-    This function concatenates the provided `metrics_batch` to the existing
-    1-D `metrics_acc` array. Similarly, it appends each entry in `infos_batch`
-    to the corresponding array in `infos_acc`. Nested dicts in `infos_batch`
+    This function concatenates the provided `scores_batch` to the existing
+    1-D `scores_acc` array. Similarly, it appends each entry in `metrics_batch`
+    to the corresponding array in `metrics_acc`. Nested dicts in `metrics_batch`
     are not supported and will trigger a warning.
 
-    :param metrics_acc: A 1-dimensional numpy array acting as the accumulator for metrics.
-    :param infos_acc: A dictionary mapping string keys to 1-dimensional numpy arrays
+    :param scores_acc: A 1-dimensional numpy array acting as the accumulator for metrics.
+    :param metrics_acc: A dictionary mapping string keys to 1-dimensional numpy arrays
                       that act as accumulators for auxiliary information.
-    :param metrics_batch: A 1-dimensional numpy array of new metric values to append.
-    :param infos_batch: A dictionary mapping string keys to values that are either:
+    :param scores_batch: A 1-dimensional numpy array of new metric values to append.
+    :param metrics_batch: A dictionary mapping string keys to values that are either:
                         - 1-dimensional numpy.ndarray or jax.Array
                         - Python list
                         - Python int or float (will emit a warning but not be appended)
 
     :returns: A tuple containing:
             - Updated metrics accumulator (numpy.ndarray)
-            - Updated infos accumulator (dict[str, numpy.ndarray])
+            - Updated metrics accumulator (dict[str, numpy.ndarray])
 
     :raises ValueError:
-        If a value in `infos_batch` is neither a nested dict, array, list, nor scalar.
+        If a value in `metrics_batch` is neither a nested dict, array, list, nor scalar.
     """
 
-    metrics_acc = np.append(metrics_acc, metrics_batch)
-    for k, v in infos_batch.items():
+    scores_acc = np.append(scores_acc, scores_batch)
+    for k, v in metrics_batch.items():
         if isinstance(v, dict):
             warnings.warn("Does not support nested dict")
         elif isinstance(v, (list, np.ndarray, jax.Array)):
-            infos_acc[k] = np.append(infos_acc[k], v)
+            metrics_acc[k] = np.append(metrics_acc[k], v)
         elif isinstance(v, (int, float)):
-            warnings.warn("Batched infos should be arrays")
+            warnings.warn("Batched metrics should be arrays")
         else:
-            raise ValueError(f"Unsupported infos type : {type(v)}")
-    return metrics_acc, infos_acc
+            raise ValueError(f"Unsupported metrics type : {type(v)}")
+    return scores_acc, metrics_acc
 
 
 class TaskLogger:
@@ -109,7 +109,7 @@ class TaskLogger:
         """
         Initialize the TaskLogger context manager.
 
-        :param logger: A logging-like object with `info` and `error` methods.
+        :param logger: A logging-like object with `metrics` and `error` methods.
         :param task_name: Human-readable name for the task.
         """
         self.logger = logger

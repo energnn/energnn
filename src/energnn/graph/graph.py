@@ -7,6 +7,8 @@
 from __future__ import annotations
 
 import pickle as pkl
+import warnings
+from typing import Any
 
 import numpy as np
 from jax.tree_util import register_pytree_node_class
@@ -24,6 +26,25 @@ HYPER_EDGE_SETS = "hyper_edge_sets"
 TRUE_SHAPE = "true_shape"
 CURRENT_SHAPE = "current_shape"
 NON_FICTITIOUS_ADDRESSES = "non_fictitious_addresses"
+
+
+def _ensure_int_dict(d: dict, xp, msg_template: str) -> dict:
+    """Helper function to ensure dictionary values are integers and warn if not."""
+    new_dict = {}
+    for k, v in d.items():
+        val = xp.array(v)
+        if not xp.issubdtype(val.dtype, xp.integer):
+            new_val = val.astype(xp.int32)
+            if not xp.allclose(val, new_val):
+                warnings.warn(
+                    f"Non-integer value detected in {msg_template.format(k=k)}. "
+                    "Casting to int32 truncated fractional parts.",
+                    UserWarning,
+                )
+            new_dict[k] = new_val
+        else:
+            new_dict[k] = v
+    return new_dict
 
 
 @register_pytree_node_class
@@ -155,7 +176,42 @@ class Graph(dict):
     def from_pickle(cls, *, file_path: str) -> Graph:
         """Load a graph from a pickle file."""
         with open(file_path, "rb") as handle:
-            return pkl.load(handle)
+            graph = pkl.load(handle)
+
+        if not isinstance(graph, Graph):
+            return graph
+
+        # Ensure all addresses and counts are integers (for compatibility with old pickles)
+        # 1. HyperEdgeSet port addresses and feature_names indices
+        for hes_name, hes in graph.hyper_edge_sets.items():
+            if hes.port_dict is not None:
+                hes.port_dict = _ensure_int_dict(
+                    hes.port_dict, hes._backend.xp, f"port array '{{k}}' of HyperEdgeSet '{hes_name}'"
+                )
+
+            if hes.feature_names is not None:
+                hes["feature_names"] = _ensure_int_dict(
+                    hes.feature_names, hes._backend.xp, f"feature_names index '{{k}}' of HyperEdgeSet '{hes_name}'"
+                )
+
+        # 2. GraphShape counts
+        for shape_name, shape in [("true_shape", graph.true_shape), ("current_shape", graph.current_shape)]:
+            xp = shape._backend.xp
+            addr_val = xp.array(shape.addresses)
+            if not xp.issubdtype(addr_val.dtype, xp.integer):
+                shape["addresses"] = addr_val.astype(xp.int32)
+                if not xp.allclose(addr_val, shape["addresses"]):
+                    warnings.warn(
+                        f"Non-integer value detected in addresses count of '{shape_name}'. "
+                        "Casting to int32 truncated fractional parts.",
+                        UserWarning,
+                    )
+
+            shape["hyper_edge_sets"] = _ensure_int_dict(
+                shape.hyper_edge_sets, xp, f"HyperEdgeSet count '{{k}}' of '{shape_name}'"
+            )
+
+        return graph
 
     # ------------------------------------------------------------------
     # Properties
@@ -275,7 +331,7 @@ class Graph(dict):
     # Graph algorithms
     # ------------------------------------------------------------------
 
-    def count_connected_components(self) -> tuple[int, any]:
+    def count_connected_components(self) -> tuple[int, Any]:
         """
         Count connected components and return per-address component labels.
 
@@ -287,19 +343,20 @@ class Graph(dict):
 
         def _max_propagate(*, graph: Graph, h_):
             h_new_ = backend.copy(h_)
-            edge_h = {}
+            edge_h: dict[str, list[Any]] = {}
             for edge_key, edge in graph.hyper_edge_sets.items():
                 edge_h[edge_key] = []
-                for _, address_array in edge.port_dict.items():
-                    edge_h[edge_key].append(h_new_[address_array.astype(int)])
-                edge_h[edge_key] = xp.stack(edge_h[edge_key], axis=0)
-                edge_h[edge_key] = xp.max(edge_h[edge_key], axis=0)
-                for _, address_array in edge.port_dict.items():
-                    new_val = xp.max(
-                        xp.stack([edge_h[edge_key], h_new_[address_array.astype(int)]], axis=0),
-                        axis=0,
-                    )
-                    h_new_ = backend.scatter_max(h_new_, address_array.astype(int), new_val)
+                if edge.port_dict is not None:
+                    for _, address_array in edge.port_dict.items():
+                        edge_h[edge_key].append(h_new_[address_array])
+                    edge_h[edge_key] = xp.stack(edge_h[edge_key], axis=0)
+                    edge_h[edge_key] = xp.max(edge_h[edge_key], axis=0)
+                    for _, address_array in edge.port_dict.items():
+                        new_val = xp.max(
+                            xp.stack([edge_h[edge_key], h_new_[address_array]], axis=0),
+                            axis=0,
+                        )
+                        h_new_ = backend.scatter_max(h_new_, address_array, new_val)
             return h_new_
 
         if not self.is_single:
@@ -329,7 +386,7 @@ class Graph(dict):
         if q_list is None:
             q_list = [0.0, 10.0, 25.0, 50.0, 75.0, 90.0, 100.0]
         xp = self._backend.xp
-        info = {}
+        metrics = {}
         for object_name, hes in self.hyper_edge_sets.items():
             if hes.feature_dict is not None:
                 for feature_name, array in hes.feature_dict.items():
@@ -341,8 +398,8 @@ class Graph(dict):
                                 value = xp.nanpercentile(array, q=q, axis=1)
                             else:
                                 raise ValueError("This graph is not single or batch and cannot be quantiled.")
-                            info[f"{object_name}/{feature_name}/{q}th-percentile"] = value
-        return info
+                            metrics[f"{object_name}/{feature_name}/{q}th-percentile"] = value
+        return metrics
 
 
 # ---------------------------------------------------------------------------
@@ -443,9 +500,11 @@ def concatenate_graphs(graph_list: list[Graph]) -> Graph:
     true_shape = sum_shapes([g.true_shape for g in graph_list])
     current_shape = sum_shapes([g.current_shape for g in graph_list])
 
-    [g.offset_addresses(offset=offset) for g, offset in zip(graph_list, offset_list)]
+    for g, offset in zip(graph_list, offset_list):
+        g.offset_addresses(offset=offset)
     hes = {k: concatenate_hyper_edge_sets([g.hyper_edge_sets[k] for g in graph_list]) for k in graph_list[0].hyper_edge_sets}
-    [g.offset_addresses(offset=-offset) for g, offset in zip(graph_list, offset_list)]
+    for g, offset in zip(graph_list, offset_list):
+        g.offset_addresses(offset=-offset)
 
     return cls(
         backend=backend,
@@ -504,7 +563,7 @@ def get_statistics(graph: Graph, axis: int | None = None, norm_graph: Graph | No
             fictitious = (mask == 0)[..., None]
             graph.hyper_edge_sets[key].feature_array = xp.where(fictitious, float("nan"), hes.feature_array)
 
-    info = {}
+    metrics = {}
     for object_name, hes in graph.hyper_edge_sets.items():
         if hes.feature_dict is not None:
             for feature_name, array in hes.feature_dict.items():
@@ -512,30 +571,28 @@ def get_statistics(graph: Graph, axis: int | None = None, norm_graph: Graph | No
                     array = xp.array([[0.0]]) if axis == 1 else xp.array([0.0])
 
                 rmse = xp.sqrt(xp.nanmean(array**2, axis=axis))
-                info["{}/{}/rmse".format(object_name, feature_name)] = rmse
-                if norm_graph is not None:
-                    norm_array = norm_graph.hyper_edge_sets[object_name].feature_dict[feature_name]
-                    norm_array = norm_array - xp.nanmean(norm_array)
-                    info["{}/{}/nrmse".format(object_name, feature_name)] = rmse / (
-                        xp.sqrt(xp.nanmean(norm_array**2, axis=axis)) + 1e-9
-                    )
-
                 mae = xp.nanmean(xp.abs(array), axis=axis)
-                info["{}/{}/mae".format(object_name, feature_name)] = mae
+                metrics["{}/{}/rmse".format(object_name, feature_name)] = rmse
+                metrics["{}/{}/mae".format(object_name, feature_name)] = mae
                 if norm_graph is not None:
-                    norm_array = norm_graph.hyper_edge_sets[object_name].feature_dict[feature_name]
-                    norm_array = norm_array - xp.nanmean(norm_array)
-                    info["{}/{}/nmae".format(object_name, feature_name)] = mae / (
-                        xp.nanmean(xp.abs(norm_array), axis=axis) + 1e-9
-                    )
+                    feature_dict = norm_graph.hyper_edge_sets[object_name].feature_dict
+                    if feature_dict is not None:
+                        norm_array = feature_dict[feature_name]
+                        norm_array = norm_array - xp.nanmean(norm_array)
+                        metrics["{}/{}/nrmse".format(object_name, feature_name)] = rmse / (
+                            xp.sqrt(xp.nanmean(norm_array**2, axis=axis)) + 1e-9
+                        )
+                        metrics["{}/{}/nmae".format(object_name, feature_name)] = mae / (
+                                xp.nanmean(xp.abs(norm_array), axis=axis) + 1e-9
+                        )
 
-                info["{}/{}/mean".format(object_name, feature_name)] = xp.nanmean(array, axis=axis)
-                info["{}/{}/std".format(object_name, feature_name)] = xp.nanstd(array, axis=axis)
-                info["{}/{}/max".format(object_name, feature_name)] = xp.nanmax(array, axis=axis)
-                info["{}/{}/90th".format(object_name, feature_name)] = xp.nanpercentile(array, q=90, axis=axis)
-                info["{}/{}/75th".format(object_name, feature_name)] = xp.nanpercentile(array, q=75, axis=axis)
-                info["{}/{}/50th".format(object_name, feature_name)] = xp.nanpercentile(array, q=50, axis=axis)
-                info["{}/{}/25th".format(object_name, feature_name)] = xp.nanpercentile(array, q=25, axis=axis)
-                info["{}/{}/10th".format(object_name, feature_name)] = xp.nanpercentile(array, q=10, axis=axis)
-                info["{}/{}/min".format(object_name, feature_name)] = xp.nanmin(array, axis=axis)
-    return info
+                metrics["{}/{}/mean".format(object_name, feature_name)] = xp.nanmean(array, axis=axis)
+                metrics["{}/{}/std".format(object_name, feature_name)] = xp.nanstd(array, axis=axis)
+                metrics["{}/{}/max".format(object_name, feature_name)] = xp.nanmax(array, axis=axis)
+                metrics["{}/{}/90th".format(object_name, feature_name)] = xp.nanpercentile(array, q=90, axis=axis)
+                metrics["{}/{}/75th".format(object_name, feature_name)] = xp.nanpercentile(array, q=75, axis=axis)
+                metrics["{}/{}/50th".format(object_name, feature_name)] = xp.nanpercentile(array, q=50, axis=axis)
+                metrics["{}/{}/25th".format(object_name, feature_name)] = xp.nanpercentile(array, q=25, axis=axis)
+                metrics["{}/{}/10th".format(object_name, feature_name)] = xp.nanpercentile(array, q=10, axis=axis)
+                metrics["{}/{}/min".format(object_name, feature_name)] = xp.nanmin(array, axis=axis)
+    return metrics

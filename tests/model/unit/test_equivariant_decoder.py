@@ -33,8 +33,8 @@ default_out_structure = GraphStructure(
 
 
 def assert_decoder_vmap_jit_output(*, decoder: MLPEquivariantDecoder, context: Graph, coordinates: jax.Array):
-    def apply(graph, coords, get_info):
-        return decoder(graph=graph, coordinates=coords, get_info=get_info)
+    def apply(graph, coords, step_with_metrics):
+        return decoder(graph=graph, coordinates=coords, step_with_metrics=step_with_metrics)
 
     # map over batch axis (graph batch and coords batch)
     apply_vmap = jax.vmap(apply, in_axes=(0, 0, None), out_axes=0)
@@ -74,8 +74,8 @@ def test_mlp_equivariant_decoder_init_deterministic():
         seed=3,
     )
 
-    out1, info1 = dec1(graph=jax_context, coordinates=coordinates, get_info=False)
-    out2, info2 = dec2(graph=jax_context, coordinates=coordinates, get_info=False)
+    out1, info1 = dec1(graph=jax_context, coordinates=coordinates, step_with_metrics=False)
+    out2, info2 = dec2(graph=jax_context, coordinates=coordinates, step_with_metrics=False)
 
     chex.assert_trees_all_close(out1, out2, atol=1e-6)
     assert info1 == {}
@@ -98,20 +98,23 @@ def test_mlp_equivariant_decoder_single_shapes_and_masking():
     # set first element fictitious for bus edge to test masking
     node_nf = jnp.array(np.array(node_edge.non_fictitious))
     node_nf = node_nf.at[0].set(0)
-    e1 = HyperEdgeSet(backend=JaxBackend(),
+    e1 = HyperEdgeSet(
+        backend=JaxBackend(),
         port_dict=node_edge.port_dict,
         feature_array=jnp.ones((n_node, 2)),
         feature_names={"a": jnp.array(0), "b": jnp.array(1)},
         non_fictitious=node_nf,
     )
-    e2 = HyperEdgeSet(backend=JaxBackend(),
+    e2 = HyperEdgeSet(
+        backend=JaxBackend(),
         port_dict=edge_edge.port_dict,
         feature_array=jnp.ones((n_edge, 3)),
         feature_names={"c": jnp.array(0), "d": jnp.array(1), "e": jnp.array(2)},
         non_fictitious=edge_edge.non_fictitious,
     )
 
-    custom_graph = Graph(backend=JaxBackend(),
+    custom_graph = Graph(
+        backend=JaxBackend(),
         hyper_edge_sets={"bus": e1, "line": e2},
         non_fictitious_addresses=jax_context.non_fictitious_addresses,
         true_shape=jax_context.true_shape,
@@ -134,7 +137,7 @@ def test_mlp_equivariant_decoder_single_shapes_and_masking():
         seed=4,
     )
 
-    out, info = decoder(graph=custom_graph, coordinates=coordinates, get_info=True)
+    out, info = decoder(graph=custom_graph, coordinates=coordinates, step_with_metrics=True)
 
     # shapes
     assert set(out.hyper_edge_sets.keys()) == set(default_out_structure.hyper_edge_sets.keys())
@@ -211,7 +214,7 @@ def test_mlp_equivariant_decoder_numeric_identity_node():
 
     decoder.mlp_dict["bus"] = select_coords
 
-    out_graph, _ = decoder(graph=jax_context, coordinates=coordinates, get_info=False)
+    out_graph, _ = decoder(graph=jax_context, coordinates=coordinates, step_with_metrics=False)
     node_out = out_graph.hyper_edge_sets["bus"].feature_array  # shape (n_obj, d)
     node_edge = jax_context.hyper_edge_sets["bus"]
     addr = np.array(node_edge.port_dict["id"]).astype(int)
@@ -250,7 +253,7 @@ def test_mlp_equivariant_decoder_numeric_identity_edge():
 
     decoder.mlp_dict["line"] = identity
 
-    out_graph, _ = decoder(graph=jax_context, coordinates=coordinates, get_info=False)
+    out_graph, _ = decoder(graph=jax_context, coordinates=coordinates, step_with_metrics=False)
     edge_out = out_graph.hyper_edge_sets["line"].feature_array  # shape (n_obj, input_dim)
 
     edge = jax_context.hyper_edge_sets["line"]
@@ -263,3 +266,34 @@ def test_mlp_equivariant_decoder_numeric_identity_edge():
     expected = np.concatenate([coords[addr0], coords[addr1], feats], axis=1) * nf[:, None]
 
     np.testing.assert_allclose(np.array(edge_out), expected, rtol=0.0, atol=1e-6)
+
+
+# Tests for mixed precision (dtype) support
+def test_mlp_equivariant_decoder_bf16_output_dtype_and_closeness():
+    from flax import nnx
+
+    kwargs = dict(
+        in_graph_structure=pb_loader.context_structure,
+        in_array_size=7,
+        out_structure=default_out_structure,
+        activation=jax.nn.relu,
+        hidden_sizes=[8],
+    )
+    dec_bf16 = MLPEquivariantDecoder(**kwargs, dtype=jnp.bfloat16, seed=7)
+    dec_fp32 = MLPEquivariantDecoder(**kwargs, seed=7)
+
+    out_bf16, _ = dec_bf16(graph=jax_context, coordinates=coordinates, step_with_metrics=False)
+    out_fp32, _ = dec_fp32(graph=jax_context, coordinates=coordinates, step_with_metrics=False)
+
+    for key, hyper_edge_set in out_bf16.hyper_edge_sets.items():
+        # output is cast back to the coordinates dtype
+        assert hyper_edge_set.feature_array.dtype == coordinates.dtype
+        np.testing.assert_allclose(
+            np.array(hyper_edge_set.feature_array),
+            np.array(out_fp32.hyper_edge_sets[key].feature_array),
+            rtol=0.1,
+            atol=0.1,
+        )
+    # parameters remain stored in float32
+    for leaf in jax.tree.leaves(nnx.state(dec_bf16, nnx.Param)):
+        assert leaf.dtype == jnp.float32

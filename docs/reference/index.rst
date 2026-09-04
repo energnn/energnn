@@ -8,6 +8,7 @@ of energnn classes and methods.
     :maxdepth: 1
 
     graph/index
+    converter/index
     model/index
     problem/index
     trainer/index

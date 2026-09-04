@@ -17,7 +17,7 @@ def test_identity_encoder():
     encoder = IdentityEncoder()
 
     def f(encoder, graph):
-        return encoder(graph=graph, get_info=False)
+        return encoder(graph=graph, step_with_metrics=False)
 
     encoder_vmap = nnx.jit(nnx.vmap(f, in_axes=(None, 0), out_axes=0))
 
@@ -38,7 +38,7 @@ def test_mlp_encoder():
     )
 
     def f(encoder, graph):
-        return encoder(graph=graph, get_info=False)
+        return encoder(graph=graph, step_with_metrics=False)
 
     encoder_vmap = nnx.jit(nnx.vmap(f, in_axes=(None, 0), out_axes=0))
 
