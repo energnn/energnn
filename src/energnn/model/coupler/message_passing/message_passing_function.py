@@ -13,7 +13,7 @@ from flax.nnx import initializers
 from flax.typing import Dtype, Initializer
 
 from energnn.graph import GraphStructure, Graph
-from energnn.model.utils import Activation, MLP, gather, scatter_add
+from energnn.model.utils import Activation, MLP, gather, scatter_add, scatter_max
 
 
 class MessagePassingFunction(nnx.Module, ABC):
@@ -231,6 +231,196 @@ class LocalSumMessagePassingFunction(MessagePassingFunction):
         )
 
         return self.outer_activation(accumulator).astype(out_dtype), {}
+
+
+class GATv2MessagePassingFunction(MessagePassingFunction):
+    r"""
+    GATv2 attention message function module for GNN message passing.
+
+    This module aggregates messages from each address's local neighborhood with
+    dynamic attention weights (Brody et al. 2022). A class- and port-specific MLP
+    produces, for each head, an additive score and a value from the hyper-edge
+    input :math:`h_e`; the scores are softmax-normalized over the incoming
+    neighbors of an address, and the output is the attention-weighted sum of the
+    values, concatenated across heads.
+
+    For each address :math:`a`, the output is defined as:
+
+    .. math::
+        \alpha^{i}_{c,e,o} = \operatorname*{softmax}_{(c,e,o) \in \mathcal{N}_x(a)}
+            s^{c,o,i}_\theta(h_e), \qquad
+        \psi_\theta(h,x)_a = \sigma\!\left(
+            \bigoplus_{i=1}^{H}
+            \sum_{(c,e,o) \in \mathcal{N}_x(a)} \alpha^{i}_{c,e,o}\,
+            \xi^{c,o,i}_\theta(h_e)
+        \right),
+
+    where :math:`s^{c,o,i}_\theta` and :math:`\xi^{c,o,i}_\theta` are the score and
+    value heads of a shared class- and port-specific MLP, :math:`H` is the number
+    of heads, :math:`\bigoplus` is concatenation over heads, :math:`\sigma` is an
+    element-wise activation function, and :math:`h_e := (h_{o(e)})_{o \in {\mathcal{O}^c}}`
+    is the concatenation of port coordinates of hyper-edge :math:`e`.
+
+    :param in_graph_structure: Input graph structure.
+    :param in_array_size: Size of the input coordinate arrays.
+    :param hidden_sizes: Hidden sizes of the MLPs.
+    :param n_heads: Number of attention heads; ``out_size`` must be divisible by it.
+    :param activation: Activation function for the MLPs.
+    :param out_size: Output size per address, concatenated over heads.
+    :param use_bias: Whether to use bias in the MLPs.
+    :param kernel_init: Kernel initializer for the MLPs.
+    :param bias_init: Bias initializer for the MLPs.
+    :param final_activation: Final activation function for the MLPs.
+    :param outer_activation: Activation function :math:`\sigma` applied over the output.
+    :param encoded_feature_size: None if the input data has not been encoded, otherwise the size of the encoded features.
+    :param port_scatter_blacklist: Dictionary mapping hyper-edge set keys to lists of port keys to be excluded from the sum.
+    :param eps: Numerical stability term in the softmax denominator.
+    :param seed: Seed for RNG streams for weight initialization.
+    """
+
+    def __init__(
+        self,
+        in_graph_structure: GraphStructure,
+        in_array_size: int,
+        hidden_sizes: list[int],
+        n_heads: int = 1,
+        activation: Activation = nnx.leaky_relu,
+        out_size: int = 1,
+        use_bias: bool = True,
+        kernel_init: Initializer = initializers.lecun_normal(),
+        bias_init: Initializer = initializers.zeros_init(),
+        final_activation: Activation | None = None,
+        outer_activation: Activation = nnx.tanh,
+        encoded_feature_size: int | None = None,
+        port_scatter_blacklist: dict[str, list[str]] | None = None,
+        eps: float = 1e-9,
+        seed: int | None = None,
+        rngs: nnx.Rngs | None = None,
+    ):
+        if out_size % n_heads != 0:
+            raise ValueError(f"out_size ({out_size}) must be divisible by n_heads ({n_heads}).")
+        self.in_graph_structure = in_graph_structure
+        self.in_array_size = in_array_size
+        self.hidden_sizes = hidden_sizes
+        self.n_heads = n_heads
+        self.activation = activation
+        self.out_size = out_size
+        self.use_bias = use_bias
+        self.kernel_init = kernel_init
+        self.bias_init = bias_init
+        self.final_activation = final_activation
+        self.outer_activation = outer_activation
+        self.encoded_feature_size = encoded_feature_size
+        if port_scatter_blacklist is None:
+            self.port_scatter_blacklist = {}
+        else:
+            self.port_scatter_blacklist = port_scatter_blacklist
+        self.eps = eps
+
+        self.mlp_tree = self._build_mlp_tree(seed=seed, rngs=rngs)
+
+    def _build_mlp_tree(self, seed: int | None = 0, rngs: nnx.Rngs | None = None) -> dict[str, dict[str, MLP]]:
+        if rngs is None:
+            rngs = nnx.Rngs(seed)
+        elif seed is not None:
+            raise ValueError("Seed must be None when rngs are provided.")
+        mlp_tree: dict[str, dict[str, MLP]] = {}
+
+        # A shared MLP per (class, port) outputs n_heads scores and out_size value channels.
+        fused_out_size = self.out_size + self.n_heads
+
+        for key, hyper_edge_set_structure in self.in_graph_structure.hyper_edge_sets.items():
+            if hyper_edge_set_structure.port_list is not None and len(hyper_edge_set_structure.port_list) > 0:
+                n_ports = len(hyper_edge_set_structure.port_list)
+                in_size = self.in_array_size * n_ports
+                if hyper_edge_set_structure.feature_list is not None and len(hyper_edge_set_structure.feature_list) > 0:
+                    if self.encoded_feature_size is not None:
+                        in_size += self.encoded_feature_size
+                    else:
+                        in_size += len(hyper_edge_set_structure.feature_list)
+
+                if key not in mlp_tree.keys():
+                    mlp_tree[key] = {}
+
+                for port_key in hyper_edge_set_structure.port_list:
+                    if port_key not in self.port_scatter_blacklist.get(key, []):
+                        mlp_tree[key][port_key] = MLP(
+                            in_size=in_size,
+                            hidden_sizes=self.hidden_sizes,
+                            activation=self.activation,
+                            out_size=fused_out_size,
+                            use_bias=self.use_bias,
+                            kernel_init=self.kernel_init,
+                            bias_init=self.bias_init,
+                            final_activation=self.final_activation,
+                            rngs=rngs,
+                        )
+        return nnx.data(mlp_tree)
+
+    def __call__(self, *, graph: Graph, coordinates: jax.Array, step_with_metrics: bool = False) -> tuple[jax.Array, dict]:
+        n_addresses = coordinates.shape[0]
+        value_size = self.out_size // self.n_heads
+        neg_inf = jnp.float32(-1.0e30)
+
+        def scores_and_values(edge_mlp_tuple):
+            """Evaluates the shared MLP once per port, returning masked scores and values per edge."""
+            hyper_edge_set, mlp_dict = edge_mlp_tuple
+            input_array = []
+            if hyper_edge_set.feature_names is not None:
+                input_array.append(hyper_edge_set.feature_array)
+            for port_name, port_array in hyper_edge_set.port_dict.items():
+                input_array.append(gather(coordinates=coordinates, addresses=port_array))
+            input_array = jnp.concatenate(input_array, axis=-1)
+            non_fictitious_mask = jnp.expand_dims(hyper_edge_set.non_fictitious, -1)
+            masked_input = input_array * non_fictitious_mask
+
+            def score_and_value(mlp, port_array):
+                """Evaluates the fused MLP for one port, returning its masked score and value."""
+                output = mlp(masked_input)
+                score = jnp.where(non_fictitious_mask, output[:, : self.n_heads], neg_inf)
+                value = output[:, self.n_heads :].reshape(-1, self.n_heads, value_size) * non_fictitious_mask[:, :, None]
+                return score, value, port_array
+
+            return {
+                port_name: score_and_value(mlp, hyper_edge_set.port_dict[port_name]) for port_name, mlp in mlp_dict.items()
+            }
+
+        edge_terms = {
+            key: scores_and_values((hyper_edge_set, self.mlp_tree[key]))
+            for key, hyper_edge_set in graph.hyper_edge_sets.items()
+        }
+
+        def max_over_ports(accumulator, term):
+            """Accumulates the per-receiver, per-head maximum score over one port."""
+            score, _, port_array = term
+            return scatter_max(accumulator=accumulator, increment=score, addresses=port_array)
+
+        max_scores = jax.tree.reduce(
+            max_over_ports,
+            edge_terms,
+            initializer=jnp.full((n_addresses, self.n_heads), neg_inf),
+            is_leaf=lambda x: isinstance(x, tuple),
+        )
+
+        def weight_over_ports(accumulator, term):
+            """Accumulates the softmax-weighted value sum and weight sum over one port."""
+            value_accumulator, weight_accumulator = accumulator
+            score, value, port_array = term
+            weight = jnp.exp(score - gather(coordinates=max_scores, addresses=port_array))
+            weighted_value = (weight[:, :, None] * value).reshape(-1, self.out_size)
+            value_accumulator = scatter_add(accumulator=value_accumulator, increment=weighted_value, addresses=port_array)
+            weight_accumulator = scatter_add(accumulator=weight_accumulator, increment=weight, addresses=port_array)
+            return value_accumulator, weight_accumulator
+
+        value_sum, weight_sum = jax.tree.reduce(
+            weight_over_ports,
+            edge_terms,
+            initializer=(jnp.zeros((n_addresses, self.out_size)), jnp.zeros((n_addresses, self.n_heads))),
+            is_leaf=lambda x: isinstance(x, tuple),
+        )
+
+        output = value_sum.reshape(n_addresses, self.n_heads, value_size) / (weight_sum[:, :, None] + self.eps)
+        return self.outer_activation(output.reshape(n_addresses, self.out_size)), {}
 
 
 class IdentityMessagePassingFunction(MessagePassingFunction):

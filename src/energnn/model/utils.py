@@ -128,3 +128,19 @@ def scatter_add(*, accumulator: jax.Array, increment: jax.Array, addresses: jax.
     :returns: Updated accumulator array after adding increments.
     """
     return accumulator.at[addresses].add(increment, mode="drop")
+
+
+def scatter_max(*, accumulator: jax.Array, increment: jax.Array, addresses: jax.Array) -> jax.Array:
+    """
+    Combine an accumulator with an element-wise maximum at specified addresses.
+
+    For each address :math:`a = \\text{addresses}[i]`, the accumulator entry is
+    updated to :math:`\\max(\\text{accumulator}[a], \\text{increment}[i])`.
+    Out-of-bounds addresses are dropped.
+
+    :param accumulator: Array initialized to a low sentinel (e.g. ``-inf``).
+    :param increment: Values to max-reduce into the accumulator.
+    :param addresses: Destination address of each increment.
+    :returns: Updated accumulator array.
+    """
+    return accumulator.at[addresses].max(increment, mode="drop")
