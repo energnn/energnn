@@ -321,6 +321,45 @@ class TestJitCaching:
 
         assert counts == {"forward": 1, "backward": 1}
 
+    def test_ready_model_traced_once_across_steps(self, loader: LinearSystemProblemLoader, batch: ProblemBatch) -> None:
+        """The full ready-to-use model must not re-trace across steps.
+
+        Regression test: the TDigestModule used to store NaN static attributes (clip_min/clip_max),
+        and NaN != NaN made every graphdef comparison fail, forcing a re-trace and re-compile of
+        the forward and backward at every training step.
+        """
+        from energnn.model.ready_to_use import ReadyRecurrentEquivariantGNN
+
+        model = ReadyRecurrentEquivariantGNN(
+            in_structure=loader.context_structure,
+            out_structure=loader.decision_structure,
+            n_breakpoints=4,
+            latent_dimension=4,
+            hidden_sizes=[4],
+            n_steps=2,
+        )
+        counts = {"forward": 0, "backward": 0}
+        original_forward = Trainer._forward_vjp
+        original_backward = Trainer._backward_update
+
+        def counting_forward(*args, **kwargs):
+            counts["forward"] += 1
+            return original_forward(*args, **kwargs)
+
+        def counting_backward(*args, **kwargs):
+            counts["backward"] += 1
+            return original_backward(*args, **kwargs)
+
+        with (
+            mock.patch.object(Trainer, "_forward_vjp", staticmethod(counting_forward)),
+            mock.patch.object(Trainer, "_backward_update", staticmethod(counting_backward)),
+        ):
+            trainer = Trainer(model=model, gradient_transformation=optax.sgd(1e-3))
+            for _ in range(3):
+                trainer.training_step(batch, step_with_metrics=False)
+
+        assert counts == {"forward": 1, "backward": 1}
+
     def test_normalizer_updated_exactly_once_per_training_step(self, loader: LinearSystemProblemLoader) -> None:
         """The forward and the backward recomputation must not both commit normalizer state updates."""
         from energnn.model.ready_to_use import ReadyRecurrentEquivariantGNN
