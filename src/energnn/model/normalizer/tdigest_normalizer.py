@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Sequence, Union
 import logging
@@ -197,7 +198,7 @@ class JaxTDigest:
     def tree_unflatten(cls, aux_data, children):
         return cls(*aux_data, *children)
 
-    def is_empty(self) -> bool:
+    def is_empty(self) -> FloatArray | bool:
         return self.mass == 0
 
     @property
@@ -205,15 +206,15 @@ class JaxTDigest:
         return self.centroids.shape[0]
 
     @property
-    def mass(self) -> float:
+    def mass(self) -> FloatArray | float:
         return self.stats[..., 0]
 
     @property
-    def min_value(self) -> float:
+    def min_value(self) -> FloatArray | float:
         return self.stats[..., 1]
 
     @property
-    def max_value(self) -> float:
+    def max_value(self) -> FloatArray | float:
         return self.stats[..., 2]
 
     def _merge_unsorted(self, x: FloatArray, w: FloatArray) -> "JaxTDigest":
@@ -328,8 +329,8 @@ class TDigestModule(nnx.Module):
         max_centroids: int,
         use_running_average: bool,
         saturation_strategy: str | None = None,
-        clip_min: float | None = None,
-        clip_max: float | None = None,
+        clip_min: float = float("nan"),
+        clip_max: float = float("nan"),
         update_frequency: int = 1,
     ):
         """
@@ -352,7 +353,7 @@ class TDigestModule(nnx.Module):
         if saturation_strategy not in [None, "hard", "soft"]:
             raise ValueError(f"saturation_strategy must be None, 'hard' or 'soft', got {saturation_strategy}")
         if saturation_strategy == "hard":
-            if clip_min is None or clip_max is None:
+            if math.isnan(clip_min) or math.isnan(clip_max):
                 raise ValueError("clip_min and clip_max must be provided when saturation_strategy is 'hard'")
             if clip_min >= clip_max:
                 raise ValueError(f"clip_min must be strictly less than clip_max, got {clip_min} >= {clip_max}")
@@ -422,7 +423,8 @@ class TDigestModule(nnx.Module):
     def __call__(self, array: jax.Array, non_fictitious: jax.Array) -> jax.Array:
         is_training = not self.use_running_average
         should_update = (
-            is_training & (self.updates[...] < self.update_limit)[0] & (self.train_steps[...] % self.update_frequency == 0)[0]
+            is_training & jnp.bool_(jnp.any(self.updates[...] < self.update_limit))
+            & jnp.bool_(jnp.any(self.train_steps[...] % self.update_frequency == 0))
         )
 
         if array.ndim == 3:
@@ -517,8 +519,8 @@ class TDigestNormalizer(Normalizer):
         max_centroids: int = 1000,
         use_running_average: bool = False,
         saturation_strategy: str | None = None,
-        clip_min: float | None = None,
-        clip_max: float | None = None,
+        clip_min: float = float("nan"),
+        clip_max: float = float("nan"),
         update_frequency: int = 1,
         return_metrics: bool = False,
     ):
@@ -542,7 +544,7 @@ class TDigestNormalizer(Normalizer):
         if saturation_strategy not in [None, "hard", "soft"]:
             raise ValueError(f"saturation_strategy must be None, 'hard' or 'soft', got {saturation_strategy}")
         if saturation_strategy == "hard":
-            if clip_min is None or clip_max is None:
+            if math.isnan(clip_min) or math.isnan(clip_max):
                 raise ValueError("clip_min and clip_max must be provided when saturation_strategy is 'hard'")
             if clip_min >= clip_max:
                 raise ValueError(f"clip_min must be strictly less than clip_max, got {clip_min} >= {clip_max}")
@@ -560,9 +562,9 @@ class TDigestNormalizer(Normalizer):
 
         self.module_dict = self._build_module_dict()
 
-    def _build_module_dict(self) -> dict[str, dict[str, TDigestModule]]:
+    def _build_module_dict(self) -> dict[str, TDigestModule | None]:
         """Creates a TDigest module for each hyper-edge set key in the graph structure."""
-        module_dict = {}
+        module_dict: dict[str, TDigestModule | None] = {}
         for key, hyper_edge_set_structure in self.in_structure.hyper_edge_sets.items():
             if hyper_edge_set_structure.feature_list is not None:
                 in_size = len(hyper_edge_set_structure.feature_list)

@@ -41,7 +41,7 @@ def to_numpy(a: dict | np.ndarray | jax.Array | tuple | None) -> dict | np.ndarr
             return x
 
     if isinstance(a, dict):
-        output: dict[Any, np.array] = {}
+        output: dict[Any, np.ndarray] = {}
         for key, value in a.items():
             output[key] = _to_np(value)  # seules les values “ArrayLike” seront converties
         return output

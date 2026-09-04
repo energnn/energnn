@@ -4,6 +4,7 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
+import math
 from unittest import mock
 from unittest.mock import MagicMock
 
@@ -84,7 +85,7 @@ def test_trainer_init():
     assert trainer.model is model
     assert isinstance(trainer.optimizer, nnx.Optimizer)
     assert trainer.train_step == 0
-    assert trainer.best_score == None
+    assert math.isnan(trainer.best_score)
 
 
 def test_training_step_basic():

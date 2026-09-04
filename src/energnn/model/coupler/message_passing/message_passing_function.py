@@ -20,7 +20,7 @@ class MessagePassingFunction(nnx.Module, ABC):
     r"""Interface for a message function :math:`\xi_\theta` in a GNN message passing scheme."""
 
     @abstractmethod
-    def __call__(self, graph: Graph, coordinates: jax.Array, step_with_metrics: bool = False) -> tuple[jax.Array, dict]:
+    def __call__(self, *, graph: Graph, coordinates: jax.Array, step_with_metrics: bool = False) -> tuple[jax.Array, dict]:
         """Should take as input a tuple (graph, coordinates) and return new coordinates."""
         raise NotImplementedError
 

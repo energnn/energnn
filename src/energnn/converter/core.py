@@ -98,7 +98,7 @@ def _str_to_int(df_port_dict: dict[str, pd.DataFrame | None]) -> tuple[dict[str,
     all_addresses = pd.Index(np.sort(pd.unique(np.concatenate(address_arrays))))
 
     # 2. Translate each table through a vectorized hash lookup against the sorted addresses.
-    out_dict = {}
+    out_dict: dict[str, pd.DataFrame | None] = {}
     for k, df in df_port_dict.items():
         if df is not None:
             indices = all_addresses.get_indexer(df.values.ravel()).reshape(df.shape)
@@ -127,7 +127,7 @@ def _any_to_float(
     :return: New float tables, in the same layout as the input.
     """
 
-    out_dict = {}
+    out_dict: dict[str, pd.DataFrame | None] = {}
     for k, df in feature_tables.items():
         if df is not None:
             df = df.copy()

@@ -19,7 +19,7 @@ class Normalizer(nnx.Module, ABC):
     """
 
     @abstractmethod
-    def __call__(self, graph: Graph, step_with_metrics: bool = False) -> tuple[Graph, dict]:
+    def __call__(self, *, graph: Graph, step_with_metrics: bool = False) -> tuple[Graph, dict]:
         """Normalize the input graph features.
 
         :param graph: Input graph to normalize.
