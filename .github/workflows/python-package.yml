@@ -61,6 +61,7 @@ jobs:
         run: uv publish
 
   sonar:
+    runs-on: ubuntu-latest
     name: Run SonarCloud scan
     steps:
       - name: Checkout sources
