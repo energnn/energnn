@@ -377,7 +377,7 @@ class Trainer:
             self._log_stage("get_context", jax_context, t_start)
 
             t_start = time.perf_counter()
-            graphdef, params, *rest = nnx.split(self.model, nnx.Param, ...)
+            graphdef, params, rest = nnx.split(self.model, nnx.Param, ...) # type: ignore
             jax_decision, rest_updated, vjp_fn = self._jit_forward_vjp(graphdef, params, rest, jax_context, step_with_metrics)
             self._log_stage("forward", jax_decision, t_start)
 
