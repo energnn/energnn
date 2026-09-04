@@ -59,3 +59,26 @@ jobs:
         if: ${{ github.event_name == 'release'}}
         shell: bash
         run: uv publish
+
+  sonar:
+    name: Run SonarCloud scan
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Install UV
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+
+      - name: Install package
+        run: |
+          uv venv
+          source .venv/bin/activate
+          uv sync --group dev  
+      
+      - name: Generate coverage report
+        run: |
+          uv run coverage -m pytest tests
+          uv run coverage xml
+
+      - name: Sonar analysis
+        uses: SonarSource/sonarqube-scan-action@299e4b793aaa83bf2aba7c9c14bedbb485688ec4 # v7.1.0
