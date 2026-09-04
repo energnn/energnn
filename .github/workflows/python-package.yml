@@ -78,7 +78,7 @@ jobs:
       
       - name: Generate coverage report
         run: |
-          uv run coverage -m pytest tests
+          uv run coverage run -m pytest tests
           uv run coverage xml
 
       - name: Sonar analysis
