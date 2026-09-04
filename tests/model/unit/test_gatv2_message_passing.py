@@ -49,7 +49,7 @@ def test_mlp_tree_fuses_scores_and_values():
 @pytest.mark.parametrize("n_heads", [1, 2, 4])
 def test_forward_shape_and_finite(n_heads):
     mf = _make_gatv2(n_heads=n_heads, out_size=8, seed=0)
-    out, info = mf(graph=jax_context, coordinates=coordinates, get_info=False)
+    out, info = mf(graph=jax_context, coordinates=coordinates, step_with_metrics=False)
     assert out.shape == (10, 8)
     assert bool(jnp.all(jnp.isfinite(out)))
     assert info == {}
@@ -150,7 +150,7 @@ def test_vmap_jit_safety():
     mf = _make_gatv2(n_heads=2, out_size=8, seed=1)
 
     def forward(message_function, graph, coords):
-        return message_function(graph=graph, coordinates=coords, get_info=False)[0]
+        return message_function(graph=graph, coordinates=coords, step_with_metrics=False)[0]
 
     batched = nnx.jit(nnx.vmap(forward, in_axes=(None, 0, 0), out_axes=0))
     out = batched(mf, jax_context_batch, coordinates_batch)

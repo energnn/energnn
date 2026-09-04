@@ -319,12 +319,12 @@ class GATv2MessagePassingFunction(MessagePassingFunction):
 
         self.mlp_tree = self._build_mlp_tree(seed=seed, rngs=rngs)
 
-    def _build_mlp_tree(self, seed: int = 0, rngs: nnx.Rngs | None = None) -> dict[str, dict[str, MLP]]:
+    def _build_mlp_tree(self, seed: int | None = 0, rngs: nnx.Rngs | None = None) -> dict[str, dict[str, MLP]]:
         if rngs is None:
             rngs = nnx.Rngs(seed)
         elif seed is not None:
             raise ValueError("Seed must be None when rngs are provided.")
-        mlp_tree = {}
+        mlp_tree: dict[str, dict[str, MLP]] = {}
 
         # A shared MLP per (class, port) outputs n_heads scores and out_size value channels.
         fused_out_size = self.out_size + self.n_heads
@@ -357,7 +357,7 @@ class GATv2MessagePassingFunction(MessagePassingFunction):
                         )
         return nnx.data(mlp_tree)
 
-    def __call__(self, *, graph: Graph, coordinates: jax.Array, get_info: bool = False) -> tuple[jax.Array, dict]:
+    def __call__(self, *, graph: Graph, coordinates: jax.Array, step_with_metrics: bool = False) -> tuple[jax.Array, dict]:
         n_addresses = coordinates.shape[0]
         value_size = self.out_size // self.n_heads
         neg_inf = jnp.float32(-1.0e30)
