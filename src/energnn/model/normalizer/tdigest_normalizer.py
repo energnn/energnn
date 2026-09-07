@@ -6,14 +6,15 @@
 
 from __future__ import annotations
 
-import math
+import logging
 from dataclasses import dataclass
 from typing import Sequence, Union
-import logging
+
 import jax
 import jax.numpy as jnp
 from flax import nnx
-from energnn.graph import GraphStructure, Graph, HyperEdgeSet
+
+from energnn.graph import Graph, GraphStructure, HyperEdgeSet
 from .normalizer import Normalizer
 
 ArrayLike = Union[float, Sequence[float], jnp.ndarray]
@@ -329,8 +330,8 @@ class TDigestModule(nnx.Module):
         max_centroids: int,
         use_running_average: bool,
         saturation_strategy: str | None = None,
-        clip_min: float = float("nan"),
-        clip_max: float = float("nan"),
+        clip_min: float | None = None,
+        clip_max: float | None = None,
         update_frequency: int = 1,
     ):
         """
@@ -353,7 +354,7 @@ class TDigestModule(nnx.Module):
         if saturation_strategy not in [None, "hard", "soft"]:
             raise ValueError(f"saturation_strategy must be None, 'hard' or 'soft', got {saturation_strategy}")
         if saturation_strategy == "hard":
-            if math.isnan(clip_min) or math.isnan(clip_max):
+            if clip_min is None or clip_max is None:
                 raise ValueError("clip_min and clip_max must be provided when saturation_strategy is 'hard'")
             if clip_min >= clip_max:
                 raise ValueError(f"clip_min must be strictly less than clip_max, got {clip_min} >= {clip_max}")
@@ -423,7 +424,8 @@ class TDigestModule(nnx.Module):
     def __call__(self, array: jax.Array, non_fictitious: jax.Array) -> jax.Array:
         is_training = not self.use_running_average
         should_update = (
-            is_training & jnp.bool_(jnp.any(self.updates[...] < self.update_limit))
+            is_training
+            & jnp.bool_(jnp.any(self.updates[...] < self.update_limit))
             & jnp.bool_(jnp.any(self.train_steps[...] % self.update_frequency == 0))
         )
 
@@ -485,6 +487,7 @@ class TDigestModule(nnx.Module):
 
     def _apply_saturation(self, out: jax.Array) -> jax.Array:
         if self.saturation_strategy == "hard":
+            assert self.clip_min is not None and self.clip_max is not None
 
             # Warning mechanism only for hard clipping
             def log_clipping(has_clipped):
@@ -519,8 +522,8 @@ class TDigestNormalizer(Normalizer):
         max_centroids: int = 1000,
         use_running_average: bool = False,
         saturation_strategy: str | None = None,
-        clip_min: float = float("nan"),
-        clip_max: float = float("nan"),
+        clip_min: float | None = None,
+        clip_max: float | None = None,
         update_frequency: int = 1,
         return_metrics: bool = False,
     ):
@@ -544,7 +547,7 @@ class TDigestNormalizer(Normalizer):
         if saturation_strategy not in [None, "hard", "soft"]:
             raise ValueError(f"saturation_strategy must be None, 'hard' or 'soft', got {saturation_strategy}")
         if saturation_strategy == "hard":
-            if math.isnan(clip_min) or math.isnan(clip_max):
+            if clip_min is None or clip_max is None:
                 raise ValueError("clip_min and clip_max must be provided when saturation_strategy is 'hard'")
             if clip_min >= clip_max:
                 raise ValueError(f"clip_min must be strictly less than clip_max, got {clip_min} >= {clip_max}")
