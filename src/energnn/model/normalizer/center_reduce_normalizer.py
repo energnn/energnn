@@ -102,11 +102,11 @@ class HyperEdgeSetCenterReduceNormalizer(nnx.Module):
 
     def _update_stats(self, x: jax.Array, mask: jax.Array, is_batched: bool, is_training: bool):
         if is_batched:
-            current_mean = x.mean(axis=(0, 1), where=jnp.isclose(mask, 1.))
-            current_var = x.var(axis=(0, 1), where=jnp.isclose(mask, 1.))
+            current_mean = x.mean(axis=(0, 1), where=jnp.isclose(mask, 1.0))
+            current_var = x.var(axis=(0, 1), where=jnp.isclose(mask, 1.0))
         else:
-            current_mean = x.mean(axis=0, where=jnp.isclose(mask, 1.))
-            current_var = x.var(axis=0, where=jnp.isclose(mask, 1.))
+            current_mean = x.mean(axis=0, where=jnp.isclose(mask, 1.0))
+            current_var = x.var(axis=0, where=jnp.isclose(mask, 1.0))
 
         if self.mean._can_update or self.var._can_update:
             stop_gradient = jax.lax.stop_gradient
@@ -134,7 +134,6 @@ class HyperEdgeSetCenterReduceNormalizer(nnx.Module):
 
     def _apply_saturation(self, out: jax.Array) -> jax.Array:
         if self.saturation_strategy == "hard":
-            # Guaranteed by the __init__ validation; lets mypy narrow float | None to float
             assert self.clip_min is not None and self.clip_max is not None
 
             # Warning mechanism only for hard clipping
