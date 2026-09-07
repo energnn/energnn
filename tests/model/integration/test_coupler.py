@@ -7,6 +7,7 @@ import diffrax
 from flax import nnx
 
 from energnn.model import (
+    GATv2MessagePassingFunction,
     LocalSumMessagePassingFunction,
     MLP,
     NODECoupler,
@@ -61,6 +62,37 @@ def test_recurrent_coupler():
                 in_graph_structure=loader.context_structure,
                 in_array_size=4,
                 out_size=4,
+                hidden_sizes=[4],
+                activation=nnx.leaky_relu,
+                final_activation=nnx.tanh,
+                outer_activation=nnx.tanh,
+                seed=64,
+            )
+        ],
+        n_steps=4,
+    )
+
+    def f(coupler, graph):
+        return coupler(graph=graph, step_with_metrics=False)
+
+    coupler_vmap = nnx.jit(nnx.vmap(f, in_axes=(None, 0), out_axes=0))
+
+    coordinates_batch, _ = coupler_vmap(coupler=coupler, graph=context_batch)
+
+
+def test_recurrent_coupler_with_gatv2():
+    loader = LinearSystemProblemLoader(seed=0).__iter__()
+    problem_batch = next(loader)
+    context_batch, _ = problem_batch.get_context()
+
+    coupler = RecurrentCoupler(
+        phi=MLP(in_size=4, hidden_sizes=[], out_size=4, seed=64, final_activation=nnx.tanh),
+        message_functions=[
+            GATv2MessagePassingFunction(
+                in_graph_structure=loader.context_structure,
+                in_array_size=4,
+                out_size=4,
+                n_heads=2,
                 hidden_sizes=[4],
                 activation=nnx.leaky_relu,
                 final_activation=nnx.tanh,

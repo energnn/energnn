@@ -5,6 +5,10 @@
 [![MPL-2.0 License](https://img.shields.io/badge/license-MPL_2.0-blue.svg)](https://www.mozilla.org/en-US/MPL/2.0/)
 [![Actions Status](https://github.com/energnn/energnn/actions/workflows/python-package.yml/badge.svg)](https://github.com/energnn/energnn/actions/workflows/python-package.yml)
 
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=energnn&metric=alert_status)](https://sonarcloud.io/dashboard?id=energnn)
+[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=energnn&metric=coverage)](https://sonarcloud.io/dashboard?id=energnn)
+
+
 A Graph Neural Network library based on [JAX](https://docs.jax.dev/) and [Flax](https://flax.readthedocs.io/), specifically
 designed for real-life energy networks and large complex industrial infrastructures.
 

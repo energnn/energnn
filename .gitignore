@@ -13,3 +13,4 @@
 # Doc
 /docs/_build
 /docs/**/_autosummary/
+.ipynb_checkpoints/
