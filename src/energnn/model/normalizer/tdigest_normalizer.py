@@ -6,13 +6,15 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Sequence, Union
-import logging
+
 import jax
 import jax.numpy as jnp
 from flax import nnx
-from energnn.graph import GraphStructure, Graph, HyperEdgeSet
+
+from energnn.graph import Graph, GraphStructure, HyperEdgeSet
 from .normalizer import Normalizer
 
 ArrayLike = Union[float, Sequence[float], jnp.ndarray]
@@ -422,7 +424,8 @@ class TDigestModule(nnx.Module):
     def __call__(self, array: jax.Array, non_fictitious: jax.Array) -> jax.Array:
         is_training = not self.use_running_average
         should_update = (
-            is_training & jnp.bool_(jnp.any(self.updates[...] < self.update_limit))
+            is_training
+            & jnp.bool_(jnp.any(self.updates[...] < self.update_limit))
             & jnp.bool_(jnp.any(self.train_steps[...] % self.update_frequency == 0))
         )
 
@@ -484,7 +487,6 @@ class TDigestModule(nnx.Module):
 
     def _apply_saturation(self, out: jax.Array) -> jax.Array:
         if self.saturation_strategy == "hard":
-            # Guaranteed by the __init__ validation; lets mypy narrow float | None to float
             assert self.clip_min is not None and self.clip_max is not None
 
             # Warning mechanism only for hard clipping

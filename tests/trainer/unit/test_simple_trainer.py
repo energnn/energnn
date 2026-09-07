@@ -322,12 +322,7 @@ class TestJitCaching:
         assert counts == {"forward": 1, "backward": 1}
 
     def test_ready_model_traced_once_across_steps(self, loader: LinearSystemProblemLoader, batch: ProblemBatch) -> None:
-        """The full ready-to-use model must not re-trace across steps.
-
-        Regression test: the TDigestModule used to store NaN static attributes (clip_min/clip_max),
-        and NaN != NaN made every graphdef comparison fail, forcing a re-trace and re-compile of
-        the forward and backward at every training step.
-        """
+        """The full ready-to-use model must not re-trace across steps."""
         from energnn.model.ready_to_use import ReadyRecurrentEquivariantGNN
 
         model = ReadyRecurrentEquivariantGNN(
