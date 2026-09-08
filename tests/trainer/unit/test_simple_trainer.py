@@ -221,8 +221,8 @@ def test_train_loop_basic():
 
     # 2 epochs, 2 batches per epoch -> 4 training steps
     assert trainer.train_step == 4
-    # Expected calls to run_evaluation: 1 (before) + 4 (during each step) = 5
-    assert trainer.run_evaluation.call_count == 5
+    # Expected calls to run_evaluation: 1 (before) + 3 (during each step, except at the first step) = 4
+    assert trainer.run_evaluation.call_count == 4
 
 
 def test_train_with_tracker_and_storage():
