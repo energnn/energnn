@@ -190,7 +190,7 @@ class Trainer:
             _setup_ckpt_mngr(checkpoint_manager, optim_mode=optim_mode)
 
         # Evaluation over the full validation loader before training.
-        if eval_before_training and (val_loader is not None):
+        if eval_before_training and (val_loader is not None) and (self.train_step == 0):
             _ = self.run_evaluation(
                 val_loader=val_loader,
                 progress_bar=progress_bar,
@@ -215,7 +215,12 @@ class Trainer:
                     _ = self.training_step(problem_batch, step_with_metrics=False)
 
                 # If True, run evaluation
-                if (eval_period is not None) and (self.train_step % eval_period == 0) and (val_loader is not None):
+                if (
+                    (eval_period is not None)
+                    and (self.train_step % eval_period == 0)
+                    and (val_loader is not None)
+                    and (self.train_step > 0)
+                ):
                     _ = self.run_evaluation(
                         val_loader=val_loader,
                         progress_bar=progress_bar,
