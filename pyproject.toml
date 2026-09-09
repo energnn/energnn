@@ -30,6 +30,7 @@ dependencies = [
 
 [project.optional-dependencies]
 gpu = ["jax[cuda12]"]
+aim = ["aim==3.29.1"]
 
 
 [dependency-groups]
