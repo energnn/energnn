@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 import math
 import time
-from typing import Literal
+from typing import Any, Literal
 
 import flatdict
 import jax
@@ -373,7 +373,7 @@ class Trainer:
 
         # Concatenate all metrics together.
         keys = set.union(*[set(metrics_batch.keys()) for metrics_batch in metrics_list])
-        metrics = {}
+        metrics: dict[str, Any] = {}
         for k in keys:
             vals = [metrics.get(k, np.array([])) for metrics in metrics_list]
             if any(np.ndim(v) == 0 for v in vals):
