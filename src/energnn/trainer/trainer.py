@@ -21,7 +21,7 @@ from optax import GradientTransformation
 from orbax.checkpoint import CheckpointManager
 from tqdm import tqdm
 
-from energnn.graph import Graph
+from energnn.graph import Graph, get_series_statistics
 from energnn.model import GNN
 from energnn.problem import ProblemBatch, ProblemLoader
 from energnn.tracker import Tracker
@@ -148,6 +148,19 @@ class Trainer:
             logger.info(f"[training_step {self.train_step}] {name}: {(time.perf_counter() - t_start) * 1000:.3f} ms")
 
     @staticmethod
+    def _elapsed_seconds(t_start: float) -> float:
+        return time.perf_counter() - t_start
+
+    @staticmethod
+    def _send_tracker_metrics(tracker: Tracker, *, metrics: dict, step: int, metric_prefix: str) -> None:
+        t_start = time.perf_counter()
+        tracker.run_append(metrics=metrics, step=step)
+        tracker.run_append(
+            metrics={metric_prefix: {"stats": {"tracker_send_time_s": time.perf_counter() - t_start}}},
+            step=step,
+        )
+
+    @staticmethod
     def _eval_forward(model, context):
         """Forward pass for evaluation, designed to be JIT-compiled once and reused."""
         decision, metrics = model.forward_batch(graph=context, step_with_metrics=True)
@@ -210,7 +223,12 @@ class Trainer:
                 # Perform one training step
                 if (log_period is not None) and (self.train_step % log_period == 0) and (tracker is not None):
                     metrics = self.training_step(problem_batch, step_with_metrics=True)
-                    tracker.run_append(metrics={"train": metrics}, step=self.train_step)
+                    self._send_tracker_metrics(
+                        tracker,
+                        metrics={"train": metrics},
+                        step=self.train_step,
+                        metric_prefix="train",
+                    )
                 else:
                     _ = self.training_step(problem_batch, step_with_metrics=False)
 
@@ -281,7 +299,12 @@ class Trainer:
                 self.best_score = mean_score
 
         if tracker is not None:
-            tracker.run_append(metrics={"eval": metrics}, step=self.train_step)
+            self._send_tracker_metrics(
+                tracker,
+                metrics={"eval": metrics},
+                step=self.train_step,
+                metric_prefix="eval",
+            )
 
         if checkpoint_manager is not None:
             self.save_checkpoint(checkpoint_manager=checkpoint_manager, score=mean_score)
@@ -357,6 +380,8 @@ class Trainer:
                 metrics[k] = np.stack(vals)
             else:
                 metrics[k] = np.concatenate(vals)
+        if "stats/run_time_s" in metrics:
+            metrics |= {f"stats/run_time_s/{k}": v for k, v in get_series_statistics(metrics.pop("stats/run_time_s")).items()}
         metrics["score"] = mean_score
 
         return mean_score, metrics
@@ -370,6 +395,7 @@ class Trainer:
             and only if they were built with `return_metrics=True`.
         :return: A flat dictionary of metrics about the training step (empty entries when not collected).
         """
+        t_step_start = time.perf_counter()
         with TaskLogger(logger, f"Training step {self.train_step}"):
 
             self.model.train()  # Set model to train mode
@@ -401,6 +427,8 @@ class Trainer:
         # Flatten and numpify metrics
         flattened_metrics = flatdict.FlatDict(metrics, delimiter="/")
         result_metrics = {k: np.array(v) for k, v in flattened_metrics.items()}
+        if step_with_metrics:
+            result_metrics["stats/run_time_s"] = np.array(self._elapsed_seconds(t_step_start))
 
         return result_metrics
 
@@ -411,6 +439,7 @@ class Trainer:
         :param problem_batch: A problem batch.
         :return: A batch of scores and a dictionary of batched metrics.
         """
+        t_step_start = time.perf_counter()
         with TaskLogger(logger, f"Eval step {eval_step}"):
             metrics = {}
 
@@ -425,5 +454,6 @@ class Trainer:
         # Flatten and numpify metrics
         flattened_metrics = flatdict.FlatDict(metrics, delimiter="/")
         result_metrics = {k: np.array(v) for k, v in flattened_metrics.items()}
+        result_metrics["stats/run_time_s"] = np.array(self._elapsed_seconds(t_step_start))
 
         return score, result_metrics

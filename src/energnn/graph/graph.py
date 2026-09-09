@@ -545,6 +545,38 @@ def check_valid_addresses(hyper_edge_set_dict: dict[str, HyperEdgeSet], n_addres
             assert xp.all(hes.port_array < n_addresses)
 
 
+def get_series_statistics(values: list[float] | np.ndarray) -> dict[str, float]:
+    """Extract summary statistics from one numeric series."""
+    array = np.asarray(values, dtype=float)
+    if array.size == 0 or np.all(np.isnan(array)):
+        return {
+            "rmse": float("nan"),
+            "mae": float("nan"),
+            "mean": float("nan"),
+            "std": float("nan"),
+            "max": float("nan"),
+            "90th": float("nan"),
+            "75th": float("nan"),
+            "50th": float("nan"),
+            "25th": float("nan"),
+            "10th": float("nan"),
+            "min": float("nan"),
+        }
+    return {
+        "rmse": float(np.sqrt(np.nanmean(array**2))),
+        "mae": float(np.nanmean(np.abs(array))),
+        "mean": float(np.nanmean(array)),
+        "std": float(np.nanstd(array)),
+        "max": float(np.nanmax(array)),
+        "90th": float(np.nanpercentile(array, q=90)),
+        "75th": float(np.nanpercentile(array, q=75)),
+        "50th": float(np.nanpercentile(array, q=50)),
+        "25th": float(np.nanpercentile(array, q=25)),
+        "10th": float(np.nanpercentile(array, q=10)),
+        "min": float(np.nanmin(array)),
+    }
+
+
 def get_statistics(graph: Graph, axis: int | None = None, norm_graph: Graph | None = None) -> dict:
     """
     Extract summary statistics from each feature array in the graph.
@@ -583,7 +615,7 @@ def get_statistics(graph: Graph, axis: int | None = None, norm_graph: Graph | No
                             xp.sqrt(xp.nanmean(norm_array**2, axis=axis)) + 1e-9
                         )
                         metrics["{}/{}/nmae".format(object_name, feature_name)] = mae / (
-                                xp.nanmean(xp.abs(norm_array), axis=axis) + 1e-9
+                            xp.nanmean(xp.abs(norm_array), axis=axis) + 1e-9
                         )
 
                 metrics["{}/{}/mean".format(object_name, feature_name)] = xp.nanmean(array, axis=axis)
