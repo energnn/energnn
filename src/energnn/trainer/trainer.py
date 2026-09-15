@@ -23,7 +23,7 @@ from tqdm import tqdm
 
 from energnn.graph import Graph
 from energnn.model import GNN
-from energnn.problem import ProblemBatch, ProblemLoader
+from energnn.problem import ProblemBatch, ProblemLoader, SelfSupervisedProblemBatch, SupervisedProblemBatch
 from energnn.tracker import Tracker
 from .utils import TaskLogger
 
@@ -110,6 +110,24 @@ class Trainer:
         # their buffers during the backward pass instead of allocating new ones.
         self._jit_backward_update = nnx.jit(self._backward_update, donate_argnums=(2,))
         self._jit_eval_forward = nnx.jit(self._eval_forward)
+        self._jit_supervised_update = nnx.jit(self._apply_supervised_update, static_argnames=("step_with_metrics",))
+
+    @staticmethod
+    def _apply_supervised_update(model, optimizer, jax_context, problem_batch, step_with_metrics, step):
+        """Supervised update using nnx.value_and_grad, designed to be JIT-compiled once and reused."""
+
+        def loss_fn(model):
+            # Forward pass
+            decision, forward_metrics = model.forward_batch(graph=jax_context, step_with_metrics=step_with_metrics)
+            # Loss computation
+            loss, loss_metrics = problem_batch.get_loss(decision=decision, step_with_metrics=step_with_metrics, step=step)
+            # Auxiliary information
+            aux = {"forward": forward_metrics, "loss": loss_metrics, "decision": decision}
+            return loss, aux
+
+        (loss_val, aux), grads = nnx.value_and_grad(loss_fn, has_aux=True)(model)
+        optimizer.update(model, grads)
+        return loss_val, aux["decision"], {"forward": aux["forward"], "loss": aux["loss"]}
 
     @staticmethod
     def _forward_vjp(graphdef, params, rest, jax_context, step_with_metrics):
@@ -361,14 +379,14 @@ class Trainer:
 
         return mean_score, metrics
 
-    def training_step(self, problem_batch: ProblemBatch, step_with_metrics: bool) -> dict:
+    def self_supervised_training_step(self, problem_batch: SelfSupervisedProblemBatch, step_with_metrics: bool) -> dict:
         """
-        Performs a training step to update model parameters.
+        Performs a self-supervised training step to update model parameters using a gradient function.
 
-        :param problem_batch: A batch of problems for training.
+        :param problem_batch: A batch of self-supervised problems for training.
         :param step_with_metrics: Whether this step collects metrics. Components only return metrics on such steps,
             and only if they were built with `return_metrics=True`.
-        :return: A flat dictionary of metrics about the training step (empty entries when not collected).
+        :return: A dictionary of metrics about the training step (empty entries when not collected).
         """
         with TaskLogger(logger, f"Training step {self.train_step}"):
 
@@ -397,6 +415,61 @@ class Trainer:
             self._log_stage("backward_update", nnx.state(self.model), t_start)
 
             metrics["4_update"] = {}
+
+        return metrics
+
+    def supervised_training_step(self, problem_batch: SupervisedProblemBatch, step_with_metrics: bool) -> dict:
+        """
+        Performs a supervised training step to update model parameters using a loss function.
+
+        :param problem_batch: A batch of supervised problems for training.
+        :param step_with_metrics: Whether this step collects metrics. Components only return metrics on such steps,
+            and only if they were built with `return_metrics=True`.
+        :return: A dictionary of metrics about the training step (empty entries when not collected).
+        """
+        with TaskLogger(logger, f"Supervised training step {self.train_step}"):
+            self.model.train()  # Set model to train mode
+
+            metrics = {}
+            t_start = time.perf_counter()
+            jax_context, metrics["1_context"] = problem_batch.get_context(
+                step_with_metrics=step_with_metrics, step=self.train_step
+            )
+            self._log_stage("get_context", jax_context, t_start)
+
+            t_start = time.perf_counter()
+            # Perform supervised update using the JIT-compiled method
+            loss_val, jax_decision, step_metrics = self._jit_supervised_update(
+                self.model, self.optimizer, jax_context, problem_batch, step_with_metrics, self.train_step
+            )
+            self._log_stage("jit_supervised_update", loss_val, t_start)
+
+            metrics["2_forward"] = step_metrics["forward"]
+            metrics["3_loss"] = step_metrics["loss"]
+            metrics["3_loss"]["total"] = loss_val
+            metrics["4_update"] = {}
+
+            return metrics
+
+    def training_step(self, problem_batch: ProblemBatch, step_with_metrics: bool) -> dict:
+        """
+        Performs a training step to update model parameters.
+
+        :param problem_batch: A batch of problems for training.
+        :param step_with_metrics: Whether this step collects metrics. Components only return metrics on such steps,
+            and only if they were built with `return_metrics=True`.
+        :return: A flat dictionary of metrics about the training step (empty entries when not collected).
+        """
+        if isinstance(problem_batch, SupervisedProblemBatch):
+            metrics = self.supervised_training_step(problem_batch, step_with_metrics)
+
+        elif isinstance(problem_batch, SelfSupervisedProblemBatch):
+            metrics = self.self_supervised_training_step(problem_batch, step_with_metrics)
+
+        else:
+            raise TypeError(
+                f"problem_batch must be SupervisedProblemBatch or SelfSupervisedProblemBatch, got {type(problem_batch)}"
+            )
 
         # Flatten and numpify metrics
         flattened_metrics = flatdict.FlatDict(metrics, delimiter="/")

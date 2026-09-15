@@ -5,6 +5,8 @@
 # SPDX-License-Identifier: MPL-2.0
 
 from abc import ABC, abstractmethod
+from typing import Any
+from jax.tree_util import register_pytree_node_class
 
 from energnn.graph import Graph, GraphStructure
 
@@ -14,9 +16,14 @@ class ProblemBatch(ABC):
     Abstract base class for handling batches of problem instances.
 
     Subclasses should implement methods to retrieve batch of context,
-    compute gradients and scores for batches of decision graphs,
-    and provide an initial zero decision batch.
+    evaluate scores for batches of decision graphs,
+    and provide metadata about the graph structures.
     """
+
+    def __init_subclass__(cls, **kwargs):
+        """Automatically register subclasses as JAX PyTrees."""
+        super().__init_subclass__(**kwargs)
+        register_pytree_node_class(cls)
 
     @abstractmethod
     def __init__(self):
@@ -29,28 +36,29 @@ class ProblemBatch(ABC):
         """
         raise NotImplementedError
 
+    def tree_flatten(self) -> tuple[tuple[Any, ...], Any]:
+        """
+        Flatten the ProblemBatch into a list of children and auxiliary data for JAX.
+        By default, all items in __dict__ are considered children.
+        """
+        # We filter out attributes that might not be JAX-compatible if necessary,
+        # but usually Graph objects are fine.
+        children = tuple(self.__dict__.values())
+        aux_data = tuple(self.__dict__.keys())
+        return children, aux_data
+
+    @classmethod
+    def tree_unflatten(cls, aux_data: tuple[str, ...], children: tuple[Any, ...]) -> "ProblemBatch":
+        """Reconstruct the ProblemBatch from children and auxiliary data."""
+        instance = cls.__new__(cls)
+        instance.__dict__.update(zip(aux_data, children))
+        return instance
+
     @abstractmethod
     def get_context(self, step_with_metrics: bool = False, step: int | None = None) -> tuple[Graph, dict]:
         """
         Retrieve the batch of context graphs :math:`x`.
 
-        :param step_with_metrics: Whether this step collects metrics. Return metrics only when True (and, by
-            convention, only if the problem was built to produce them).
-        :param step: Training step number passed by the trainer. Useful for scheduling.
-        :returns: A tuple of:
-            - **Graph**: A batched context object.
-            - **dict**: A dictionary of metrics for tracking purpose (empty if `step_with_metrics=False`).
-
-        :raises NotImplementedError: If the subclass does not override this constructor.
-        """
-        raise NotImplementedError
-
-    @abstractmethod
-    def get_gradient(self, *, decision: Graph, step_with_metrics: bool = False, step: int | None = None) -> tuple[Graph, dict]:
-        r"""
-        Compute gradients :math:`\nabla_y f` for a batched of decision graphs :math:`y`.
-
-        :param decision: Batched decision graph at which to evaluate gradient.
         :param step_with_metrics: Whether this step collects metrics. Return metrics only when True (and, by
             convention, only if the problem was built to produce them).
         :param step: Training step number passed by the trainer. Useful for scheduling.
@@ -91,4 +99,59 @@ class ProblemBatch(ABC):
     @abstractmethod
     def decision_structure(self) -> GraphStructure:
         """Should define the structure of all decision graphs."""
+        raise NotImplementedError
+
+
+class SelfSupervisedProblemBatch(ProblemBatch):
+    """
+    Base class for self-supervised learning or optimization problems on batches.
+
+    This class focuses on problems where the objective is defined by a gradient
+    of a cost function with respect to the decision variables.
+    """
+
+    @abstractmethod
+    def get_gradient(self, *, decision: Graph, step_with_metrics: bool = False, step: int | None = None) -> tuple[Graph, dict]:
+        r"""
+        Compute gradients :math:`\nabla_y f` for a batched of decision graphs :math:`y`.
+
+        :param decision: Batched decision graph at which to evaluate gradient.
+        :param step_with_metrics: Whether this step collects metrics. Return metrics only when True (and, by
+            convention, only if the problem was built to produce them).
+        :param step: Training step number passed by the trainer. Useful for scheduling.
+        :returns: A tuple of:
+            - **Graph**: A batched context object.
+            - **dict**: A dictionary of metrics for tracking purpose (empty if `step_with_metrics=False`).
+
+        :raises NotImplementedError: If the subclass does not override this constructor.
+        """
+
+        raise NotImplementedError
+
+
+class SupervisedProblemBatch(ProblemBatch):
+    """
+    Base class for supervised learning problems on batches.
+
+    This class focuses on problems where a ground truth target (oracle) is available
+    for each problem instance in the batch.
+    """
+
+    @abstractmethod
+    def get_loss(self, *, decision: Graph, step_with_metrics: bool = False, step: int | None = None) -> tuple[float, dict]:
+        r"""
+        Compute the loss value for a given decision :math:`y`.
+
+        The loss guides optimization algorithms such as gradient descent.
+
+        :param decision: A decision graph at which to evaluate the loss.
+        :param step_with_metrics: Whether this step collects metrics. Return metrics only when True (and, by
+            convention, only if the problem was built to produce them).
+        :param step: Training step number passed by the trainer. Useful for scheduling.
+        :return: A tuple containing:
+            - **float**: The loss value.
+            - **dict**: **dict**: A dictionary of metrics for tracking purpose (empty if `step_with_metrics=False`).
+
+        :raises NotImplementedError: If the subclass does not override this constructor.
+        """
         raise NotImplementedError

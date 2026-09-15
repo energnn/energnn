@@ -5,6 +5,8 @@
 # SPDX-License-Identifier: MPL-2.0
 
 from abc import ABC, abstractmethod
+from typing import Any
+from jax.tree_util import register_pytree_node_class
 
 from energnn.graph import Graph, GraphStructure
 
@@ -14,14 +16,18 @@ class Problem(ABC):
     Base abstract class for graph-based optimization or learning problems.
 
     Subclasses must implement methods to retrieve the problem context graph,
-    an initial zero decision graph, compute gradients, evaluate score,
-    and provide problem metadata.
+    an initial zero decision graph, evaluate scores, and provide problem metadata.
 
     Notes:
         - All returned Graph objects must adhere to the energnn.graph.Graph API.
         - Methods returning tuples will return additional information in the dict when
           `step_with_metrics=True` for tracking purpose (metrics).
     """
+
+    def __init_subclass__(cls, **kwargs):
+        """Automatically register subclasses as JAX PyTrees."""
+        super().__init_subclass__(**kwargs)
+        register_pytree_node_class(cls)
 
     @abstractmethod
     def __init__(self):
@@ -34,6 +40,21 @@ class Problem(ABC):
         :raises NotImplementedError: If the subclass does not override this constructor.
         """
         raise NotImplementedError
+
+    def tree_flatten(self) -> tuple[tuple[Any, ...], Any]:
+        """
+        Flatten the Problem into a list of children and auxiliary data for JAX.
+        """
+        children = tuple(self.__dict__.values())
+        aux_data = tuple(self.__dict__.keys())
+        return children, aux_data
+
+    @classmethod
+    def tree_unflatten(cls, aux_data: tuple[str, ...], children: tuple[Any, ...]) -> "Problem":
+        """Reconstruct the Problem from children and auxiliary data."""
+        instance = cls.__new__(cls)
+        instance.__dict__.update(zip(aux_data, children))
+        return instance
 
     @abstractmethod
     def get_context(self, step_with_metrics: bool = False, step: int | None = None) -> tuple[Graph, dict]:
@@ -48,25 +69,6 @@ class Problem(ABC):
         :param step: Training step number passed by the trainer. Useful for scheduling.
         :return: A tuple containing:
             - **Graph**: The context graph object.
-            - **dict**: A dictionary of metrics for tracking purpose (empty if `step_with_metrics=False`).
-
-        :raises NotImplementedError: If the subclass does not override this constructor.
-        """
-        raise NotImplementedError
-
-    @abstractmethod
-    def get_gradient(self, *, decision: Graph, step_with_metrics: bool = False, step: int | None = None) -> tuple[Graph, dict]:
-        r"""
-        Compute the gradient graph :math:`\nabla_y f` for a given decision :math:`y`.
-
-        The gradient guides optimization algorithms such as gradient descent.
-
-        :param decision: A decision graph at which to evaluate the gradient.
-        :param step_with_metrics: Whether this step collects metrics. Return metrics only when True (and, by
-            convention, only if the problem was built to produce them).
-        :param step: Training step number passed by the trainer. Useful for scheduling.
-        :return: A tuple containing:
-            - **Graph**: The gradient graph with the same structure as decision.
             - **dict**: A dictionary of metrics for tracking purpose (empty if `step_with_metrics=False`).
 
         :raises NotImplementedError: If the subclass does not override this constructor.
@@ -113,4 +115,59 @@ class Problem(ABC):
     @abstractmethod
     def decision_structure(self) -> GraphStructure:
         """Should define the structure of all decision graphs."""
+        raise NotImplementedError
+
+
+class SelfSupervisedProblem(Problem):
+    """
+    Base class for self-supervised learning or optimization problems.
+
+    This class focuses on problems where the objective is defined by a gradient
+    of a cost function with respect to the decision variables.
+    """
+
+    @abstractmethod
+    def get_gradient(self, *, decision: Graph, step_with_metrics: bool = False, step: int | None = None) -> tuple[Graph, dict]:
+        r"""
+        Compute the gradient graph :math:`\nabla_y f` for a given decision :math:`y`.
+
+        The gradient guides optimization algorithms such as gradient descent.
+
+        :param decision: A decision graph at which to evaluate the gradient.
+        :param step_with_metrics: Whether this step collects metrics. Return metrics only when True (and, by
+            convention, only if the problem was built to produce them).
+        :param step: Training step number passed by the trainer. Useful for scheduling.
+        :return: A tuple containing:
+            - **Graph**: The gradient graph with the same structure as decision.
+            - **dict**: A dictionary of metrics for tracking purpose (empty if `step_with_metrics=False`).
+
+        :raises NotImplementedError: If the subclass does not override this constructor.
+        """
+        raise NotImplementedError
+
+
+class SupervisedProblem(Problem):
+    """
+    Base class for supervised learning problems.
+
+    This class focuses on problems where a ground truth target (oracle) is available.
+    """
+
+    @abstractmethod
+    def get_loss(self, *, decision: Graph, step_with_metrics: bool = False, step: int | None = None) -> tuple[float, dict]:
+        r"""
+        Compute the loss graph :math:`\mathcal{L} = f(y, y^{\star})` for a given decision :math:`y`.
+
+        The loss guides optimization algorithms such as gradient descent.
+
+        :param decision: A decision graph at which to evaluate the loss.
+        :param step_with_metrics: Whether this step collects metrics. Return metrics only when True (and, by
+            convention, only if the problem was built to produce them).
+        :param step: Training step number passed by the trainer. Useful for scheduling.
+        :return: A tuple containing:
+            - **float**: The loss value.
+            - **dict**: A dictionary of metrics for tracking purpose (empty if `step_with_metrics=False`).
+
+        :raises NotImplementedError: If the subclass does not override this constructor.
+        """
         raise NotImplementedError

@@ -14,9 +14,9 @@ from omegaconf import DictConfig
 
 from energnn.converter import Converter, ElementsConverter
 from energnn.graph import Graph, GraphShape, GraphStructure, JaxBackend, NumpyBackend, collate_graphs
-from ..batch import ProblemBatch
+from ..batch import SelfSupervisedProblemBatch
 from ..loader import ProblemLoader
-from ..problem import Problem
+from ..problem import SelfSupervisedProblem
 
 
 class _LineElementsConverter(ElementsConverter):
@@ -67,7 +67,7 @@ LINEAR_SYSTEM_CONTEXT_STRUCTURE = LinearSystemContextConverter().get_structure()
 LINEAR_SYSTEM_DECISION_STRUCTURE = LinearSystemOracleConverter().get_structure()
 
 
-class LinearSystemProblemBatch(ProblemBatch):
+class LinearSystemProblemBatch(SelfSupervisedProblemBatch):
     __test__ = False
 
     def __init__(self, *, context: Graph, oracle: Graph):
@@ -123,7 +123,7 @@ class LinearSystemProblemBatch(ProblemBatch):
         pass
 
 
-class LinearSystemProblem(Problem):
+class LinearSystemProblem(SelfSupervisedProblem):
     __test__ = False
 
     def __init__(self, *, context: Graph, oracle: Graph):

@@ -14,9 +14,9 @@ import optax
 import pytest
 from flax import nnx
 
-from energnn.graph import Graph, HyperEdgeSet, JaxBackend
+from energnn.graph import Graph, HyperEdgeSet, JaxBackend, GraphStructure
 from energnn.model import GNN, IdentityEncoder
-from energnn.problem import ProblemBatch
+from energnn.problem import ProblemBatch, SupervisedProblemBatch, SelfSupervisedProblemBatch
 from energnn.problem.example import LinearSystemProblemLoader
 from energnn.trainer import Trainer
 from energnn.trainer.trainer import _cast_cotangent_to_primal_dtype
@@ -121,6 +121,65 @@ def test_training_step_basic():
             break
 
     assert changed, "Parameters did not change after training step"
+
+
+class StubSupervisedBatch(SupervisedProblemBatch):
+    def __init__(self, context):
+        self.context = context
+
+    @property
+    def context_structure(self) -> GraphStructure:
+        return GraphStructure({})
+
+    @property
+    def decision_structure(self) -> GraphStructure:
+        return GraphStructure({})
+
+    def get_context(self, step_with_metrics=False, step=None):
+        return self.context, {}
+
+    def get_score(self, *, decision, step_with_metrics=False, step=None):
+        return [0.0], {}
+
+    def get_loss(self, *, decision, step_with_metrics=False, step=None):
+        # dummy loss: sum of squares of coordinates
+        val = jnp.sum(decision.hyper_edge_sets["bus"].feature_array ** 2)
+        return val, {"loss_info": jnp.array(1.0)}
+
+
+def test_supervised_training_step():
+    loader = LinearSystemProblemLoader(dataset_size=4, batch_size=4)
+    model = create_tiny_model(loader.context_structure)
+    # Huge learning rate to be sure
+    optimizer = optax.sgd(10.0)
+    trainer = Trainer(model=model, gradient_transformation=optimizer)
+
+    batch = next(iter(loader))
+    supervised_batch = StubSupervisedBatch(context=batch.get_context()[0])
+
+    params_before = jax.tree.map(jnp.array, nnx.state(model, nnx.Param))
+    infos = trainer.training_step(supervised_batch, step_with_metrics=True)
+    params_after = nnx.state(model, nnx.Param)
+
+    assert infos["3_loss/total"] > 0
+    assert "3_loss/loss_info" in infos
+
+    # Check params changed
+    changed = False
+    for b, a in zip(jax.tree.leaves(params_before), jax.tree.leaves(params_after)):
+        if not jnp.allclose(b, a, atol=1e-5):
+            changed = True
+            break
+    assert changed, f"Params did not change. Loss: {infos['3_loss/total']}"
+
+
+def test_training_step_dispatch_error():
+    loader = LinearSystemProblemLoader(dataset_size=4, batch_size=4)
+    model = create_tiny_model(loader.context_structure)
+    trainer = Trainer(model=model, gradient_transformation=optax.sgd(1e-3))
+
+    with pytest.raises(TypeError, match="problem_batch must be SupervisedProblemBatch or SelfSupervisedProblemBatch"):
+        trainer.training_step("not-a-batch", step_with_metrics=False)
 
 
 def test_eval_step():
