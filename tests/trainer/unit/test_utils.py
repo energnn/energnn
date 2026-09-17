@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 from energnn.graph import Graph, HyperEdgeSet, JaxBackend, NumpyBackend
-from energnn.trainer.utils import get_graph_statistics, get_series_statistics
+from energnn.trainer import get_graph_statistics, get_series_statistics
 
 
 @pytest.mark.parametrize("backend", [NumpyBackend(), JaxBackend()], ids=["numpy", "jax"])
