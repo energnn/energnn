@@ -108,6 +108,8 @@ def test_training_step_basic():
     assert any(k.startswith("1_context") for k in infos.keys())
     assert any(k.startswith("3_gradient") for k in infos.keys())
     assert any(k.startswith("4_update") for k in infos.keys())
+    assert "stats/run_time_s" in infos
+    assert infos["stats/run_time_s"] >= 0
 
     # Get updated parameter values
     params_after = nnx.state(model, nnx.Param)
@@ -137,6 +139,8 @@ def test_eval_step():
     assert any(k.startswith("1_context") for k in infos.keys())
     assert any(k.startswith("2_forward") for k in infos.keys())
     assert any(k.startswith("3_score") for k in infos.keys())
+    assert "stats/run_time_s" in infos
+    assert infos["stats/run_time_s"] >= 0
 
 
 def test_eval():
@@ -149,6 +153,8 @@ def test_eval():
     assert isinstance(score, float)
     assert isinstance(infos, dict)
     assert "score" in infos
+    assert "stats/run_time_s/mean" in infos
+    assert "stats/run_time_s/max" in infos
     assert infos["score"] == score
 
 
@@ -258,6 +264,14 @@ def test_train_with_tracker_and_storage():
     # m_cp.wait_until_finished should be called at the end of train
     assert m_cp.wait_until_finished.called
     assert m_cp._options.best_mode == "min"
+    assert any(
+        call.kwargs["metrics"].get("train", {}).get("stats", {}).get("tracker_send_time_s") is not None
+        for call in m_tracker.run_append.call_args_list
+    )
+    assert any(
+        call.kwargs["metrics"].get("eval", {}).get("stats", {}).get("tracker_send_time_s") is not None
+        for call in m_tracker.run_append.call_args_list
+    )
 
 
 class TestJitCaching:

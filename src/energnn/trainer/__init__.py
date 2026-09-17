@@ -5,5 +5,6 @@
 # SPDX-License-Identifier: MPL-2.0
 
 from .trainer import Trainer
+from .utils import get_graph_statistics, get_series_statistics
 
-__all__ = ["Trainer"]
+__all__ = ["Trainer", "get_graph_statistics", "get_series_statistics"]

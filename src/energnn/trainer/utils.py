@@ -10,6 +10,8 @@ import warnings
 import jax
 import numpy as np
 
+from energnn.graph import Graph
+
 
 def numpify_metrics_dict(metrics: dict) -> dict:
     """
@@ -141,3 +143,88 @@ class TaskLogger:
             self.logger.info(f"{self.task_name} completed in {self.elapsed_time:.2f} ms")
         else:
             self.logger.error(f"{self.task_name} failed after {self.elapsed_time:.2f} ms due to: {exc_value}")
+
+
+def get_series_statistics(values: list[float] | np.ndarray) -> dict[str, float]:
+    """Extract summary statistics from one numeric series."""
+    array = np.asarray(values, dtype=float)
+    if array.size == 0 or np.all(np.isnan(array)):
+        return {
+            "rmse": float("nan"),
+            "mae": float("nan"),
+            "mean": float("nan"),
+            "std": float("nan"),
+            "max": float("nan"),
+            "90th": float("nan"),
+            "75th": float("nan"),
+            "50th": float("nan"),
+            "25th": float("nan"),
+            "10th": float("nan"),
+            "min": float("nan"),
+        }
+    return {
+        "rmse": float(np.sqrt(np.nanmean(array**2))),
+        "mae": float(np.nanmean(np.abs(array))),
+        "mean": float(np.nanmean(array)),
+        "std": float(np.nanstd(array)),
+        "max": float(np.nanmax(array)),
+        "90th": float(np.nanpercentile(array, q=90)),
+        "75th": float(np.nanpercentile(array, q=75)),
+        "50th": float(np.nanpercentile(array, q=50)),
+        "25th": float(np.nanpercentile(array, q=25)),
+        "10th": float(np.nanpercentile(array, q=10)),
+        "min": float(np.nanmin(array)),
+    }
+
+
+def get_graph_statistics(graph: Graph, axis: int | None = None, norm_graph: Graph | None = None) -> dict:
+    """
+    Extract summary statistics from each feature array in the graph.
+
+    :param graph: Graph with feature-bearing hyper-edge sets.
+    :param axis: Axis for reductions; None = global.
+    :param norm_graph: Optional reference graph for normalized metrics.
+    :return: Dict mapping ``"edge/feature/stat"`` to values.
+    """
+    backend = graph._backend
+    xp = backend.xp
+
+    for key, hes in graph.hyper_edge_sets.items():
+        mask = hes.non_fictitious
+        if hes.feature_array is not None:
+            fictitious = (mask == 0)[..., None]
+            graph.hyper_edge_sets[key].feature_array = xp.where(fictitious, float("nan"), hes.feature_array)
+
+    metrics = {}
+    for object_name, hes in graph.hyper_edge_sets.items():
+        if hes.feature_dict is not None:
+            for feature_name, array in hes.feature_dict.items():
+                if array.size == 0:
+                    array = xp.array([[0.0]]) if axis == 1 else xp.array([0.0])
+
+                rmse = xp.sqrt(xp.nanmean(array**2, axis=axis))
+                mae = xp.nanmean(xp.abs(array), axis=axis)
+                metrics["{}/{}/rmse".format(object_name, feature_name)] = rmse
+                metrics["{}/{}/mae".format(object_name, feature_name)] = mae
+                if norm_graph is not None:
+                    feature_dict = norm_graph.hyper_edge_sets[object_name].feature_dict
+                    if feature_dict is not None:
+                        norm_array = feature_dict[feature_name]
+                        norm_array = norm_array - xp.nanmean(norm_array)
+                        metrics["{}/{}/nrmse".format(object_name, feature_name)] = rmse / (
+                            xp.sqrt(xp.nanmean(norm_array**2, axis=axis)) + 1e-9
+                        )
+                        metrics["{}/{}/nmae".format(object_name, feature_name)] = mae / (
+                            xp.nanmean(xp.abs(norm_array), axis=axis) + 1e-9
+                        )
+
+                metrics["{}/{}/mean".format(object_name, feature_name)] = xp.nanmean(array, axis=axis)
+                metrics["{}/{}/std".format(object_name, feature_name)] = xp.nanstd(array, axis=axis)
+                metrics["{}/{}/max".format(object_name, feature_name)] = xp.nanmax(array, axis=axis)
+                metrics["{}/{}/90th".format(object_name, feature_name)] = xp.nanpercentile(array, q=90, axis=axis)
+                metrics["{}/{}/75th".format(object_name, feature_name)] = xp.nanpercentile(array, q=75, axis=axis)
+                metrics["{}/{}/50th".format(object_name, feature_name)] = xp.nanpercentile(array, q=50, axis=axis)
+                metrics["{}/{}/25th".format(object_name, feature_name)] = xp.nanpercentile(array, q=25, axis=axis)
+                metrics["{}/{}/10th".format(object_name, feature_name)] = xp.nanpercentile(array, q=10, axis=axis)
+                metrics["{}/{}/min".format(object_name, feature_name)] = xp.nanmin(array, axis=axis)
+    return metrics

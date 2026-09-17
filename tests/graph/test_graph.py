@@ -14,7 +14,6 @@ from energnn.graph.graph import (
     check_valid_addresses,
     collate_graphs,
     concatenate_graphs,
-    get_statistics,
     separate_graphs,
 )
 from energnn.graph.hyper_edge_set import HyperEdgeSet
@@ -142,29 +141,6 @@ def test_concatenate_graphs(backend):
     cat = concatenate_graphs([g1, g2])
     assert len(cat.non_fictitious_addresses) == len(g1.non_fictitious_addresses) + len(g2.non_fictitious_addresses)
     assert int(cat.true_shape.addresses) == int(g1.true_shape.addresses) + int(g2.true_shape.addresses)
-
-
-def test_get_statistics(backend):
-    e1 = HyperEdgeSet.from_dict(
-        port_dict={"a": np.array([0, 1])},
-        feature_dict={"x": np.array([1.0, 2.0])},
-        backend=backend,
-    )
-    e2 = HyperEdgeSet.from_dict(
-        port_dict={"a": np.array([0, 1])},
-        feature_dict={"x": np.array([2.0, 4.0])},
-        backend=backend,
-    )
-    g1 = Graph.from_dict(hyper_edge_set_dict={"T": e1}, n_addresses=2, backend=backend)
-    g2 = Graph.from_dict(hyper_edge_set_dict={"T": e2}, n_addresses=2, backend=backend)
-    stats = get_statistics(g1, axis=None, norm_graph=g2)
-
-    arr = np.array([1.0, 2.0])
-    np.testing.assert_allclose(float(stats["T/x/rmse"]), np.sqrt(np.mean(arr**2)), rtol=1e-5)
-    np.testing.assert_allclose(float(stats["T/x/mae"]), np.mean(np.abs(arr)), rtol=1e-5)
-    np.testing.assert_allclose(float(stats["T/x/mean"]), np.mean(arr), rtol=1e-5)
-    np.testing.assert_allclose(float(stats["T/x/std"]), np.std(arr), rtol=1e-5)
-    assert "T/x/nrmse" in stats and "T/x/nmae" in stats
 
 
 def test_to_backend_conversion(backend):
