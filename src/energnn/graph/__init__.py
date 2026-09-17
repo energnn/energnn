@@ -10,8 +10,6 @@ from .graph import (
     check_hyper_edge_set_dict_type,
     collate_graphs,
     concatenate_graphs,
-    get_series_statistics,
-    get_statistics,
     separate_graphs,
 )
 from .hyper_edge_set import (
@@ -45,8 +43,6 @@ __all__ = [
     "Graph",
     "collate_graphs",
     "concatenate_graphs",
-    "get_statistics",
-    "get_series_statistics",
     "separate_graphs",
     "check_hyper_edge_set_dict_type",
     "GraphShape",

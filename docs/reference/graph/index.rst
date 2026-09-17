@@ -120,7 +120,6 @@ The following functions help to manipulate graphs, hyper-edge sets, shapes objec
 
     collate_graphs
     concatenate_graphs
-    get_statistics
     separate_graphs
     check_hyper_edge_set_dict_type
     collate_hyper_edge_sets

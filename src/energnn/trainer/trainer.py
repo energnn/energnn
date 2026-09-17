@@ -21,11 +21,11 @@ from optax import GradientTransformation
 from orbax.checkpoint import CheckpointManager
 from tqdm import tqdm
 
-from energnn.graph import Graph, get_series_statistics
+from energnn.graph import Graph
 from energnn.model import GNN
 from energnn.problem import ProblemBatch, ProblemLoader
 from energnn.tracker import Tracker
-from .utils import TaskLogger
+from .utils import TaskLogger, get_series_statistics
 
 # Types
 GraphBatch = Graph
