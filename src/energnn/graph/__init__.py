@@ -5,7 +5,13 @@
 # SPDX-License-Identifier: MPL-2.0
 
 from .backend import JaxBackend, NumpyBackend
-from .graph import Graph, check_hyper_edge_set_dict_type, collate_graphs, concatenate_graphs, get_statistics, separate_graphs
+from .graph import (
+    Graph,
+    check_hyper_edge_set_dict_type,
+    collate_graphs,
+    concatenate_graphs,
+    separate_graphs,
+)
 from .hyper_edge_set import (
     HyperEdgeSet,
     build_hyper_edge_set_shape,
@@ -37,7 +43,6 @@ __all__ = [
     "Graph",
     "collate_graphs",
     "concatenate_graphs",
-    "get_statistics",
     "separate_graphs",
     "check_hyper_edge_set_dict_type",
     "GraphShape",
