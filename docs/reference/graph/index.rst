@@ -144,3 +144,22 @@ describing the same objects (more ports and features, e.g. a decision attached t
     to_numpy
     np_to_jnp
     jnp_to_np
+
+
+Visualization
+=============
+
+.. currentmodule:: energnn.graph.visualization
+
+The :mod:`energnn.graph.visualization` module draws a single :class:`~energnn.graph.Graph`, either as a
+static matplotlib figure (requires the ``viz`` extra: ``pip install energnn[viz]``) or as a self-contained
+interactive HTML/SVG figure with tooltips, zoom and pan, displayed inline by notebooks (no extra dependency).
+
+.. autosummary::
+   :toctree: _autosummary
+   :nosignatures:
+
+    plot_graph
+    plot_graph_interactive
+    InteractiveGraphPlot
+    spring_layout
