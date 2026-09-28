@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import math
+import sys
 import time
 from typing import Any, Literal
 
@@ -48,6 +49,15 @@ def _cast_cotangent_to_primal_dtype(cotangent_pytree, primal_pytree):
         return jnp.asarray(c, dtype=target_dtype)
 
     return jax.tree.map(_cast_leaf, cotangent_pytree, primal_pytree)
+
+
+def _progress_bar(iterable, **kwargs) -> tqdm:
+    """A ``tqdm`` bar written to stdout.
+
+    tqdm defaults to stderr, which Jupyter and nbsphinx render on a red "error" background, unreadable
+    in dark themes. On stdout the bar is rendered like any other output.
+    """
+    return tqdm(iterable, file=sys.stdout, **kwargs)
 
 
 def _setup_ckpt_mngr(checkpoint_manager: CheckpointManager, optim_mode: Literal["minimize", "maximize"]):
@@ -216,7 +226,7 @@ class Trainer:
 
         for epoch in range(1, n_epochs + 1):
 
-            pbar = tqdm(
+            pbar = _progress_bar(
                 train_loader, desc=f"Epoch {epoch}/{n_epochs}", leave=True, unit="batch", disable=not progress_bar, position=0
             )
             for problem_batch in pbar:
@@ -362,7 +372,7 @@ class Trainer:
         :return: Average score obtained over the problem loader.
         """
         score_list, metrics_list = [], []
-        pbar = tqdm(loader, desc="Validation", unit="batch", leave=True, disable=not progress_bar, position=position)
+        pbar = _progress_bar(loader, desc="Validation", unit="batch", leave=True, disable=not progress_bar, position=position)
         for step, problem_batch in enumerate(pbar):
             score_batch, metrics_batch = self.eval_step(step, problem_batch)
             score_list.append(score_batch)
