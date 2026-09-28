@@ -90,52 +90,16 @@ var legend=root.querySelector('.lg .sc');if(legend&&D.colors){var C=D.colors[0][
 root.querySelectorAll('[data-tip]').forEach(function(e){
  e.addEventListener('mousemove',function(ev){tip.innerHTML=e.getAttribute('data-tip');tip.style.display='block';var r=root.getBoundingClientRect();tip.style.left=(ev.clientX-r.left+14)+'px';tip.style.top=(ev.clientY-r.top+14)+'px';});
  e.addEventListener('mouseleave',function(){tip.style.display='none';});});
-/* view control: the toolbar picks the drag mode (rotate in 3D, pan) and offers zoom in/out, reset and
-   full screen; the wheel always zooms on the cursor, shift-drag always pans, double-click resets */
+/* view control: the toolbar picks the drag mode (rotate in 3D, pan) and offers zoom in/out and reset;
+   the wheel always zooms on the cursor, shift-drag always pans, double-click resets */
 var drag=null,mode=D.ndim===3?'rotate':'pan';
 function toSvg(e){var r=svg.getBoundingClientRect();return [(e.clientX-r.left)/r.width*S,(e.clientY-r.top)/r.height*S];}
 function zoomAt(f,cx,cy){Z*=f;OX=cx-(cx-OX)*f;OY=cy-(cy-OY)*f;render();}
 function reset(){Z=1;OX=0;OY=0;yaw=D.ndim===3?0.6:0;pitch=D.ndim===3?-0.35:0;render();}
 function setMode(m){mode=m;root.querySelectorAll('.tb [data-mode]').forEach(function(b){b.classList.toggle('on',b.getAttribute('data-mode')===m);});}
-/* full screen. In a same-origin output iframe (PyCharm) the figure and its stylesheet are moved into
-   the host page as an overlay covering the notebook view (and moved back on exit): the Fullscreen API
-   is useless there, the embedded browser reports success without leaving the output area. Elsewhere the
-   browser is asked, and believed only if the window really spans the screen; else the figure is
-   enlarged in place to its container's width. Esc leaves all of them. */
-var fsBtn=root.querySelector('.tb [data-act="fs"]'),fsOn=false,hoisted=null,sheet=root.previousElementSibling;
-function fsState(on,cls){fsOn=on;root.classList.toggle('fs',on&&cls==='fs');root.classList.toggle('big',on&&cls==='big');
- if(fsBtn)fsBtn.textContent=on?'\u2716':'\u26F6';}
-function hostDocument(){try{var f=window.frameElement;if(f&&window.parent&&window.parent.document&&window.parent.document.body)return window.parent.document;}catch(e){}return null;}
-function onKey(e){if(e.key==='Escape'&&fsOn)leaveFs();}
-function hoist(){var pd=hostDocument();if(!pd)return false;
- var mark=document.createComment('energnn-plot');root.parentNode.insertBefore(mark,root);
- if(sheet&&sheet.tagName==='STYLE')pd.body.appendChild(pd.adoptNode(sheet));
- pd.body.appendChild(pd.adoptNode(root));pd.addEventListener('keydown',onKey);hoisted={doc:pd,mark:mark};return true;}
-function unhoist(){if(!hoisted)return;var pd=hoisted.doc,mark=hoisted.mark;
- if(sheet&&sheet.tagName==='STYLE')mark.parentNode.insertBefore(document.adoptNode(sheet),mark);
- mark.parentNode.insertBefore(document.adoptNode(root),mark);mark.parentNode.removeChild(mark);
- pd.removeEventListener('keydown',onKey);hoisted=null;}
-function reallyFullScreen(){try{return document.fullscreenElement===root&&window.innerHeight>=0.9*screen.height;}catch(e){return false;}}
-var EMBEDDED=/JCEF|JBCef/i.test(navigator.userAgent||'');  /* JetBrains' embedded Chromium: no real full screen */
-function enterFs(){fsState(true,null);
- if(hoist()){fsState(true,'fs');render();return;}
- if(EMBEDDED){fsState(true,'big');render();return;}
- var settled=false;
- function fallback(){if(settled)return;settled=true;
-  if(reallyFullScreen())fsState(true,'fs');
-  else{if(document.fullscreenElement===root&&document.exitFullscreen)document.exitFullscreen();fsState(true,'big');}
-  render();}
- var p=null;try{p=root.requestFullscreen?root.requestFullscreen():null;}catch(e){}
- if(p&&p.then)p.then(fallback,fallback);
- setTimeout(fallback,300);}
-function leaveFs(){fsState(false,null);unhoist();
- if(document.fullscreenElement===root&&document.exitFullscreen)document.exitFullscreen();render();}
-function toggleFs(){if(fsOn)leaveFs();else enterFs();}
-document.addEventListener('fullscreenchange',function(){if(fsOn&&!hoisted)fsState(true,reallyFullScreen()?'fs':'big');});
-document.addEventListener('keydown',onKey);
 root.querySelectorAll('.tb button').forEach(function(b){b.addEventListener('click',function(){
  var m=b.getAttribute('data-mode'),a=b.getAttribute('data-act');
- if(m)setMode(m);else if(a==='zin')zoomAt(1.25,S/2,S/2);else if(a==='zout')zoomAt(0.8,S/2,S/2);else if(a==='reset')reset();else if(a==='fs')toggleFs();});});
+ if(m)setMode(m);else if(a==='zin')zoomAt(1.25,S/2,S/2);else if(a==='zout')zoomAt(0.8,S/2,S/2);else if(a==='reset')reset();});});
 setMode(mode);
 svg.addEventListener('wheel',function(e){e.preventDefault();var c=toSvg(e);zoomAt(e.deltaY<0?1.25:0.8,c[0],c[1]);},{passive:false});
 svg.addEventListener('mousedown',function(e){e.preventDefault();drag={x:e.clientX,y:e.clientY,ox:OX,oy:OY,yaw:yaw,pitch:pitch,rotate:mode==='rotate'&&D.ndim===3&&!e.shiftKey};

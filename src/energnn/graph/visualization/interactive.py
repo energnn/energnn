@@ -49,23 +49,6 @@ class InteractiveGraphPlot:
     def _repr_html_(self) -> str:
         return self._html
 
-    def open_in_browser(self) -> str:
-        """Save the plot as a standalone page in a temporary file and open it in the system browser.
-
-        Useful where the notebook output area cannot be enlarged, e.g. inside an IDE; the page offers
-        the same interactions plus real full screen.
-
-        :return: Path of the temporary HTML file.
-        """
-        import tempfile
-        import webbrowser
-
-        handle = tempfile.NamedTemporaryFile(prefix="energnn-graph-", suffix=".html", delete=False)
-        handle.close()
-        self.save(handle.name)
-        webbrowser.open("file://" + handle.name)
-        return handle.name
-
     def save(self, file_path: str) -> None:
         """Write the plot as a standalone HTML page."""
         with open(file_path, "w", encoding="utf-8") as handle:
@@ -157,14 +140,6 @@ def _css(uid: str, theme: str, stroke: float, logo_width: int) -> str:
         f"#{uid} .tb button{{font:inherit;font-size:13px;width:26px;height:26px;padding:0;border:1px solid var(--neutral);"
         f"border-radius:4px;background:var(--surface);color:var(--ink);cursor:pointer;opacity:0.85}}"
         f"#{uid} .tb button.on{{background:var(--ink);color:var(--surface)}}"
-        f"#{uid}.fs{{position:fixed;inset:0;z-index:9999;border-radius:0;display:flex;flex-direction:column;"
-        f"align-items:center;justify-content:center}}"
-        f"#{uid}.fs .cw{{width:100%;display:flex;align-items:center;justify-content:center}}"
-        f"#{uid}.fs svg.cv{{width:min(100vw - 16px,100vh - 110px);height:min(100vw - 16px,100vh - 110px)}}"
-        f"#{uid}.fs .tl{{width:min(90vw,900px)}}"
-        f"#{uid}.big{{display:block;width:100%}}"
-        f"#{uid}.big .cw{{display:flex;justify-content:center}}"
-        f"#{uid}.big svg.cv{{width:min(calc(100vw - 32px),1400px);height:min(calc(100vw - 32px),1400px)}}"
         f"#{uid} .tl{{display:flex;align-items:center;gap:8px;padding:4px 12px 8px;font-size:11px}}"
         f"#{uid} .tl input{{flex:1}}"
         f"#{uid} .tl button{{font:inherit;padding:1px 8px;border:1px solid var(--neutral);border-radius:4px;"
@@ -253,8 +228,6 @@ def _toolbar_html(ndim: int) -> str:
         '<button type="button" data-act="zin" title="zoom in">+</button>',
         '<button type="button" data-act="zout" title="zoom out">&minus;</button>',
         '<button type="button" data-act="reset" title="reset the view">&#x2302;</button>',
-        '<button type="button" data-act="fs" title="full screen, or enlarge inside a notebook output (Esc to leave)">'
-        "&#x26f6;</button>",
     ]
     return f'<div class="tb">{"".join(buttons)}</div>'
 
@@ -281,7 +254,7 @@ def plot_graph_interactive(
     reveals the port names along its connections. The mouse wheel zooms (markers,
     lines and labels keep their size), dragging pans (or rotates the view for 3D
     positions, shift-drag then pans), double-click resets the view, and the toolbar
-    offers the same plus a full-screen mode. When ``positions`` or ``address_colors`` carry a
+    offers the same. When ``positions`` or ``address_colors`` carry a
     time axis, a slider and a play button step through the frames; playback
     interpolates positions and colors between frames and pauses at the end of
     the series before looping. The result
