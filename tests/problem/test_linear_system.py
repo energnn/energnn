@@ -5,12 +5,19 @@
 # SPDX-License-Identifier: MPL-2.0
 
 import numpy as np
+import pytest
+import scipy.sparse
+import scipy.sparse.csgraph
 
+from energnn.graph.backend import NumpyBackend
 from energnn.problem.example import LinearSystemContextConverter, LinearSystemOracleConverter
 from energnn.problem.example.linear_system import (
     LINEAR_SYSTEM_CONTEXT_STRUCTURE,
     LINEAR_SYSTEM_DECISION_STRUCTURE,
+    LinearSystemProblemGenerator,
+    _draw_n_lines,
     _generate_sparse_linear_system,
+    _max_lines,
 )
 
 
@@ -56,3 +63,52 @@ def test_structures_derived_from_converters():
     assert context_sets["line"].port_list == ["from", "to"]
     assert context_sets["bus"].feature_list == ["active_power_injection"]
     assert LINEAR_SYSTEM_DECISION_STRUCTURE.hyper_edge_sets["bus"].port_list is None
+
+
+# ---------------------------------------------------------------------------
+# Sparsity and connectivity of generated systems
+# ---------------------------------------------------------------------------
+
+
+def _is_connected(B: np.ndarray) -> bool:
+    adjacency = (B != 0) & ~np.eye(B.shape[0], dtype=bool)
+    n_components, _ = scipy.sparse.csgraph.connected_components(scipy.sparse.csr_matrix(adjacency), directed=False)
+    return n_components == 1
+
+
+@pytest.mark.parametrize("n", [2, 3, 5, 16, 64])
+def test_generated_system_is_connected(n):
+    np.random.seed(n)
+    for _ in range(50):
+        m = _draw_n_lines(n)
+        B, _, _ = _generate_sparse_linear_system(n, m)
+        assert n - 1 <= m <= _max_lines(n)
+        assert np.count_nonzero(np.triu(B, k=1)) == m
+        assert _is_connected(B)
+
+
+@pytest.mark.parametrize("n_max", [3, 4])
+def test_max_lines_never_exceeds_complete_graph(n_max):
+    assert _max_lines(n_max) <= n_max * (n_max - 1) // 2
+    assert _max_lines(2) == 1
+
+
+def test_generated_systems_have_realistic_mean_degree():
+    generator = LinearSystemProblemGenerator(seed=0, n_max=64)
+    degrees = []
+    for _ in range(300):
+        problem = generator.generate_problem(backend=NumpyBackend())
+        n = problem.context.hyper_edge_sets["bus"].n_obj
+        m = problem.context.hyper_edge_sets["line"].n_obj
+        assert m <= _max_lines(n)
+        degrees.append(2 * m / n)
+    assert 2.0 < np.mean(degrees) < 4.0
+
+
+def test_problem_batch_pads_lines_to_max_lines():
+    n_max = 16
+    generator = LinearSystemProblemGenerator(seed=0, n_max=n_max)
+    batch = generator.generate_problem_batch(batch_size=4)
+    line = batch.context.hyper_edge_sets["line"]
+    assert line.n_obj == _max_lines(n_max)
+    assert batch.context.hyper_edge_sets["bus"].n_obj == n_max
