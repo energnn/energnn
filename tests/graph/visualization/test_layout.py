@@ -232,3 +232,48 @@ def test_layout_margin_covers_stubs_loops_and_fans(mixed_order_graph, multi_grap
     plain = extract_plot_data(portless_graph, iterations=10, seed=0)
     assert plain.margin == pytest.approx(0.62 * address_radius(3))
     assert layout_margin(3, {"line": [[0, 1], [0, 1]]}) >= 0.09  # fanned parallel edges
+
+
+TRIANGLE = np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]])
+
+
+@pytest.mark.parametrize("positions", [None, TRIANGLE], ids=["spring", "given"])
+def test_hubs_with_all_ports_on_one_address_are_offset_like_stubs(degenerate_hubs_graph, positions):
+    data = extract_plot_data(degenerate_hubs_graph, iterations=50, seed=0, positions=positions)
+    r_addr = address_radius(data.n_addr)
+    geoms = object_geometries(data)
+    for key, address, order in ((("t3", 0), 2, 3), (("t5", 0), 1, 5)):
+        hub = geoms[key].marker
+        assert np.linalg.norm(hub - data.pos[0, address]) == pytest.approx(STUB_LENGTH * r_addr)
+        assert len(geoms[key].lines) == order  # one (curved) spoke per port
+        assert all(len(line) == 17 for line in geoms[key].lines)  # fanned Bezier curves, not segments
+        assert len(np.unique(np.round(geoms[key].labels, 6), axis=0)) == order  # one label per port, all distinct
+        assert len(np.unique(np.round([line[8] for line in geoms[key].lines], 6), axis=0)) == order
+
+
+def test_hub_with_partially_repeated_ports(degenerate_hubs_graph):
+    data = extract_plot_data(degenerate_hubs_graph, iterations=50, seed=0, positions=TRIANGLE)
+    geom = object_geometries(data)[("t4", 0)]
+    assert [len(line) for line in geom.lines] == [17, 17, 2, 2]  # a, b fanned to address 0; c, d straight
+    assert len(np.unique(np.round(geom.labels, 6), axis=0)) == 4
+    # the hub sits at the barycenter of the distinct addresses 0, 1, 2
+    np.testing.assert_allclose(geom.marker, data.pos[0, [0, 1, 2]].mean(axis=0), atol=1e-6)
+
+
+def test_hub_landing_on_one_of_its_addresses_is_pushed_away(mixed_order_graph):
+    # addresses 0, 1, 2 collinear with 1 at the barycenter of the trafo3w ports (0, 1, 2)
+    positions = np.array([[0.0, 0.0], [1.0, 0.0], [2.0, 0.0], [1.0, 1.0]])
+    data = extract_plot_data(mixed_order_graph, iterations=10, seed=0, positions=positions)
+    hub = object_geometries(data)[("trafo3w", 0)].marker
+    assert np.linalg.norm(hub - data.pos[0, 1]) >= 1.5 * address_radius(data.n_addr)
+
+
+def test_parallel_hubs_with_given_positions_are_spread(multi_graph):
+    data = extract_plot_data(multi_graph, iterations=10, seed=0, positions=TRIANGLE)
+    geoms = object_geometries(data)
+    assert np.linalg.norm(geoms[("trafo3w", 0)].marker - geoms[("trafo3w", 1)].marker) >= 2 * address_radius(3)
+
+
+def test_spring_layout_links_hubs_to_distinct_addresses_only(degenerate_hubs_graph):
+    data = extract_plot_data(degenerate_hubs_graph, iterations=50, seed=0)
+    assert data.margin >= (STUB_LENGTH + 0.62) * address_radius(3)  # degenerate hubs reach like stubs

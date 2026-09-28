@@ -145,6 +145,9 @@ def _css(uid: str, theme: str, stroke: float, logo_width: int) -> str:
         f"#{uid}.fs .cw{{flex:1;min-height:0;width:100%;display:flex;align-items:center;justify-content:center}}"
         f"#{uid}.fs svg.cv{{height:100%;width:auto;max-width:100%;aspect-ratio:1}}"
         f"#{uid}.fs .tl{{width:min(90vw,900px)}}"
+        f"#{uid}.big{{display:block;width:100%}}"
+        f"#{uid}.big .cw{{display:flex;justify-content:center}}"
+        f"#{uid}.big svg.cv{{width:min(calc(100vw - 32px),1400px);height:min(calc(100vw - 32px),1400px)}}"
         f"#{uid} .tl{{display:flex;align-items:center;gap:8px;padding:4px 12px 8px;font-size:11px}}"
         f"#{uid} .tl input{{flex:1}}"
         f"#{uid} .tl button{{font:inherit;padding:1px 8px;border:1px solid var(--neutral);border-radius:4px;"
@@ -233,7 +236,8 @@ def _toolbar_html(ndim: int) -> str:
         '<button type="button" data-act="zin" title="zoom in">+</button>',
         '<button type="button" data-act="zout" title="zoom out">&minus;</button>',
         '<button type="button" data-act="reset" title="reset the view">&#x2302;</button>',
-        '<button type="button" data-act="fs" title="full screen (Esc to leave)">&#x26f6;</button>',
+        '<button type="button" data-act="fs" title="full screen, or enlarge inside a notebook output (Esc to leave)">'
+        "&#x26f6;</button>",
     ]
     return f'<div class="tb">{"".join(buttons)}</div>'
 

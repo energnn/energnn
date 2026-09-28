@@ -38,13 +38,20 @@ function geom(o,P){var ports=o.ports;
  if(o.kind==='loop'){var A=P[ports[0]],u=[o.direction[0],o.direction[1],0],v=[-u[1],u[0],0],r=D.loopR,c=add(A,u,D.addrR+r+0.01),circle=[];
   for(var k=0;k<25;k++){var th=2*Math.PI*k/24;circle.push(add(add(c,u,r*Math.cos(th)),v,r*Math.sin(th)));}
   return {lines:[circle],marker:add(c,u,r),labels:[add(add(c,u,1.6*r*Math.cos(0.9)),v,1.6*r*Math.sin(0.9)),add(add(c,u,1.6*r*Math.cos(0.9)),v,-1.6*r*Math.sin(0.9))]};}
- if(o.kind==='pair'){var A=P[ports[0]],B=P[ports[1]],ch=add(B,A,-1),L=Math.max(norm(ch),1e-9),d=ch.map(function(v){return v/L;});
-  var n=[-d[1],d[0],0],nl=norm(n);n=nl<1e-9?[1,0,0]:n.map(function(v){return v/nl;});var h=o.fan*Math.min(0.3*L,D.fanH);
-  var ctrl=add(add(A,B,1).map(function(v){return v/2;}),n,2*h),curve=[];
-  for(var k=0;k<17;k++){var t=k/16;curve.push(A.map(function(v,i){return (1-t)*(1-t)*v+2*t*(1-t)*ctrl[i]+t*t*B[i];}));}
-  return {lines:[curve],marker:curve[8],labels:[curve[3],curve[13]]};}
- if(o.kind==='hub'){var H=P[o.hub];return {lines:ports.map(function(p){return [H,P[p]];}),marker:H,labels:ports.map(function(p){return add(H,P[p],1).map(function(v){return v/2;});})};}
+ if(o.kind==='pair'){var curve=fanned(P[ports[0]],P[ports[1]],o.fan);return {lines:[curve],marker:curve[8],labels:[curve[3],curve[13]]};}
+ if(o.kind==='hub'){var H=P[o.hub],counts={},seen={},lines=[],labels=[];
+  ports.forEach(function(p){counts[p]=(counts[p]||0)+1;});
+  ports.forEach(function(p){var j=seen[p]||0;seen[p]=j+1;
+   if(counts[p]===1){lines.push([H,P[p]]);labels.push(add(H,P[p],1).map(function(v){return v/2;}));}
+   else{var c=fanned(H,P[p],j-(counts[p]-1)/2);lines.push(c);labels.push(c[8]);}});
+  return {lines:lines,marker:H,labels:labels};}
  return null;}
+/* Bezier curve from A to B bent by its rank among parallel connections (mirrors layout._fanned_curve) */
+function fanned(A,B,fan){var ch=add(B,A,-1),L=Math.max(norm(ch),1e-9),d=ch.map(function(v){return v/L;});
+ var n=[-d[1],d[0],0],nl=norm(n);n=nl<1e-9?[1,0,0]:n.map(function(v){return v/nl;});var h=fan*Math.min(0.3*L,D.fanH);
+ var ctrl=add(add(A,B,1).map(function(v){return v/2;}),n,2*h),curve=[];
+ for(var k=0;k<17;k++){var t=k/16;curve.push(A.map(function(v,i){return (1-t)*(1-t)*v+2*t*(1-t)*ctrl[i]+t*t*B[i];}));}
+ return curve;}
 /* build the elements once */
 var objs=[],addrs=[];
 D.classes.forEach(function(c){c.objects.forEach(function(o){if(o.kind==='none')return;
@@ -85,14 +92,20 @@ function toSvg(e){var r=svg.getBoundingClientRect();return [(e.clientX-r.left)/r
 function zoomAt(f,cx,cy){Z*=f;OX=cx-(cx-OX)*f;OY=cy-(cy-OY)*f;render();}
 function reset(){Z=1;OX=0;OY=0;yaw=D.ndim===3?0.6:0;pitch=D.ndim===3?-0.35:0;render();}
 function setMode(m){mode=m;root.querySelectorAll('.tb [data-mode]').forEach(function(b){b.classList.toggle('on',b.getAttribute('data-mode')===m);});}
-/* full screen: the browser API when available, else a fixed overlay filling the window; Esc leaves both */
-var fsBtn=root.querySelector('.tb [data-act="fs"]');
-function setFs(on){root.classList.toggle('fs',on);if(fsBtn)fsBtn.textContent=on?'\u2716':'\u26F6';}
-function toggleFs(){var on=!root.classList.contains('fs');setFs(on);
+/* full screen. In a page of its own (JupyterLab, a saved file): the browser API when available, else a
+   fixed overlay filling the window. In an output iframe (PyCharm, VS Code) neither works: the API is
+   refused and a fixed overlay collapses the iframe, so the figure is enlarged to the iframe's width
+   instead, the host growing the iframe to fit. Esc leaves all of them. */
+var fsBtn=root.querySelector('.tb [data-act="fs"]'),inFrame=true;
+try{inFrame=window.self!==window.top;}catch(e){}
+var fsClass=inFrame?'big':'fs',fsOn=false;
+function setFs(on){fsOn=on;root.classList.toggle(fsClass,on);if(fsBtn)fsBtn.textContent=on?'\u2716':'\u26F6';}
+function toggleFs(){var on=!fsOn;setFs(on);
+ if(inFrame)return;
  if(on&&root.requestFullscreen){var p=root.requestFullscreen();if(p&&p.catch)p.catch(function(){});}
  else if(!on&&document.fullscreenElement===root&&document.exitFullscreen)document.exitFullscreen();}
-document.addEventListener('fullscreenchange',function(){if(document.fullscreenElement!==root&&root.classList.contains('fs'))setFs(false);});
-document.addEventListener('keydown',function(e){if(e.key==='Escape'&&root.classList.contains('fs'))toggleFs();});
+document.addEventListener('fullscreenchange',function(){if(document.fullscreenElement!==root&&fsOn&&!inFrame)setFs(false);});
+document.addEventListener('keydown',function(e){if(e.key==='Escape'&&fsOn)toggleFs();});
 root.querySelectorAll('.tb button').forEach(function(b){b.addEventListener('click',function(){
  var m=b.getAttribute('data-mode'),a=b.getAttribute('data-act');
  if(m)setMode(m);else if(a==='zin')zoomAt(1.25,S/2,S/2);else if(a==='zout')zoomAt(0.8,S/2,S/2);else if(a==='reset')reset();else if(a==='fs')toggleFs();});});

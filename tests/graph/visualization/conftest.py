@@ -65,3 +65,19 @@ def multi_graph() -> Graph:
         ),
     }
     return Graph.from_dict(hyper_edge_set_dict=hes, n_addresses=3)
+
+
+@pytest.fixture
+def degenerate_hubs_graph() -> Graph:
+    """Order-3+ objects with repeated ports: all on one address (orders 3 and 5), two on one address (order 4)."""
+    hes = {
+        "line": HyperEdgeSet.from_dict(port_dict={"from": np.array([0, 1]), "to": np.array([1, 2])}, feature_dict=None),
+        "t3": HyperEdgeSet.from_dict(
+            port_dict={"a": np.array([2, 0]), "b": np.array([2, 0]), "c": np.array([2, 1])}, feature_dict=None
+        ),
+        "t4": HyperEdgeSet.from_dict(
+            port_dict={"a": np.array([0]), "b": np.array([0]), "c": np.array([1]), "d": np.array([2])}, feature_dict=None
+        ),
+        "t5": HyperEdgeSet.from_dict(port_dict={k: np.array([1]) for k in ("a", "b", "c", "d", "e")}, feature_dict=None),
+    }
+    return Graph.from_dict(hyper_edge_set_dict=hes, n_addresses=3)

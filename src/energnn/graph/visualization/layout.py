@@ -121,9 +121,45 @@ def _star_expansion(classes: list[str], ports: dict[str, list[list[int]]], n_add
                 layout_edges.append((edge_ports[0], edge_ports[1]))
             elif len(edge_ports) >= 3:
                 hub_ids[(name, i)] = next_id
-                layout_edges.extend((next_id, p) for p in edge_ports)
+                layout_edges.extend((next_id, p) for p in sorted(set(edge_ports)))
                 next_id += 1
     return np.array(layout_edges, dtype=int).reshape(-1, 2), hub_ids, next_id
+
+
+def _place_hubs(
+    pos: np.ndarray, hub_ids: dict[ObjKey, int], ports: dict[str, list[list[int]]], classes: list[str], from_layout: bool
+) -> None:
+    """Position the hub of every order-3+ object, for all frames, in place.
+
+    A hub sits at the barycenter of its *distinct* port addresses (kept from the spring layout
+    when ``from_layout``). Degenerate cases are handled for any order: a hub whose ports all hit
+    one address is offset from it like an order-1 stub; a hub landing on one of its addresses is
+    pushed away the same way; hubs sharing the same address set are spread side by side.
+    """
+    n_addr = min(hub_ids.values()) if hub_ids else pos.shape[1]  # hub rows come after the addresses
+    r_addr = address_radius(n_addr)
+    by_addresses: dict[tuple[int, ...], list[ObjKey]] = {}
+    for key in hub_ids:
+        by_addresses.setdefault(tuple(sorted(set(ports[key[0]][key[1]]))), []).append(key)
+    for addresses, keys in by_addresses.items():
+        anchors = pos[:, list(addresses)]  # (n_frames, n_distinct, 3)
+        for j, (name, i) in enumerate(keys):
+            direction = stub_direction(classes.index(name), i)
+            if len(addresses) == 1:
+                hub = anchors[:, 0] + STUB_LENGTH * r_addr * direction
+            elif from_layout:
+                hub = pos[:, hub_ids[(name, i)]].copy()
+            else:
+                hub = anchors.mean(axis=1)
+                if len(keys) > 1:  # parallel hubs: spread them across the first spoke
+                    chord = anchors[:, 1] - anchors[:, 0]
+                    normal = np.stack([-chord[:, 1], chord[:, 0], np.zeros(len(chord))], axis=1)
+                    norms = np.linalg.norm(normal, axis=1, keepdims=True)
+                    normal = np.where(norms > 1e-9, normal / np.maximum(norms, 1e-9), np.array([1.0, 0.0, 0.0]))
+                    hub = hub + (j - (len(keys) - 1) / 2.0) * 2.0 * r_addr * normal
+            too_close = np.linalg.norm(anchors - hub[:, None], axis=-1).min(axis=1) < 1.5 * r_addr
+            hub = np.where(too_close[:, None], hub + STUB_LENGTH * r_addr * direction, hub)
+            pos[:, hub_ids[(name, i)]] = hub
 
 
 def _per_address_array(values: Any, name: str, address_mask: np.ndarray, n_addr: int, last_dims: tuple[int, ...]):
@@ -205,8 +241,7 @@ def extract_plot_data(
         ndim = 2 if np.all(addr_pos[..., 2] == 0) else 3
         pos = np.zeros((addr_pos.shape[0], n_nodes, 3))
         pos[:, :n_addr] = addr_pos
-        for (name, i), hub_id in hub_ids.items():
-            pos[:, hub_id] = addr_pos[:, ports[name][i]].mean(axis=1)
+    _place_hubs(pos, hub_ids, ports, classes, from_layout=positions is None)
 
     colors = color_range = None
     if address_colors is not None:
@@ -289,15 +324,18 @@ def layout_margin(n_addr: int, ports: dict[str, list[list[int]]]) -> float:
     r_addr = address_radius(n_addr)
     reach = 0.62 * r_addr  # a class marker centered on an address
     pairs: dict[tuple[int, int], int] = {}
+    fanned = False
     for edge_ports in (p for plist in ports.values() for p in plist):
-        if len(edge_ports) == 1:
+        if len(edge_ports) == 1 or (len(edge_ports) >= 3 and len(set(edge_ports)) == 1):
             reach = max(reach, (STUB_LENGTH + 0.62) * r_addr)
         elif len(edge_ports) == 2:
             pair = (min(edge_ports), max(edge_ports))
             pairs[pair] = pairs.get(pair, 0) + 1
             if pair[0] == pair[1]:
                 reach = max(reach, r_addr + 2 * LOOP_RADIUS + 0.02)
-    if any(count > 1 for count in pairs.values()):
+        if len(edge_ports) >= 3 and len(set(edge_ports)) < len(edge_ports):
+            fanned = True
+    if fanned or any(count > 1 for count in pairs.values()):
         reach = max(reach, FAN_HEIGHT)
     return reach
 
@@ -336,19 +374,37 @@ def _loop_geom(anchor: np.ndarray, rank: tuple[int, int], r_addr: float) -> ObjG
     return ObjGeom([circle], center + r_loop * u, labels)
 
 
-def _pair_geom(a: np.ndarray, b: np.ndarray, fan: float) -> ObjGeom:
-    """A Bezier curve between two addresses, bent according to its rank among parallel edges."""
+def _fanned_curve(a: np.ndarray, b: np.ndarray, fan: float) -> np.ndarray:
+    """A Bezier curve from ``a`` to ``b``, bent according to its rank among parallel connections."""
     chord = b - a
     length = max(float(np.linalg.norm(chord)), 1e-9)
     normal = _perpendicular(chord / length)
     height = fan * min(0.3 * length, FAN_HEIGHT)
-    curve = _bezier(a, (a + b) / 2.0 + 2.0 * height * normal, b)
+    return _bezier(a, (a + b) / 2.0 + 2.0 * height * normal, b)
+
+
+def _pair_geom(a: np.ndarray, b: np.ndarray, fan: float) -> ObjGeom:
+    """A curve between two addresses, with the marker at its middle and one label per end."""
+    curve = _fanned_curve(a, b, fan)
     return ObjGeom([curve], curve[8], [curve[3], curve[13]])
 
 
-def _hub_geom(hub: np.ndarray, port_pos: list[np.ndarray]) -> ObjGeom:
-    """A hub marker with one spoke per port."""
-    return ObjGeom([np.stack([hub, p]) for p in port_pos], hub, [(hub + p) / 2.0 for p in port_pos])
+def _hub_geom(hub: np.ndarray, pos: np.ndarray, edge_ports: list[int]) -> ObjGeom:
+    """A hub marker with one spoke per port; spokes to the same address are fanned out."""
+    counts = {p: edge_ports.count(p) for p in edge_ports}
+    seen: dict[int, int] = {}
+    lines, labels = [], []
+    for p in edge_ports:
+        j = seen.get(p, 0)
+        seen[p] = j + 1
+        if counts[p] == 1:
+            lines.append(np.stack([hub, pos[p]]))
+            labels.append((hub + pos[p]) / 2.0)
+        else:
+            curve = _fanned_curve(hub, pos[p], j - (counts[p] - 1) / 2.0)
+            lines.append(curve)
+            labels.append(curve[8])
+    return ObjGeom(lines, hub, labels)
 
 
 def object_geometries(data: PlotData, frame: int = 0) -> dict[ObjKey, ObjGeom]:
@@ -374,7 +430,7 @@ def object_geometries(data: PlotData, frame: int = 0) -> dict[ObjKey, ObjGeom]:
             elif len(edge_ports) == 2:
                 geoms[key] = _pair_geom(pos[edge_ports[0]], pos[edge_ports[1]], fan[key])
             elif len(edge_ports) >= 3:
-                geoms[key] = _hub_geom(pos[data.hub_ids[key]], [pos[p] for p in edge_ports])
+                geoms[key] = _hub_geom(pos[data.hub_ids[key]], pos, edge_ports)
     return geoms
 
 
