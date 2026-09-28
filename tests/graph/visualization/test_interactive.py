@@ -34,7 +34,8 @@ def test_interactive_plot_content(mixed_order_graph):
     assert sum(len(c["objects"]) for c in payload["classes"]) == 6
     trafo = payload["classes"][2]["objects"][0]
     assert trafo["kind"] == "hub" and "hv" in trafo["tip"] and "1.02" in trafo["tip"]
-    assert payload["addrTips"][0].startswith("&lt;b&gt;address 0")
+    assert payload["addrTips"][0] == "<b>address 0</b>"
+    assert trafo["tip"].startswith("<b>trafo3w #0</b><br>hv &rarr; 0<br>")
     assert '<img class="logo" src="data:image/png;base64,' in fragment
 
 

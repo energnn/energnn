@@ -269,15 +269,23 @@ def _pair_ranks(data: PlotData) -> tuple[dict[ObjKey, float], dict[ObjKey, tuple
     return fan, loop_rank
 
 
+def address_radius(n_addr: int) -> float:
+    """Radius of the address circles in layout units (the ``[-1, 1]`` box), shrinking with their number.
+
+    Both renderers draw addresses with this radius, so hyper-edge geometries can keep clear of them.
+    """
+    return float(np.clip(150.0 / np.sqrt(max(n_addr, 1)), 5.0, 13.0)) / 290.0
+
+
 def stub_direction(class_index: int, i: int) -> np.ndarray:
     """Deterministic unit direction (in the xy-plane) of an order-1 stub, so several stubs stay visible."""
     angle = 2.0 * np.pi * ((class_index * 0.37 + i * 0.61) % 1.0)
     return np.array([np.cos(angle), np.sin(angle), 0.0])
 
 
-def _order1_geom(anchor: np.ndarray, class_index: int, i: int) -> ObjGeom:
-    """A short stub leaving the address."""
-    tip = anchor + 0.05 * stub_direction(class_index, i)
+def _order1_geom(anchor: np.ndarray, class_index: int, i: int, r_addr: float) -> ObjGeom:
+    """A short stub leaving the address; its marker sits clear of the address circle."""
+    tip = anchor + 2.6 * r_addr * stub_direction(class_index, i)
     return ObjGeom([np.stack([anchor, tip])], tip, [(anchor + tip) / 2.0])
 
 
@@ -288,12 +296,15 @@ def loop_direction(rank: tuple[int, int]) -> np.ndarray:
     return np.array([np.cos(angle), np.sin(angle), 0.0])
 
 
-def _loop_geom(anchor: np.ndarray, rank: tuple[int, int]) -> ObjGeom:
-    """A small circle beside the address, in the xy-plane; several loops spread around it."""
+LOOP_RADIUS = 0.055
+
+
+def _loop_geom(anchor: np.ndarray, rank: tuple[int, int], r_addr: float) -> ObjGeom:
+    """A small circle just outside the address circle, in the xy-plane; several loops spread around it."""
     u = loop_direction(rank)
     v = np.array([-u[1], u[0], 0.0])
-    r_loop = 0.055
-    center = anchor + 1.7 * r_loop * u
+    r_loop = LOOP_RADIUS
+    center = anchor + (r_addr + r_loop + 0.01) * u
     theta = np.linspace(0.0, 2.0 * np.pi, 25)[:, None]
     circle = center + r_loop * (np.cos(theta) * u + np.sin(theta) * v)
     labels = [
@@ -328,15 +339,16 @@ def object_geometries(data: PlotData, frame: int = 0) -> dict[ObjKey, ObjGeom]:
     """
     pos = data.pos[frame]
     fan, loop_rank = _pair_ranks(data)
+    r_addr = address_radius(data.n_addr)
 
     geoms: dict[ObjKey, ObjGeom] = {}
     for class_index, name in enumerate(data.classes):
         for i, edge_ports in enumerate(data.ports[name]):
             key = (name, i)
             if len(edge_ports) == 1:
-                geoms[key] = _order1_geom(pos[edge_ports[0]], class_index, i)
+                geoms[key] = _order1_geom(pos[edge_ports[0]], class_index, i, r_addr)
             elif key in loop_rank:
-                geoms[key] = _loop_geom(pos[edge_ports[0]], loop_rank[key])
+                geoms[key] = _loop_geom(pos[edge_ports[0]], loop_rank[key], r_addr)
             elif len(edge_ports) == 2:
                 geoms[key] = _pair_geom(pos[edge_ports[0]], pos[edge_ports[1]], fan[key])
             elif len(edge_ports) >= 3:

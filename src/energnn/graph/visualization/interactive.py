@@ -22,13 +22,14 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from energnn.graph.visualization.assets import logo_data_uri, script_js
-from energnn.graph.visualization.layout import PlotData, extract_plot_data, object_descriptors
+from energnn.graph.visualization.layout import LOOP_RADIUS, PlotData, address_radius, extract_plot_data, object_descriptors
 from energnn.graph.visualization.theme import SVG_MARKERS, THEMES, Theme
 
 if TYPE_CHECKING:
     from energnn.graph.graph import Graph
 
 _plot_ids = itertools.count()
+_PAD = 30  # canvas margin in pixels, as in plot.js
 
 
 class InteractiveGraphPlot:
@@ -85,11 +86,11 @@ def _svg_marker(shape: str, x: float, y: float, r: float, color: str, extra: str
 
 
 def _tip(title: str, port_lines: list[tuple[str, int]], feature_lines: dict[str, float]) -> str:
-    """Build the tooltip HTML for one object and escape it for use in an attribute."""
+    """Tooltip HTML for one object (names and values escaped; travels through the JSON payload)."""
     parts = [f"<b>{html.escape(title)}</b>"]
     parts += [f"{html.escape(pn)} &rarr; {addr}" for pn, addr in port_lines]
     parts += [f"{html.escape(fn)} = {value:.5g}" for fn, value in feature_lines.items()]
-    return html.escape("<br>".join(parts), quote=True)
+    return "<br>".join(parts)
 
 
 def _theme_vars(t: Theme) -> str:
@@ -140,7 +141,8 @@ def _css(uid: str, theme: str, stroke: float, logo_width: int) -> str:
 
 def _payload(data: PlotData, size: int, edge_colors: bool, interval: int, loop_pause: int, theme: str) -> dict[str, Any]:
     """Everything the script needs, JSON-serializable."""
-    r_addr = float(np.clip(150.0 / np.sqrt(max(data.n_addr, 1)), 5.0, 13.0))
+    r_units = address_radius(data.n_addr)
+    r_addr = r_units * (size - 2 * _PAD) / 2.0  # in pixels
     r_mark = 0.62 * r_addr
     descriptors = object_descriptors(data)
     n_colors = len(THEMES["light"].palette)
@@ -164,6 +166,8 @@ def _payload(data: PlotData, size: int, edge_colors: bool, interval: int, loop_p
         "ndim": data.ndim,
         "nAddr": data.n_addr,
         "rAddr": r_addr,
+        "addrR": r_units,
+        "loopR": LOOP_RADIUS,
         "stroke": float(np.clip(r_addr / 6.0, 1.0, 2.0)),
         "fontSize": max(round(0.95 * r_addr), 7),
         "markers": {shape: [[round(x, 2), round(y, 2)] for x, y in _marker_points(shape, r_mark)] for shape in SVG_MARKERS},

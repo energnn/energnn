@@ -31,8 +31,8 @@ function add(a,b,k){return [a[0]+b[0]*k,a[1]+b[1]*k,a[2]+b[2]*k];}
 function norm(a){return Math.sqrt(a[0]*a[0]+a[1]*a[1]+a[2]*a[2]);}
 /* geometry of one object from the address positions P of the current frame */
 function geom(o,P){var ports=o.ports;
- if(o.kind==='stub'){var A=P[ports[0]],tp=add(A,[o.direction[0],o.direction[1],0],0.05);return {lines:[[A,tp]],marker:tp,labels:[add(A,tp,1).map(function(v){return v/2;})]};}
- if(o.kind==='loop'){var A=P[ports[0]],u=[o.direction[0],o.direction[1],0],v=[-u[1],u[0],0],r=0.055,c=add(A,u,1.7*r),circle=[];
+ if(o.kind==='stub'){var A=P[ports[0]],tp=add(A,[o.direction[0],o.direction[1],0],2.6*D.addrR);return {lines:[[A,tp]],marker:tp,labels:[add(A,tp,1).map(function(v){return v/2;})]};}
+ if(o.kind==='loop'){var A=P[ports[0]],u=[o.direction[0],o.direction[1],0],v=[-u[1],u[0],0],r=D.loopR,c=add(A,u,D.addrR+r+0.01),circle=[];
   for(var k=0;k<25;k++){var th=2*Math.PI*k/24;circle.push(add(add(c,u,r*Math.cos(th)),v,r*Math.sin(th)));}
   return {lines:[circle],marker:add(c,u,r),labels:[add(add(c,u,1.6*r*Math.cos(0.9)),v,1.6*r*Math.sin(0.9)),add(add(c,u,1.6*r*Math.cos(0.9)),v,-1.6*r*Math.sin(0.9))]};}
  if(o.kind==='pair'){var A=P[ports[0]],B=P[ports[1]],ch=add(B,A,-1),L=Math.max(norm(ch),1e-9),d=ch.map(function(v){return v/L;});

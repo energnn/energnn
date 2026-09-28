@@ -8,7 +8,14 @@ import numpy as np
 import pytest
 
 from energnn.graph.graph import collate_graphs
-from energnn.graph.visualization.layout import extract_plot_data, object_descriptors, object_geometries, spring_layout
+from energnn.graph.visualization.layout import (
+    LOOP_RADIUS,
+    address_radius,
+    extract_plot_data,
+    object_descriptors,
+    object_geometries,
+    spring_layout,
+)
 
 SQUARE = np.array([[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0]])
 UNIT_SQUARE = np.array([[-1.0, -1.0], [1.0, -1.0], [1.0, 1.0], [-1.0, 1.0]])
@@ -190,3 +197,22 @@ def test_object_descriptors_kinds(multi_graph):
     assert len(lines[3]["direction"]) == 2
     assert [d["kind"] for d in descriptors["trafo3w"]] == ["hub", "hub"]
     assert descriptors["trafo3w"][0]["hub"] == 3 and descriptors["trafo3w"][1]["hub"] == 4
+
+
+def test_stubs_and_loops_keep_clear_of_the_address_circle(mixed_order_graph, multi_graph):
+    data = extract_plot_data(mixed_order_graph, iterations=10, seed=0)
+    r_addr = address_radius(data.n_addr)
+    geoms = object_geometries(data)
+    for i, (address,) in enumerate(data.ports["gen"]):
+        distance = np.linalg.norm(geoms[("gen", i)].marker - data.pos[0, address])
+        assert distance >= 2.0 * r_addr  # marker center beyond the circle plus a gap
+    data = extract_plot_data(multi_graph, iterations=10, seed=0)
+    loop = object_geometries(data)[("line", 3)]
+    inner = np.linalg.norm(loop.lines[0] - data.pos[0, 2], axis=1).min()
+    assert inner >= address_radius(data.n_addr)  # the loop circle starts outside the address circle
+    radii = np.linalg.norm(loop.lines[0] - loop.lines[0].mean(axis=0), axis=1)
+    assert np.ptp(radii) < 0.1 * LOOP_RADIUS  # a circle (the mean of the closed polyline is slightly biased)
+
+
+def test_address_radius_shrinks_with_the_number_of_addresses():
+    assert address_radius(1) == address_radius(4) > address_radius(400) > address_radius(10_000) > 0
