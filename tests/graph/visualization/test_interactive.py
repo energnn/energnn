@@ -142,3 +142,12 @@ def test_interactive_degenerate_hubs(degenerate_hubs_graph):
     hubs = {c["name"]: [o["hub"] for o in c["objects"]] for c in payload["classes"] if c["name"] != "line"}
     assert sorted(h for hs in hubs.values() for h in hs) == [3, 4, 5, 6]
     assert len(payload["frames"][0]) == 7  # 3 addresses + 4 hubs, all positioned by Python
+
+
+def test_open_in_browser_writes_a_page_and_opens_it(mixed_order_graph, monkeypatch):
+    opened = []
+    monkeypatch.setattr("webbrowser.open", lambda url: opened.append(url) or True)
+    path = plot_graph_interactive(mixed_order_graph).open_in_browser()
+    with open(path, encoding="utf-8") as handle:
+        assert handle.read().startswith("<!DOCTYPE html>")
+    assert opened == ["file://" + path]

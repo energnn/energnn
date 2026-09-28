@@ -116,8 +116,10 @@ function unhoist(){if(!hoisted)return;var pd=hoisted.doc,mark=hoisted.mark;
  mark.parentNode.insertBefore(document.adoptNode(root),mark);mark.parentNode.removeChild(mark);
  pd.removeEventListener('keydown',onKey);hoisted=null;}
 function reallyFullScreen(){try{return document.fullscreenElement===root&&window.innerHeight>=0.9*screen.height;}catch(e){return false;}}
+var EMBEDDED=/JCEF|JBCef/i.test(navigator.userAgent||'');  /* JetBrains' embedded Chromium: no real full screen */
 function enterFs(){fsState(true,null);
  if(hoist()){fsState(true,'fs');render();return;}
+ if(EMBEDDED){fsState(true,'big');render();return;}
  var settled=false;
  function fallback(){if(settled)return;settled=true;
   if(reallyFullScreen())fsState(true,'fs');

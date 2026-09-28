@@ -49,6 +49,23 @@ class InteractiveGraphPlot:
     def _repr_html_(self) -> str:
         return self._html
 
+    def open_in_browser(self) -> str:
+        """Save the plot as a standalone page in a temporary file and open it in the system browser.
+
+        Useful where the notebook output area cannot be enlarged, e.g. inside an IDE; the page offers
+        the same interactions plus real full screen.
+
+        :return: Path of the temporary HTML file.
+        """
+        import tempfile
+        import webbrowser
+
+        handle = tempfile.NamedTemporaryFile(prefix="energnn-graph-", suffix=".html", delete=False)
+        handle.close()
+        self.save(handle.name)
+        webbrowser.open("file://" + handle.name)
+        return handle.name
+
     def save(self, file_path: str) -> None:
         """Write the plot as a standalone HTML page."""
         with open(file_path, "w", encoding="utf-8") as handle:
