@@ -10,7 +10,9 @@ import pytest
 from energnn.graph.graph import collate_graphs
 from energnn.graph.visualization.layout import (
     LOOP_RADIUS,
+    STUB_LENGTH,
     address_radius,
+    layout_margin,
     extract_plot_data,
     object_descriptors,
     object_geometries,
@@ -216,3 +218,17 @@ def test_stubs_and_loops_keep_clear_of_the_address_circle(mixed_order_graph, mul
 
 def test_address_radius_shrinks_with_the_number_of_addresses():
     assert address_radius(1) == address_radius(4) > address_radius(400) > address_radius(10_000) > 0
+
+
+def test_layout_margin_covers_stubs_loops_and_fans(mixed_order_graph, multi_graph, portless_graph):
+    with_stubs = extract_plot_data(mixed_order_graph, iterations=10, seed=0)
+    r_addr = address_radius(with_stubs.n_addr)
+    assert with_stubs.margin == pytest.approx((STUB_LENGTH + 0.62) * r_addr)
+    geoms = object_geometries(with_stubs)
+    reach = max(np.abs(g.marker).max() for g in geoms.values())
+    assert reach <= 1.0 + with_stubs.margin
+    with_loops = extract_plot_data(multi_graph, iterations=10, seed=0)
+    assert with_loops.margin >= address_radius(3) + 2 * LOOP_RADIUS
+    plain = extract_plot_data(portless_graph, iterations=10, seed=0)
+    assert plain.margin == pytest.approx(0.62 * address_radius(3))
+    assert layout_margin(3, {"line": [[0, 1], [0, 1]]}) >= 0.09  # fanned parallel edges

@@ -22,7 +22,15 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from energnn.graph.visualization.assets import logo_data_uri, script_js
-from energnn.graph.visualization.layout import LOOP_RADIUS, PlotData, address_radius, extract_plot_data, object_descriptors
+from energnn.graph.visualization.layout import (
+    FAN_HEIGHT,
+    LOOP_RADIUS,
+    STUB_LENGTH,
+    PlotData,
+    address_radius,
+    extract_plot_data,
+    object_descriptors,
+)
 from energnn.graph.visualization.theme import SVG_MARKERS, THEMES, Theme
 
 if TYPE_CHECKING:
@@ -142,7 +150,7 @@ def _css(uid: str, theme: str, stroke: float, logo_width: int) -> str:
 def _payload(data: PlotData, size: int, edge_colors: bool, interval: int, loop_pause: int, theme: str) -> dict[str, Any]:
     """Everything the script needs, JSON-serializable."""
     r_units = address_radius(data.n_addr)
-    r_addr = r_units * (size - 2 * _PAD) / 2.0  # in pixels
+    r_addr = r_units * (size - 2 * _PAD) / (2.0 + 2.0 * data.margin)  # in pixels, on the padded canvas
     r_mark = 0.62 * r_addr
     descriptors = object_descriptors(data)
     n_colors = len(THEMES["light"].palette)
@@ -168,6 +176,9 @@ def _payload(data: PlotData, size: int, edge_colors: bool, interval: int, loop_p
         "rAddr": r_addr,
         "addrR": r_units,
         "loopR": LOOP_RADIUS,
+        "stub": STUB_LENGTH,
+        "fanH": FAN_HEIGHT,
+        "margin": data.margin,
         "stroke": float(np.clip(r_addr / 6.0, 1.0, 2.0)),
         "fontSize": max(round(0.95 * r_addr), 7),
         "markers": {shape: [[round(x, 2), round(y, 2)] for x, y in _marker_points(shape, r_mark)] for shape in SVG_MARKERS},

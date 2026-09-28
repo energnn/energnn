@@ -84,6 +84,7 @@ class PlotData(NamedTuple):
     hub_ids: dict[ObjKey, int]  # (class, object index) -> hub row in pos
     colors: np.ndarray | None  # (n_frames, n_addr, C) normalized to [0, 1], or None
     color_range: np.ndarray | None  # (2, C): per-channel (min, max) of the raw values
+    margin: float  # how far geometries (stubs, loops, curves, markers) may reach beyond the [-1, 1] box
 
     @property
     def n_frames(self) -> int:
@@ -218,7 +219,8 @@ def extract_plot_data(
             else:
                 raise ValueError(f"positions have {pos.shape[0]} frames but address_colors have {colors.shape[0]}.")
 
-    return PlotData(n_addr, ndim, classes, ports, port_names, features, pos, hub_ids, colors, color_range)
+    margin = layout_margin(n_addr, ports)
+    return PlotData(n_addr, ndim, classes, ports, port_names, features, pos, hub_ids, colors, color_range, margin)
 
 
 # ---------------------------------------------------------------------------
@@ -277,6 +279,29 @@ def address_radius(n_addr: int) -> float:
     return float(np.clip(150.0 / np.sqrt(max(n_addr, 1)), 5.0, 13.0)) / 290.0
 
 
+LOOP_RADIUS = 0.055
+STUB_LENGTH = 2.6  # in address radii
+FAN_HEIGHT = 0.09  # largest bulge of a fanned-out parallel edge
+
+
+def layout_margin(n_addr: int, ports: dict[str, list[list[int]]]) -> float:
+    """Room to keep around the ``[-1, 1]`` box so that stubs, self-loops and fanned edges stay in view."""
+    r_addr = address_radius(n_addr)
+    reach = 0.62 * r_addr  # a class marker centered on an address
+    pairs: dict[tuple[int, int], int] = {}
+    for edge_ports in (p for plist in ports.values() for p in plist):
+        if len(edge_ports) == 1:
+            reach = max(reach, (STUB_LENGTH + 0.62) * r_addr)
+        elif len(edge_ports) == 2:
+            pair = (min(edge_ports), max(edge_ports))
+            pairs[pair] = pairs.get(pair, 0) + 1
+            if pair[0] == pair[1]:
+                reach = max(reach, r_addr + 2 * LOOP_RADIUS + 0.02)
+    if any(count > 1 for count in pairs.values()):
+        reach = max(reach, FAN_HEIGHT)
+    return reach
+
+
 def stub_direction(class_index: int, i: int) -> np.ndarray:
     """Deterministic unit direction (in the xy-plane) of an order-1 stub, so several stubs stay visible."""
     angle = 2.0 * np.pi * ((class_index * 0.37 + i * 0.61) % 1.0)
@@ -285,7 +310,7 @@ def stub_direction(class_index: int, i: int) -> np.ndarray:
 
 def _order1_geom(anchor: np.ndarray, class_index: int, i: int, r_addr: float) -> ObjGeom:
     """A short stub leaving the address; its marker sits clear of the address circle."""
-    tip = anchor + 2.6 * r_addr * stub_direction(class_index, i)
+    tip = anchor + STUB_LENGTH * r_addr * stub_direction(class_index, i)
     return ObjGeom([np.stack([anchor, tip])], tip, [(anchor + tip) / 2.0])
 
 
@@ -294,9 +319,6 @@ def loop_direction(rank: tuple[int, int]) -> np.ndarray:
     j, m = rank
     angle = 2.0 * np.pi * j / m + 0.6
     return np.array([np.cos(angle), np.sin(angle), 0.0])
-
-
-LOOP_RADIUS = 0.055
 
 
 def _loop_geom(anchor: np.ndarray, rank: tuple[int, int], r_addr: float) -> ObjGeom:
@@ -319,7 +341,7 @@ def _pair_geom(a: np.ndarray, b: np.ndarray, fan: float) -> ObjGeom:
     chord = b - a
     length = max(float(np.linalg.norm(chord)), 1e-9)
     normal = _perpendicular(chord / length)
-    height = fan * min(0.3 * length, 0.09)
+    height = fan * min(0.3 * length, FAN_HEIGHT)
     curve = _bezier(a, (a + b) / 2.0 + 2.0 * height * normal, b)
     return ObjGeom([curve], curve[8], [curve[3], curve[13]])
 

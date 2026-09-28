@@ -65,14 +65,15 @@ def _text(ax: Axes, at: np.ndarray, text: str, **kwargs: Any) -> None:
         ax.annotate(text, (float(at[0]), float(at[1])), **kwargs)
 
 
-def _style_axes(ax: Axes, surface: str) -> None:
+def _style_axes(ax: Axes, surface: str, margin: float) -> None:
     ax.set_facecolor(surface)
     if _is_3d(ax):
         ax3d = cast(Any, ax)
         ax3d.set_axis_off()
-        ax3d.set_xlim(-1.1, 1.1)
-        ax3d.set_ylim(-1.1, 1.1)
-        ax3d.set_zlim(-1.1, 1.1)
+        limit = 1.05 + margin
+        ax3d.set_xlim(-limit, limit)
+        ax3d.set_ylim(-limit, limit)
+        ax3d.set_zlim(-limit, limit)
         ax3d.set_box_aspect((1, 1, 1))
     else:
         ax.set_aspect("equal")
@@ -130,7 +131,7 @@ def _draw_markers(ax: Axes, data: PlotData, geoms: dict[ObjKey, ObjGeom], style:
 def _render_frame(ax: Axes, data: PlotData, frame: int, style: _Style) -> None:
     """Draw one frame into ``ax`` (which must hold no artists yet)."""
     geoms = object_geometries(data, frame)
-    _style_axes(ax, style.theme.surface)
+    _style_axes(ax, style.theme.surface, data.margin)
     _draw_connections(ax, data, geoms, style)
     _draw_addresses(ax, data, frame, style)
     _draw_markers(ax, data, geoms, style)

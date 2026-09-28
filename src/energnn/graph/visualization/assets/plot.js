@@ -25,18 +25,20 @@ function el(tag,attrs,parent){var e=document.createElementNS(NS,tag);for(var k i
 function rot(p){var cy=Math.cos(yaw),sy=Math.sin(yaw),cp=Math.cos(pitch),sp=Math.sin(pitch);var x=cy*p[0]+sy*p[2],z=-sy*p[0]+cy*p[2];var y=cp*p[1]-sp*z;return [x,y];}
 /* 3D layouts are shrunk so that the rotated [-1, 1] cube stays (almost) inside the canvas */
 var SCALE=D.ndim===3?0.65:1;
-function px(p){var q=rot(p);return [PAD+(q[0]*SCALE+1)/2*(S-2*PAD),PAD+(1-q[1]*SCALE)/2*(S-2*PAD)];}
+/* the canvas maps [-1-margin, 1+margin] so stubs, loops and fanned edges stay in view */
+var M=D.margin,W=2+2*M;
+function px(p){var q=rot(p);return [PAD+(q[0]*SCALE+1+M)/W*(S-2*PAD),PAD+(1+M-q[1]*SCALE)/W*(S-2*PAD)];}
 function pts(list){return list.map(function(p){var q=px(p);return q[0].toFixed(1)+','+q[1].toFixed(1);}).join(' ');}
 function add(a,b,k){return [a[0]+b[0]*k,a[1]+b[1]*k,a[2]+b[2]*k];}
 function norm(a){return Math.sqrt(a[0]*a[0]+a[1]*a[1]+a[2]*a[2]);}
 /* geometry of one object from the address positions P of the current frame */
 function geom(o,P){var ports=o.ports;
- if(o.kind==='stub'){var A=P[ports[0]],tp=add(A,[o.direction[0],o.direction[1],0],2.6*D.addrR);return {lines:[[A,tp]],marker:tp,labels:[add(A,tp,1).map(function(v){return v/2;})]};}
+ if(o.kind==='stub'){var A=P[ports[0]],tp=add(A,[o.direction[0],o.direction[1],0],D.stub*D.addrR);return {lines:[[A,tp]],marker:tp,labels:[add(A,tp,1).map(function(v){return v/2;})]};}
  if(o.kind==='loop'){var A=P[ports[0]],u=[o.direction[0],o.direction[1],0],v=[-u[1],u[0],0],r=D.loopR,c=add(A,u,D.addrR+r+0.01),circle=[];
   for(var k=0;k<25;k++){var th=2*Math.PI*k/24;circle.push(add(add(c,u,r*Math.cos(th)),v,r*Math.sin(th)));}
   return {lines:[circle],marker:add(c,u,r),labels:[add(add(c,u,1.6*r*Math.cos(0.9)),v,1.6*r*Math.sin(0.9)),add(add(c,u,1.6*r*Math.cos(0.9)),v,-1.6*r*Math.sin(0.9))]};}
  if(o.kind==='pair'){var A=P[ports[0]],B=P[ports[1]],ch=add(B,A,-1),L=Math.max(norm(ch),1e-9),d=ch.map(function(v){return v/L;});
-  var n=[-d[1],d[0],0],nl=norm(n);n=nl<1e-9?[1,0,0]:n.map(function(v){return v/nl;});var h=o.fan*Math.min(0.3*L,0.09);
+  var n=[-d[1],d[0],0],nl=norm(n);n=nl<1e-9?[1,0,0]:n.map(function(v){return v/nl;});var h=o.fan*Math.min(0.3*L,D.fanH);
   var ctrl=add(add(A,B,1).map(function(v){return v/2;}),n,2*h),curve=[];
   for(var k=0;k<17;k++){var t=k/16;curve.push(A.map(function(v,i){return (1-t)*(1-t)*v+2*t*(1-t)*ctrl[i]+t*t*B[i];}));}
   return {lines:[curve],marker:curve[8],labels:[curve[3],curve[13]]};}
