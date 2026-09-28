@@ -13,6 +13,7 @@ import pandas as pd
 from jax.tree_util import register_pytree_node_class
 
 from energnn.graph.backend import PRESERVE_DTYPE, Backend, NumpyBackend
+from energnn.graph.formatting import format_hyper_edge_set, html_hyper_edge_set, hyper_edge_set_to_dataframe
 from energnn.graph.utils import to_numpy
 
 FEATURE_ARRAY = "feature_array"
@@ -183,25 +184,21 @@ class HyperEdgeSet(dict):
     # ------------------------------------------------------------------
 
     def __str__(self) -> str:
-        if self.is_single:
-            index = pd.MultiIndex.from_product([range(self.n_obj)], names=["object_id"])
-        elif self.is_batch:
-            index = pd.MultiIndex.from_product(
-                [range(self.n_batch), range(self.n_obj)],
-                names=["batch_id", "object_id"],
-            )
-        else:
-            raise ValueError("HyperEdgeSet is neither single nor batched.")
+        return format_hyper_edge_set(self)
 
-        d: dict = {}
-        if self.port_dict is not None:
-            for k, v in sorted(self.port_dict.items()):
-                d[("ports", k)] = np.array(v.reshape([-1]))
-        if self.feature_dict is not None:
-            for k, v in sorted(self.feature_dict.items()):
-                d[("features", k)] = np.array(v.reshape([-1]))
+    def _repr_pretty_(self, p, cycle: bool) -> None:
+        p.text("..." if cycle else str(self))
 
-        return pd.DataFrame(d, index=index).__str__()
+    def _repr_html_(self) -> str:
+        return html_hyper_edge_set(self)
+
+    def to_dataframe(self, max_rows: int | None = None) -> pd.DataFrame:
+        """Ports and features as a :class:`pandas.DataFrame`.
+
+        Columns are ``("ports", name)`` and ``("features", name)``; the index holds the object id
+        (and the batch id for a batched set). ``max_rows`` keeps only that many head/tail rows.
+        """
+        return hyper_edge_set_to_dataframe(self, max_rows=max_rows)
 
     # ------------------------------------------------------------------
     # Core array properties

@@ -4,7 +4,7 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 # SPDX-License-Identifier: MPL-2.0
 
-import pandas as pd
+from energnn.graph.formatting import format_graph_structure
 
 HYPER_EDGE_SETS = "hyper_edge_sets"
 FEATURE_LIST = "feature_list"
@@ -48,10 +48,7 @@ class GraphStructure(dict):
         return self[HYPER_EDGE_SETS]
 
     def __str__(self):
-        data = {
-            "Name": [edge_name for edge_name in self.hyper_edge_sets.keys()],
-            "Ports": [edge_structure.port_list for edge_structure in self.hyper_edge_sets.values()],
-            "Features": [edge_structure.feature_list for edge_structure in self.hyper_edge_sets.values()],
-        }
-        df = pd.DataFrame(data).set_index("Name")
-        return df.to_string()
+        return format_graph_structure(self)
+
+    def _repr_pretty_(self, p, cycle: bool) -> None:
+        p.text("..." if cycle else str(self))
