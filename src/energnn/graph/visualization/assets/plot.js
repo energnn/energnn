@@ -7,17 +7,18 @@ var S=D.size,PAD=30,N=D.nAddr,T=D.frames.length,t=0,yaw=D.ndim===3?0.6:0,pitch=D
 var svg=root.querySelector('svg.cv'),tip=root.querySelector('.tip'),NS='http://www.w3.org/2000/svg';
 /* theme "auto": follow the notebook, i.e. the first opaque background color above the plot
    (JupyterLab, VS Code and PyCharm themes set it), else the OS preference */
-function detectTheme(){var dark=null,e=root.parentElement;
- while(e&&dark===null){var m=(getComputedStyle(e).backgroundColor||'').match(/rgba?\(([^)]+)\)/);
+function detectTheme(){var dark=null,e=root.parentElement,guard=0;
+ while(e&&dark===null&&guard++<400){var m=(win(e).getComputedStyle(e).backgroundColor||'').match(/rgba?\(([^)]+)\)/);
   if(m){var c=m[1].split(',').map(parseFloat);if(c.length<4||c[3]>0)dark=(0.2126*c[0]+0.7152*c[1]+0.0722*c[2])/255<0.5;}
-  e=e.parentElement;}
+  var next=e.parentElement;if(!next){try{next=win(e).frameElement;}catch(x){next=null;}}e=next;}
  if(dark===null)dark=!!(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches);
  var was=root.classList.contains('dark');root.classList.toggle('dark',dark);return was!==dark;}
 if(D.autoTheme){detectTheme();
  /* follow theme switches made after load (Furo docs, JupyterLab, VS Code toggle attributes on html/body) */
  if(window.MutationObserver){var obs=new MutationObserver(function(){if(detectTheme()&&typeof render==='function')render();});
   [document.documentElement,document.body].forEach(function(n){if(n)obs.observe(n,{attributes:true});});}}
-function css(name){return getComputedStyle(root).getPropertyValue(name).trim();}
+function win(e){return (e.ownerDocument&&e.ownerDocument.defaultView)||window;}
+function css(name){return win(root).getComputedStyle(root).getPropertyValue(name).trim();}
 function hex(h){h=h.replace('#','');return [0,2,4].map(function(i){return parseInt(h.substr(i,2),16)/255;});}
 function toHex(c){return '#'+c.map(function(v){v=Math.max(0,Math.min(1,v));return ('0'+Math.round(v*255).toString(16)).slice(-2);}).join('');}
 function mix(a,b,t){return [a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t,a[2]+(b[2]-a[2])*t];}
@@ -96,33 +97,47 @@ function toSvg(e){var r=svg.getBoundingClientRect();return [(e.clientX-r.left)/r
 function zoomAt(f,cx,cy){Z*=f;OX=cx-(cx-OX)*f;OY=cy-(cy-OY)*f;render();}
 function reset(){Z=1;OX=0;OY=0;yaw=D.ndim===3?0.6:0;pitch=D.ndim===3?-0.35:0;render();}
 function setMode(m){mode=m;root.querySelectorAll('.tb [data-mode]').forEach(function(b){b.classList.toggle('on',b.getAttribute('data-mode')===m);});}
-/* full screen: ask the browser; where the request is refused or ignored (notebook outputs in PyCharm,
-   VS Code and other embedded views) the figure is enlarged in place to the width of its container,
-   which such hosts grow to fit. Esc leaves either. */
-var fsBtn=root.querySelector('.tb [data-act="fs"]'),fsOn=false;
+/* full screen. 1) ask the browser; 2) where that is refused or ignored and the figure lives in a
+   same-origin output iframe (PyCharm), move it, with its stylesheet, into the host page as an overlay
+   covering the notebook view; 3) otherwise enlarge it in place to its container's width. Esc leaves. */
+var fsBtn=root.querySelector('.tb [data-act="fs"]'),fsOn=false,hoisted=null,sheet=root.previousElementSibling;
 function fsState(on,cls){fsOn=on;root.classList.toggle('fs',on&&cls==='fs');root.classList.toggle('big',on&&cls==='big');
  if(fsBtn)fsBtn.textContent=on?'\u2716':'\u26F6';}
+function hostDocument(){try{var f=window.frameElement;if(f&&window.parent&&window.parent.document&&window.parent.document.body)return window.parent.document;}catch(e){}return null;}
+function onKey(e){if(e.key==='Escape'&&fsOn)leaveFs();}
+function hoist(){var pd=hostDocument();if(!pd)return false;
+ var mark=document.createComment('energnn-plot');root.parentNode.insertBefore(mark,root);
+ if(sheet&&sheet.tagName==='STYLE')pd.body.appendChild(pd.adoptNode(sheet));
+ pd.body.appendChild(pd.adoptNode(root));pd.addEventListener('keydown',onKey);hoisted={doc:pd,mark:mark};return true;}
+function unhoist(){if(!hoisted)return;var pd=hoisted.doc,mark=hoisted.mark;
+ if(sheet&&sheet.tagName==='STYLE')mark.parentNode.insertBefore(document.adoptNode(sheet),mark);
+ mark.parentNode.insertBefore(document.adoptNode(root),mark);mark.parentNode.removeChild(mark);
+ pd.removeEventListener('keydown',onKey);hoisted=null;}
 function enterFs(){var settled=false;
- function fallback(){if(!settled){settled=true;fsState(true,document.fullscreenElement===root?'fs':'big');}}
+ function fallback(){if(settled)return;settled=true;
+  if(document.fullscreenElement===root)fsState(true,'fs');else if(hoist())fsState(true,'fs');else fsState(true,'big');
+  render();}
  fsState(true,null);
  var p=null;try{p=root.requestFullscreen?root.requestFullscreen():null;}catch(e){}
  if(p&&p.then)p.then(fallback,fallback);
  setTimeout(fallback,300);}
-function leaveFs(){fsState(false,null);if(document.fullscreenElement===root&&document.exitFullscreen)document.exitFullscreen();}
+function leaveFs(){fsState(false,null);unhoist();
+ if(document.fullscreenElement===root&&document.exitFullscreen)document.exitFullscreen();render();}
 function toggleFs(){if(fsOn)leaveFs();else enterFs();}
-document.addEventListener('fullscreenchange',function(){if(fsOn)fsState(true,document.fullscreenElement===root?'fs':'big');});
-document.addEventListener('keydown',function(e){if(e.key==='Escape'&&fsOn)leaveFs();});
+document.addEventListener('fullscreenchange',function(){if(fsOn&&!hoisted)fsState(true,document.fullscreenElement===root?'fs':'big');});
+document.addEventListener('keydown',onKey);
 root.querySelectorAll('.tb button').forEach(function(b){b.addEventListener('click',function(){
  var m=b.getAttribute('data-mode'),a=b.getAttribute('data-act');
  if(m)setMode(m);else if(a==='zin')zoomAt(1.25,S/2,S/2);else if(a==='zout')zoomAt(0.8,S/2,S/2);else if(a==='reset')reset();else if(a==='fs')toggleFs();});});
 setMode(mode);
 svg.addEventListener('wheel',function(e){e.preventDefault();var c=toSvg(e);zoomAt(e.deltaY<0?1.25:0.8,c[0],c[1]);},{passive:false});
-svg.addEventListener('mousedown',function(e){e.preventDefault();drag={x:e.clientX,y:e.clientY,ox:OX,oy:OY,yaw:yaw,pitch:pitch,rotate:mode==='rotate'&&D.ndim===3&&!e.shiftKey};});
-window.addEventListener('mousemove',function(e){if(!drag)return;var r=svg.getBoundingClientRect(),dx=e.clientX-drag.x,dy=e.clientY-drag.y;
- if(drag.rotate){yaw=drag.yaw+dx/r.width*Math.PI;pitch=drag.pitch-dy/r.height*Math.PI;}
- else{OX=drag.ox+dx*S/r.width;OY=drag.oy+dy*S/r.height;}
- render();});
-window.addEventListener('mouseup',function(){drag=null;});
+svg.addEventListener('mousedown',function(e){e.preventDefault();drag={x:e.clientX,y:e.clientY,ox:OX,oy:OY,yaw:yaw,pitch:pitch,rotate:mode==='rotate'&&D.ndim===3&&!e.shiftKey};
+ var w=win(svg);function move(ev){if(!drag)return;var r=svg.getBoundingClientRect(),dx=ev.clientX-drag.x,dy=ev.clientY-drag.y;
+  if(drag.rotate){yaw=drag.yaw+dx/r.width*Math.PI;pitch=drag.pitch-dy/r.height*Math.PI;}
+  else{OX=drag.ox+dx*S/r.width;OY=drag.oy+dy*S/r.height;}
+  render();}
+ function up(){drag=null;w.removeEventListener('mousemove',move);w.removeEventListener('mouseup',up);}
+ w.addEventListener('mousemove',move);w.addEventListener('mouseup',up);});
 svg.addEventListener('dblclick',reset);
 /* time slider and play button: playback interpolates between frames (one frame per D.interval ms)
    and pauses D.pause ms at the end before looping */
