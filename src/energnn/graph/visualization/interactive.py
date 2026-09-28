@@ -107,7 +107,7 @@ def _theme_css(uid: str, theme: str) -> str:
     return f"#{uid}{{{_theme_vars(THEMES[theme])}}}"
 
 
-def _css(uid: str, theme: str, stroke: float) -> str:
+def _css(uid: str, theme: str, stroke: float, logo_width: int) -> str:
     return (
         f"{_theme_css(uid, theme)}"
         f"#{uid}{{position:relative;display:inline-block;font-family:system-ui,sans-serif;"
@@ -123,8 +123,11 @@ def _css(uid: str, theme: str, stroke: float) -> str:
         f"#{uid} .tip{{display:none;position:absolute;pointer-events:none;background:var(--surface);"
         f"border:1px solid var(--neutral);border-radius:4px;padding:5px 8px;font-size:11px;line-height:1.5;"
         f"white-space:nowrap;z-index:10}}"
+        f"#{uid} .cw{{position:relative}}"
         f"#{uid} svg.cv{{cursor:grab;display:block}}"
         f"#{uid} svg.cv:active{{cursor:grabbing}}"
+        f"#{uid} .logo{{position:absolute;right:10px;bottom:8px;width:{logo_width}px;opacity:0.9;"
+        f"pointer-events:none}}"
         f"#{uid} .tl{{display:flex;align-items:center;gap:8px;padding:4px 12px 8px;font-size:11px}}"
         f"#{uid} .tl input{{flex:1}}"
         f"#{uid} .tl button{{font:inherit;padding:1px 8px;border:1px solid var(--neutral);border-radius:4px;"
@@ -132,7 +135,7 @@ def _css(uid: str, theme: str, stroke: float) -> str:
     )
 
 
-def _payload(data: PlotData, size: int, edge_colors: bool, logo: bool, interval: int) -> dict[str, Any]:
+def _payload(data: PlotData, size: int, edge_colors: bool, interval: int) -> dict[str, Any]:
     """Everything the script needs, JSON-serializable."""
     r_addr = float(np.clip(150.0 / np.sqrt(max(data.n_addr, 1)), 5.0, 13.0))
     r_mark = 0.62 * r_addr
@@ -165,8 +168,6 @@ def _payload(data: PlotData, size: int, edge_colors: bool, logo: bool, interval:
         "colors": None if data.colors is None else np.round(data.colors, 4).tolist(),
         "classes": classes,
         "addrTips": [_tip(f"address {i}", [], {}) for i in range(data.n_addr)],
-        "logo": logo_data_uri() if logo else None,
-        "logoSize": round(0.12 * size),
         "interval": interval,
     }
 
@@ -248,7 +249,7 @@ def plot_graph_interactive(
         raise ValueError("theme must be 'light', 'dark' or 'auto'.")
 
     data = extract_plot_data(graph, iterations=iterations, seed=seed, positions=positions, address_colors=address_colors)
-    payload = _payload(data, size, edge_colors, logo, interval)
+    payload = _payload(data, size, edge_colors, interval)
     uid = f"energnn-plot-{next(_plot_ids)}"
 
     timeline = ""
@@ -258,11 +259,13 @@ def plot_graph_interactive(
             f'<input type="range" min="0" max="{data.n_frames - 1}" value="0" step="1"/><span class="fr"></span></div>'
         )
     hint = ", drag to rotate, shift-drag to pan" if data.ndim == 3 else ", drag to pan"
+    # the logo sits over the canvas, outside the SVG, so zoom and pan leave it in place
+    logo_html = f'<img class="logo" src="{logo_data_uri()}" alt="EnerGNN"/>' if logo else ""
     fragment = (
-        f"<style>{_css(uid, theme, payload['stroke'])}</style>"
+        f"<style>{_css(uid, theme, payload['stroke'], max(round(0.15 * size), 60))}</style>"
         f'<div id="{uid}" title="scroll to zoom{hint}, double-click to reset">'
         f'<div class="lg">{_legend_html(data, edge_colors)}</div>'
-        f'<svg class="cv" width="{size}" height="{size}" viewBox="0 0 {size} {size}"></svg>'
+        f'<div class="cw"><svg class="cv" width="{size}" height="{size}" viewBox="0 0 {size} {size}"></svg>{logo_html}</div>'
         f'{timeline}<div class="tip"></div>'
         f'<script type="application/json">{json.dumps(payload, separators=(",", ":"))}</script>'
         f"<script>{script_js().replace('__UID__', uid)}</script></div>"

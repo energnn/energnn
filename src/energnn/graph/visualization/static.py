@@ -189,7 +189,7 @@ def _add_logo(ax: Axes) -> None:
     import matplotlib.image
     from matplotlib.offsetbox import AnnotationBbox, OffsetImage
 
-    image = OffsetImage(matplotlib.image.imread(io.BytesIO(logo_png()), format="png"), zoom=0.3, alpha=0.9)
+    image = OffsetImage(matplotlib.image.imread(io.BytesIO(logo_png()), format="png"), zoom=0.3, alpha=0.9)  # ~96 px wide
     box = AnnotationBbox(image, (1.0, 0.0), xycoords="axes fraction", box_alignment=(1.0, 0.0), frameon=False, pad=0.0)
     box.set_zorder(5)
     ax.add_artist(box)

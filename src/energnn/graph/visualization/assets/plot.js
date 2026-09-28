@@ -46,7 +46,6 @@ D.classes.forEach(function(c){c.objects.forEach(function(o){if(o.kind==='none')r
 for(var i=0;i<N;i++){var g=el('g',{'class':'addr','data-tip':D.addrTips[i]},svg);
  var c=el('circle',{r:D.rAddr.toFixed(1),fill:'var(--surface)',stroke:'var(--ink)','stroke-width':'1.2'},g);
  var t=el('text',{'text-anchor':'middle','dominant-baseline':'central',fill:'var(--ink)','font-size':D.fontSize,'pointer-events':'none'},g);t.textContent=i;addrs.push({c:c,t:t});}
-if(D.logo){el('image',{href:D.logo,x:(S-D.logoSize-8).toFixed(0),y:(S-D.logoSize-8).toFixed(0),width:D.logoSize,height:D.logoSize,opacity:'0.9','pointer-events':'none'},svg);}
 var MK=D.markers;
 function markerPts(shape,x,y){return MK[shape].map(function(d){return (x+d[0]).toFixed(1)+','+(y+d[1]).toFixed(1);}).join(' ');}
 function render(){var P=D.frames[frame];

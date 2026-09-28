@@ -15,7 +15,7 @@ from importlib import resources
 
 @lru_cache(maxsize=1)
 def logo_png() -> bytes:
-    """The EnerGNN mark as PNG bytes (192 px, transparent background)."""
+    """The EnerGNN / LF Energy logo as PNG bytes (320 px wide, transparent background)."""
     return resources.files(__name__).joinpath("energnn_logo.png").read_bytes()
 
 

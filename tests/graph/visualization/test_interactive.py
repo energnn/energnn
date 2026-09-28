@@ -35,7 +35,7 @@ def test_interactive_plot_content(mixed_order_graph):
     trafo = payload["classes"][2]["objects"][0]
     assert trafo["kind"] == "hub" and "hv" in trafo["tip"] and "1.02" in trafo["tip"]
     assert payload["addrTips"][0].startswith("&lt;b&gt;address 0")
-    assert payload["logo"].startswith("data:image/png;base64,")
+    assert '<img class="logo" src="data:image/png;base64,' in fragment
 
 
 def test_interactive_plot_skips_fictitious(mixed_order_graph, padded_shape):
@@ -74,7 +74,7 @@ def test_interactive_edge_colors_off(mixed_order_graph):
 
 
 def test_interactive_logo_off(mixed_order_graph):
-    assert _payload(plot_graph_interactive(mixed_order_graph, logo=False))["logo"] is None
+    assert 'class="logo"' not in plot_graph_interactive(mixed_order_graph, logo=False)._repr_html_()
 
 
 def test_interactive_portless_class(portless_graph):
