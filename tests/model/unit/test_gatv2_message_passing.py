@@ -63,7 +63,9 @@ def test_out_size_must_be_divisible_by_n_heads():
 def test_deterministic_with_seed():
     out_a, _ = _make_gatv2(n_heads=2, seed=5)(graph=jax_context, coordinates=coordinates)
     out_b, _ = _make_gatv2(n_heads=2, seed=5)(graph=jax_context, coordinates=coordinates)
-    chex.assert_trees_all_close(out_a, out_b, atol=0.0)
+    # Same seed, same parameters, same output up to float32 rounding: on GPU the segment sums
+    # use atomic adds whose order varies between runs, so bitwise equality is not guaranteed.
+    chex.assert_trees_all_close(out_a, out_b, atol=1e-6)
 
 
 def test_attention_weights_sum_to_one():

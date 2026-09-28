@@ -178,8 +178,32 @@ class LinearSystemProblem(Problem):
         pass
 
 
+def _max_lines(n: int) -> int:
+    """Largest number of lines a generated ``n``-bus system can have.
+
+    A spanning tree (``n - 1`` lines) plus at most ``n - 1`` extra lines, capped by the
+    complete graph for very small systems.
+    """
+    return min(2 * (n - 1), n * (n - 1) // 2)
+
+
+def _draw_n_lines(n: int) -> int:
+    """Draw the number of lines of an ``n``-bus system.
+
+    ``n - 1`` lines form a spanning tree, so the graph is always connected; the number of
+    extra lines follows a ``Binomial(n - 1, 1/2)``, so the mean degree stays around 3 for any
+    ``n`` (real power grids sit between 2.7 and 3.2), instead of the previous uniform draw
+    up to the complete graph whose density tended to 1/2.
+    """
+    return min(n - 1 + int(np.random.binomial(n - 1, 0.5)), _max_lines(n))
+
+
 def _generate_sparse_linear_system(n, m):
-    """Generates sparse matrix B and vectors P and theta such that B theta = P for a DC network."""
+    """Generates sparse matrix B and vectors P and theta such that B theta = P for a DC network.
+
+    The graph of ``B`` is always connected: the first ``n - 1`` lines form a random spanning
+    path over all buses, the remaining ``m - (n - 1)`` are drawn among the free pairs.
+    """
     # Ensure connectivity by building a spanning tree first
     B = np.zeros((n, n))
     nodes = np.arange(n)
@@ -212,9 +236,13 @@ def _generate_sparse_linear_system(n, m):
 
 class LinearSystemProblemGenerator:
     __test__ = False
-    """Generates random sparse linear systems."""
+    """Generates random sparse, connected DC linear systems.
 
-    def __init__(self, *, seed: int = 0, n_max: int = 32):
+    Each system has ``n`` buses drawn uniformly in ``[2, n_max]`` and a number of lines drawn by
+    :func:`_draw_n_lines`, so that the mean degree is about 3 like real power grids.
+    """
+
+    def __init__(self, *, seed: int = 0, n_max: int = 16):
 
         self.seed = seed
         self.n_max = n_max
@@ -230,7 +258,7 @@ class LinearSystemProblemGenerator:
         if backend is None:
             backend = JaxBackend()
         n = np.random.randint(2, self.n_max + 1)
-        m = np.random.randint(n - 1, n * (n - 1) // 2 + 1)
+        m = _draw_n_lines(n)
         B, P, theta = _generate_sparse_linear_system(n, m)
 
         context = self.context_converter(B=B, P=P)
@@ -255,7 +283,7 @@ class LinearSystemProblemGenerator:
         max_context_shape = GraphShape(
             backend=numpy_backend,
             hyper_edge_sets={
-                "line": np.array(self.n_max * (self.n_max - 1) // 2),
+                "line": np.array(_max_lines(self.n_max)),
                 "bus": np.array(self.n_max),
             },
             addresses=np.array(self.n_max),
@@ -285,7 +313,7 @@ class LinearSystemProblemLoader(ProblemLoader):
         seed: int = 0,
         dataset_size: int = 32,
         batch_size: int = 8,
-        n_max: int = 4,
+        n_max: int = 16,
         shuffle: bool = False,
     ):
         self.seed = seed
