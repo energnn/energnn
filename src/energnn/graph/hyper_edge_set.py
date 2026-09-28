@@ -9,10 +9,10 @@ from __future__ import annotations
 from typing import Any, Sequence
 
 import numpy as np
-import pandas as pd
 from jax.tree_util import register_pytree_node_class
 
 from energnn.graph.backend import PRESERVE_DTYPE, Backend, NumpyBackend
+from energnn.graph.formatting import format_hyper_edge_set
 from energnn.graph.utils import to_numpy
 
 FEATURE_ARRAY = "feature_array"
@@ -183,25 +183,11 @@ class HyperEdgeSet(dict):
     # ------------------------------------------------------------------
 
     def __str__(self) -> str:
-        if self.is_single:
-            index = pd.MultiIndex.from_product([range(self.n_obj)], names=["object_id"])
-        elif self.is_batch:
-            index = pd.MultiIndex.from_product(
-                [range(self.n_batch), range(self.n_obj)],
-                names=["batch_id", "object_id"],
-            )
-        else:
-            raise ValueError("HyperEdgeSet is neither single nor batched.")
+        return format_hyper_edge_set(self)
 
-        d: dict = {}
-        if self.port_dict is not None:
-            for k, v in sorted(self.port_dict.items()):
-                d[("ports", k)] = np.array(v.reshape([-1]))
-        if self.feature_dict is not None:
-            for k, v in sorted(self.feature_dict.items()):
-                d[("features", k)] = np.array(v.reshape([-1]))
-
-        return pd.DataFrame(d, index=index).__str__()
+    def _repr_pretty_(self, p, cycle: bool) -> None:
+        """Display the formatted text in IPython/Jupyter instead of the raw dict ``repr``."""
+        p.text("..." if cycle else str(self))
 
     # ------------------------------------------------------------------
     # Core array properties
