@@ -106,9 +106,10 @@ class Trainer:
         # Cache JIT-compiled wrappers to avoid NNX re-tracing overhead each step.
         # `step_with_metrics` is static because downstream code branches on its concrete value.
         self._jit_forward_vjp = nnx.jit(self._forward_vjp, static_argnames=("step_with_metrics",))
-        # The vjp residuals are dead after the backward: donating them lets XLA reuse
-        # their buffers during the backward pass instead of allocating new ones.
-        self._jit_backward_update = nnx.jit(self._backward_update, donate_argnums=(2,))
+        # The vjp residuals are not donated: XLA can only alias a donated input to an output of
+        # the same shape, and most residuals (context arrays, masks) match none, which triggers a
+        # "Some donated buffers were not usable" warning at compile time for no measurable gain.
+        self._jit_backward_update = nnx.jit(self._backward_update)
         self._jit_eval_forward = nnx.jit(self._eval_forward)
 
     @staticmethod
