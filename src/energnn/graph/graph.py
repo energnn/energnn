@@ -14,6 +14,7 @@ import numpy as np
 from jax.tree_util import register_pytree_node_class
 
 from energnn.graph.backend import Backend, NumpyBackend
+from energnn.graph.formatting import format_graph
 from energnn.graph.hyper_edge_set import (
     HyperEdgeSet,
     collate_hyper_edge_sets,
@@ -246,7 +247,11 @@ class Graph(dict):
         self[HYPER_EDGE_SETS] = hyper_edge_set_dict
 
     def __str__(self) -> str:
-        return "".join("{}\n{}\n".format(k, v) for k, v in sorted(self.hyper_edge_sets.items()))
+        return format_graph(self)
+
+    def _repr_pretty_(self, p, cycle: bool) -> None:
+        """Display the formatted text in IPython/Jupyter instead of the raw dict ``repr``."""
+        p.text("..." if cycle else str(self))
 
     # ------------------------------------------------------------------
     # Batch detection
