@@ -4,18 +4,26 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 # SPDX-License-Identifier: MPL-2.0
 
-"""Interactive, dependency-free HTML/SVG rendering of a Graph."""
+"""Interactive, dependency-free HTML/SVG rendering of a Graph.
+
+Python extracts the topology (which addresses each object connects, how parallel edges
+are fanned out) and the per-frame address positions and colors; the embedded script
+(``assets/plot.js``) computes the geometry, so the view can be rotated (3D), zoomed,
+panned and stepped through time without a server.
+"""
 
 from __future__ import annotations
 
 import html
 import itertools
-from typing import TYPE_CHECKING, Any, Callable
+import json
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from energnn.graph.visualization.layout import ObjGeom, PlotData, extract_plot_data, object_geometries
-from energnn.graph.visualization.theme import ADDRESS_COLOR, SVG_MARKERS, THEMES, Theme
+from energnn.graph.visualization.assets import logo_data_uri, script_js
+from energnn.graph.visualization.layout import PlotData, extract_plot_data, object_descriptors
+from energnn.graph.visualization.theme import SVG_MARKERS, THEMES, Theme
 
 if TYPE_CHECKING:
     from energnn.graph.graph import Graph
@@ -41,7 +49,7 @@ class InteractiveGraphPlot:
 
 
 # ---------------------------------------------------------------------------
-# SVG building blocks
+# Static HTML pieces
 # ---------------------------------------------------------------------------
 
 
@@ -84,106 +92,123 @@ def _tip(title: str, port_lines: list[tuple[str, int]], feature_lines: dict[str,
     return html.escape("<br>".join(parts), quote=True)
 
 
+def _theme_vars(t: Theme) -> str:
+    slots = "".join(f"--c{i}:{c};" for i, c in enumerate(t.palette))
+    seq = "".join(f"--s{i}:{c};" for i, c in enumerate(t.sequential))
+    biv = "".join(f"--b{k}:{c};" for k, c in zip(("00", "10", "01", "11"), t.bivariate))
+    return f"--surface:{t.surface};--ink:{t.ink};--neutral:{t.neutral};{slots}{seq}{biv}"
+
+
 def _theme_css(uid: str, theme: str) -> str:
     """CSS custom properties for the palette; ``auto`` follows the viewer's color-scheme preference."""
-
-    def _vars(t: Theme) -> str:
-        slots = "".join(f"--c{i}:{c};" for i, c in enumerate(t.palette))
-        return f"--surface:{t.surface};--ink:{t.ink};{slots}"
-
     if theme == "auto":
         light, dark = THEMES["light"], THEMES["dark"]
-        return f"#{uid}{{{_vars(light)}}}" f"@media (prefers-color-scheme: dark){{#{uid}{{{_vars(dark)}}}}}"
-    return f"#{uid}{{{_vars(THEMES[theme])}}}"
+        return f"#{uid}{{{_theme_vars(light)}}}@media (prefers-color-scheme: dark){{#{uid}{{{_theme_vars(dark)}}}}}"
+    return f"#{uid}{{{_theme_vars(THEMES[theme])}}}"
 
 
 def _css(uid: str, theme: str, stroke: float) -> str:
     return (
         f"{_theme_css(uid, theme)}"
         f"#{uid}{{position:relative;display:inline-block;font-family:system-ui,sans-serif;"
-        f"background:var(--surface);border-radius:6px}}"
-        f"#{uid} .lg{{display:flex;flex-wrap:wrap;gap:4px 14px;padding:8px 12px 0;color:var(--ink);font-size:12px}}"
+        f"background:var(--surface);border-radius:6px;color:var(--ink)}}"
+        f"#{uid} .lg{{display:flex;flex-wrap:wrap;align-items:center;gap:4px 14px;padding:8px 12px 0;font-size:12px}}"
         f"#{uid} .lg span{{display:inline-flex;align-items:center;gap:5px}}"
+        f"#{uid} .lg .sc{{font-size:9px;gap:3px}}"
         f"#{uid} .obj .pl{{opacity:0;fill:var(--ink);font-size:9px;pointer-events:none}}"
         f"#{uid} .obj:hover .pl{{opacity:1}}"
         f"#{uid} .obj:hover polyline{{stroke-width:{2.2 * stroke:.1f}px}}"
-        f"#{uid} .obj:hover .mk,#{uid} .addr:hover circle{{stroke:var(--ink);stroke-width:1.5px}}"
-        f"#{uid} .tip{{display:none;position:absolute;pointer-events:none;background:var(--surface);color:var(--ink);"
-        f"border:1px solid {ADDRESS_COLOR};border-radius:4px;padding:5px 8px;font-size:11px;line-height:1.5;"
+        f"#{uid} .obj:hover .mk{{stroke:var(--ink);stroke-width:1.5px}}"
+        f"#{uid} .addr:hover circle{{stroke-width:2.5px}}"
+        f"#{uid} .tip{{display:none;position:absolute;pointer-events:none;background:var(--surface);"
+        f"border:1px solid var(--neutral);border-radius:4px;padding:5px 8px;font-size:11px;line-height:1.5;"
         f"white-space:nowrap;z-index:10}}"
-        f"#{uid} svg.cv{{cursor:grab}}"
+        f"#{uid} svg.cv{{cursor:grab;display:block}}"
         f"#{uid} svg.cv:active{{cursor:grabbing}}"
+        f"#{uid} .tl{{display:flex;align-items:center;gap:8px;padding:4px 12px 8px;font-size:11px}}"
+        f"#{uid} .tl input{{flex:1}}"
+        f"#{uid} .tl button{{font:inherit;padding:1px 8px;border:1px solid var(--neutral);border-radius:4px;"
+        f"background:var(--surface);color:var(--ink);cursor:pointer}}"
     )
 
 
-def _script(uid: str, size: int) -> str:
-    """Tooltips on hover; wheel to zoom on the cursor, drag to pan, double-click to reset."""
-    return (
-        f"(function(){{var root=document.getElementById('{uid}');var tip=root.querySelector('.tip');"
-        f"root.querySelectorAll('[data-tip]').forEach(function(el){{"
-        f"el.addEventListener('mousemove',function(e){{tip.innerHTML=el.getAttribute('data-tip');"
-        f"tip.style.display='block';var r=root.getBoundingClientRect();"
-        f"tip.style.left=(e.clientX-r.left+14)+'px';tip.style.top=(e.clientY-r.top+14)+'px';}});"
-        f"el.addEventListener('mouseleave',function(){{tip.style.display='none';}});}});"
-        f"var svg=root.querySelector('svg.cv');var vb=[0,0,{size},{size}];var drag=null;"
-        f"function apply(){{svg.setAttribute('viewBox',vb.join(' '));}}"
-        f"svg.addEventListener('wheel',function(e){{e.preventDefault();"
-        f"var k=e.deltaY<0?0.8:1.25;var r=svg.getBoundingClientRect();"
-        f"var mx=vb[0]+(e.clientX-r.left)/r.width*vb[2];var my=vb[1]+(e.clientY-r.top)/r.height*vb[3];"
-        f"vb=[mx-(mx-vb[0])*k,my-(my-vb[1])*k,vb[2]*k,vb[3]*k];apply();}},{{passive:false}});"
-        f"svg.addEventListener('mousedown',function(e){{e.preventDefault();drag=[e.clientX,e.clientY,vb[0],vb[1]];}});"
-        f"window.addEventListener('mousemove',function(e){{if(drag){{var r=svg.getBoundingClientRect();"
-        f"vb[0]=drag[2]-(e.clientX-drag[0])/r.width*vb[2];vb[1]=drag[3]-(e.clientY-drag[1])/r.height*vb[3];apply();}}}});"
-        f"window.addEventListener('mouseup',function(){{drag=null;}});"
-        f"svg.addEventListener('dblclick',function(){{vb=[0,0,{size},{size}];apply();}});}})();"
-    )
-
-
-def _object_svg(
-    name: str, i: int, data: PlotData, geom: ObjGeom, shape: str, color_var: str, stroke: float, r_mark: float, to_px: Callable
-) -> str:
-    """One hoverable ``<g>`` per hyper-edge object: its polylines, port labels and marker."""
-    port_names = data.port_names[name]
-    tip = _tip(f"{name} #{i}", list(zip(port_names, data.ports[name][i])), data.features[name][i])
-    body: list[str] = []
-    for line in geom.lines:
-        points_attr = " ".join(f"{x:.1f},{y:.1f}" for x, y in to_px(line))
-        body.append(
-            f'<polyline points="{points_attr}" fill="none"'
-            f' stroke="{color_var}" stroke-width="{stroke:.1f}" stroke-opacity="0.85"/>'
+def _payload(data: PlotData, size: int, edge_colors: bool, logo: bool, interval: int) -> dict[str, Any]:
+    """Everything the script needs, JSON-serializable."""
+    r_addr = float(np.clip(150.0 / np.sqrt(max(data.n_addr, 1)), 5.0, 13.0))
+    r_mark = 0.62 * r_addr
+    descriptors = object_descriptors(data)
+    n_colors = len(THEMES["light"].palette)
+    classes = []
+    for class_index, name in enumerate(data.classes):
+        objects = []
+        for i, item in enumerate(descriptors[name]):
+            tip = _tip(f"{name} #{i}", list(zip(data.port_names[name], item["ports"])), data.features[name][i])
+            objects.append(item | {"tip": tip})
+        classes.append(
+            {
+                "name": name,
+                "shape": SVG_MARKERS[class_index % len(SVG_MARKERS)],
+                "color": f"var(--c{class_index % n_colors})" if edge_colors else None,
+                "portNames": data.port_names[name],
+                "objects": objects,
+            }
         )
-    for port_name, at in zip(port_names, geom.labels):
-        p = to_px(at)
-        body.append(f'<text class="pl" x="{p[0]:.1f}" y="{p[1] - 3:.1f}" text-anchor="middle">{html.escape(port_name)}</text>')
-    point = to_px(geom.marker)
-    body.append(_svg_marker(shape, point[0], point[1], r_mark, color_var, 'stroke="var(--surface)" stroke-width="1"'))
-    return f'<g class="obj" data-tip="{tip}">{"".join(body)}</g>'
+    return {
+        "size": size,
+        "ndim": data.ndim,
+        "nAddr": data.n_addr,
+        "rAddr": r_addr,
+        "stroke": float(np.clip(r_addr / 6.0, 1.0, 2.0)),
+        "fontSize": max(round(0.95 * r_addr), 7),
+        "markers": {shape: [[round(x, 2), round(y, 2)] for x, y in _marker_points(shape, r_mark)] for shape in SVG_MARKERS},
+        "frames": np.round(data.pos, 4).tolist(),
+        "colors": None if data.colors is None else np.round(data.colors, 4).tolist(),
+        "classes": classes,
+        "addrTips": [_tip(f"address {i}", [], {}) for i in range(data.n_addr)],
+        "logo": logo_data_uri() if logo else None,
+        "logoSize": round(0.12 * size),
+        "interval": interval,
+    }
 
 
-def _address_svg(i: int, xy: np.ndarray, r_addr: float) -> str:
-    label = (
-        f'<text x="{xy[0]:.1f}" y="{xy[1]:.1f}" text-anchor="middle" dominant-baseline="central"'
-        f' fill="#ffffff" font-size="{max(round(0.95 * r_addr), 7)}" pointer-events="none">{i}</text>'
-    )
-    return (
-        f'<g class="addr" data-tip="{_tip(f"address {i}", [], {})}">'
-        f'<circle cx="{xy[0]:.1f}" cy="{xy[1]:.1f}" r="{r_addr:.1f}" fill="{ADDRESS_COLOR}"/>{label}</g>'
-    )
-
-
-# ---------------------------------------------------------------------------
-# Public entry point
-# ---------------------------------------------------------------------------
+def _legend_html(data: PlotData, edge_colors: bool) -> str:
+    n_colors = len(THEMES["light"].palette)
+    items = [
+        '<span><svg width="14" height="14"><circle cx="7" cy="7" r="5" fill="var(--surface)" stroke="var(--ink)"'
+        ' stroke-width="1.2"/></svg>addresses</span>'
+    ]
+    for class_index, name in enumerate(data.classes):
+        color = f"var(--c{class_index % n_colors})" if edge_colors else "var(--neutral)"
+        shape = SVG_MARKERS[class_index % len(SVG_MARKERS)]
+        items.append(
+            f'<span><svg width="14" height="14">{_svg_marker(shape, 7, 7, 4.5, color)}</svg>{html.escape(name)}</span>'
+        )
+    if data.colors is not None and data.color_range is not None:
+        lo, hi = data.color_range
+        n_channels = data.colors.shape[-1]
+        if n_channels == 1:
+            items.append(f'<span class="sc">{lo[0]:.3g}<!--scale-->{hi[0]:.3g}</span>')
+        elif n_channels == 2:
+            items.append(
+                f'<span class="sc">ch1 {lo[0]:.3g}&ndash;{hi[0]:.3g}<!--scale-->ch2 {lo[1]:.3g}&ndash;{hi[1]:.3g}</span>'
+            )
+        else:
+            items.append('<span class="sc">RGB</span>')
+    return "".join(items)
 
 
 def plot_graph_interactive(
     graph: Graph,
     *,
     positions: Any = None,
+    address_colors: Any = None,
+    edge_colors: bool = True,
     iterations: int = 150,
     seed: int = 0,
     size: int = 640,
     theme: str = "auto",
+    logo: bool = True,
+    interval: int = 100,
 ) -> InteractiveGraphPlot:
     """
     Render a single Graph as a self-contained interactive HTML/SVG figure.
@@ -191,58 +216,55 @@ def plot_graph_interactive(
     Address indices are always visible; hovering any object (address, hyper-edge
     marker or line) shows a tooltip with its port addresses and feature values, and
     reveals the port names along its connections. The mouse wheel zooms, dragging
-    pans, and double-click resets the view. The result displays inline in
-    Jupyter/IDE notebooks (via ``_repr_html_``) and can be written to a standalone
-    HTML file with :meth:`InteractiveGraphPlot.save`. No dependency is required.
+    pans (or rotates the view for 3D positions, shift-drag then pans), and
+    double-click resets the view. When ``positions`` or ``address_colors`` carry a
+    time axis, a slider and a play button step through the frames. The result
+    displays inline in Jupyter/IDE notebooks (via ``_repr_html_``) and can be
+    written to a standalone HTML file with :meth:`InteractiveGraphPlot.save`.
+    No dependency is required.
 
     :param graph: A single Graph; batched graphs must first go through
         :func:`energnn.graph.separate_graphs`.
-    :param positions: Optional address coordinates of shape ``(n_addresses, 2)`` (e.g.
-        latent coordinates from a coupler); replaces the force-directed layout. Padded
-        graphs may pass the padded length, fictitious rows are dropped.
+    :param positions: Optional address coordinates of shape ``(n_addresses, 2)`` or
+        ``(n_addresses, 3)``; replaces the force-directed layout. A leading axis gives a
+        series of frames. Padded graphs may pass the padded length, fictitious rows are dropped.
+    :param address_colors: Optional per-address values of shape ``(n_addresses, C)`` with
+        ``C`` in {1, 2, 3}: sequential colormap, bivariate colormap or RGB; normalized per
+        channel over all frames. A leading axis gives a series of frames.
+    :param edge_colors: If False, hyper-edges are drawn in the neutral gray instead of one
+        color per class (marker shapes still tell classes apart).
     :param iterations: Number of layout relaxation steps (unused when ``positions`` is given).
     :param seed: Seed for the layout's random initial positions.
     :param size: Width and height of the drawing, in pixels.
     :param theme: ``"light"``, ``"dark"``, or ``"auto"`` to follow the viewer's
         color-scheme preference via CSS.
+    :param logo: If True, draw the EnerGNN mark in the bottom-right corner.
+    :param interval: Delay between frames when playing a time series, in milliseconds.
     :return: An :class:`InteractiveGraphPlot`.
-    :raises ValueError: If the graph is not single, or if ``theme`` is invalid.
+    :raises ValueError: If the graph is not single, if ``theme`` is invalid, or if the
+        positions/colors arrays have a wrong shape.
     """
     if theme not in ("light", "dark", "auto"):
         raise ValueError("theme must be 'light', 'dark' or 'auto'.")
 
-    data = extract_plot_data(graph, iterations=iterations, seed=seed, positions=positions)
-    geoms = object_geometries(data)
-
-    pad = 30.0
-
-    def to_px(points: np.ndarray) -> np.ndarray:
-        return (points + 1.0) / 2.0 * (size - 2 * pad) + pad
-
-    r_addr = float(np.clip(150.0 / np.sqrt(max(data.n_addr, 1)), 5.0, 13.0))
-    r_mark = 0.62 * r_addr
-    stroke = float(np.clip(r_addr / 6.0, 1.0, 2.0))
+    data = extract_plot_data(graph, iterations=iterations, seed=seed, positions=positions, address_colors=address_colors)
+    payload = _payload(data, size, edge_colors, logo, interval)
     uid = f"energnn-plot-{next(_plot_ids)}"
-    n_colors = len(THEMES["light"].palette)
 
-    legend = [f'<span><svg width="14" height="14"><circle cx="7" cy="7" r="5" fill="{ADDRESS_COLOR}"/></svg>addresses</span>']
-    svg: list[str] = []
-    for class_index, name in enumerate(data.classes):
-        color_var = f"var(--c{class_index % n_colors})"
-        shape = SVG_MARKERS[class_index % len(SVG_MARKERS)]
-        legend.append(
-            f'<span><svg width="14" height="14">{_svg_marker(shape, 7, 7, 4.5, color_var)}</svg>{html.escape(name)}</span>'
+    timeline = ""
+    if data.n_frames > 1:
+        timeline = (
+            f'<div class="tl"><button type="button">&#x25B6;</button>'
+            f'<input type="range" min="0" max="{data.n_frames - 1}" value="0" step="1"/><span class="fr"></span></div>'
         )
-        for i in range(len(data.ports[name])):
-            if (name, i) in geoms:  # objects without ports have nothing to draw
-                svg.append(_object_svg(name, i, data, geoms[(name, i)], shape, color_var, stroke, r_mark, to_px))
-    address_px = to_px(data.pos[: data.n_addr])
-    svg += [_address_svg(i, address_px[i], r_addr) for i in range(data.n_addr)]
-
+    hint = ", drag to rotate, shift-drag to pan" if data.ndim == 3 else ", drag to pan"
     fragment = (
-        f"<style>{_css(uid, theme, stroke)}</style>"
-        f'<div id="{uid}"><div class="lg">{"".join(legend)}</div>'
-        f'<svg class="cv" width="{size}" height="{size}" viewBox="0 0 {size} {size}">{"".join(svg)}</svg>'
-        f'<div class="tip"></div><script>{_script(uid, size)}</script></div>'
+        f"<style>{_css(uid, theme, payload['stroke'])}</style>"
+        f'<div id="{uid}" title="scroll to zoom{hint}, double-click to reset">'
+        f'<div class="lg">{_legend_html(data, edge_colors)}</div>'
+        f'<svg class="cv" width="{size}" height="{size}" viewBox="0 0 {size} {size}"></svg>'
+        f'{timeline}<div class="tip"></div>'
+        f'<script type="application/json">{json.dumps(payload, separators=(",", ":"))}</script>'
+        f"<script>{script_js().replace('__UID__', uid)}</script></div>"
     )
     return InteractiveGraphPlot(fragment)

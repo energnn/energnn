@@ -152,14 +152,21 @@ Visualization
 .. currentmodule:: energnn.graph.visualization
 
 The :mod:`energnn.graph.visualization` module draws a single :class:`~energnn.graph.Graph`, either as a
-static matplotlib figure (requires the ``viz`` extra: ``pip install energnn[viz]``) or as a self-contained
-interactive HTML/SVG figure with tooltips, zoom and pan, displayed inline by notebooks (no extra dependency).
+static matplotlib figure or animation (requires the ``viz`` extra: ``pip install energnn[viz]``) or as a
+self-contained interactive HTML/SVG figure with tooltips, zoom, pan, 3D rotation and a time slider,
+displayed inline by notebooks (no extra dependency).
+
+All renderers accept optional 2D or 3D address ``positions`` (for instance latent coordinates from a
+coupler), optional ``address_colors`` with 1, 2 or 3 channels per address (sequential colormap, bivariate
+colormap or RGB), and a leading time axis on either to render a series of frames. Hyper-edge classes are
+told apart by color and marker shape; ``edge_colors=False`` keeps the shapes only.
 
 .. autosummary::
    :toctree: _autosummary
    :nosignatures:
 
     plot_graph
+    animate_graph
     plot_graph_interactive
     InteractiveGraphPlot
     spring_layout

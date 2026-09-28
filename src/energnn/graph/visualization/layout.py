@@ -4,10 +4,17 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 # SPDX-License-Identifier: MPL-2.0
 
-"""Layout of a Graph in the plane: address positions and hyper-edge geometries.
+"""Layout of a Graph in space: address positions, address colors and hyper-edge geometries.
 
-Everything here is renderer-agnostic and depends on numpy only. Coordinates live in a
-``[-1, 1]`` box so that marker sizes and offsets are consistent across renderers.
+Everything here is renderer-agnostic and depends on numpy only.
+
+- Positions are always stored in 3D, with ``z = 0`` for 2D layouts, and always with a
+  leading time axis: ``pos`` has shape ``(n_frames, n_nodes, 3)``. A single frame is the
+  common case; a series of frames comes from ``positions`` given with an extra leading axis.
+- Coordinates live in a ``[-1, 1]`` box, normalized once over all frames so that motion
+  between frames is preserved.
+- Address colors are 1, 2 or 3 channels per address, normalized per channel over all
+  frames to ``[0, 1]``; the theme maps them to RGB.
 """
 
 from __future__ import annotations
@@ -60,20 +67,27 @@ def spring_layout(n_nodes: int, edges: np.ndarray, *, iterations: int = 150, see
 
 
 # ---------------------------------------------------------------------------
-# Content extraction and address placement
+# Content extraction
 # ---------------------------------------------------------------------------
 
 
 class PlotData(NamedTuple):
-    """Real (non-fictitious) content of a single Graph, laid out in the plane."""
+    """Real (non-fictitious) content of a single Graph, laid out in space."""
 
     n_addr: int
+    ndim: int  # 2 or 3
     classes: list[str]
     ports: dict[str, list[list[int]]]  # class -> per real object, port addresses (sorted port order)
     port_names: dict[str, list[str]]  # class -> sorted port names
     features: dict[str, list[dict[str, float]]]  # class -> per real object, feature name -> value
-    pos: np.ndarray  # star-expansion layout: addresses then hubs
+    pos: np.ndarray  # (n_frames, n_nodes, 3): addresses then hubs, z = 0 in 2D
     hub_ids: dict[ObjKey, int]  # (class, object index) -> hub row in pos
+    colors: np.ndarray | None  # (n_frames, n_addr, C) normalized to [0, 1], or None
+    color_range: np.ndarray | None  # (2, C): per-channel (min, max) of the raw values
+
+    @property
+    def n_frames(self) -> int:
+        return self.pos.shape[0]
 
 
 def _real_ports(hes) -> tuple[list[str], list[list[int]]]:
@@ -111,24 +125,59 @@ def _star_expansion(classes: list[str], ports: dict[str, list[list[int]]], n_add
     return np.array(layout_edges, dtype=int).reshape(-1, 2), hub_ids, next_id
 
 
+def _per_address_array(values: Any, name: str, address_mask: np.ndarray, n_addr: int, last_dims: tuple[int, ...]):
+    """Validate a per-address array, drop fictitious rows and add the time axis.
+
+    Accepts ``(n_addr, k)`` / ``(n_current, k)`` and ``(n_frames, n_addr, k)`` /
+    ``(n_frames, n_current, k)`` for ``k`` in ``last_dims``; returns ``(n_frames, n_addr, k)``.
+    """
+    array = np.asarray(values, dtype=float)
+    if array.ndim == 2:
+        array = array[None]
+    if array.ndim != 3 or array.shape[-1] not in last_dims:
+        raise ValueError(
+            f"{name} must have shape (n_addresses, k) or (n_frames, n_addresses, k) with k in {last_dims}; "
+            f"got {array.shape}."
+        )
+    if array.shape[1] == len(address_mask):
+        array = array[:, address_mask]
+    if array.shape[1] != n_addr:
+        raise ValueError(f"{name} must have {n_addr} (real) or {len(address_mask)} (current) addresses; got {array.shape[1]}.")
+    return array
+
+
 def _normalize_positions(positions: Any, address_mask: np.ndarray, n_addr: int) -> np.ndarray:
-    """Validate user-given address coordinates and fit them in the ``[-1, 1]`` layout box."""
-    addr_pos = np.asarray(positions, dtype=float)
-    if addr_pos.ndim == 2 and addr_pos.shape[0] == len(address_mask):
-        addr_pos = addr_pos[address_mask]
-    if addr_pos.shape != (n_addr, 2):
-        raise ValueError(f"positions must have shape ({n_addr}, 2) or (current addresses, 2); got {addr_pos.shape}.")
-    addr_pos = addr_pos - addr_pos.mean(axis=0)
-    scale = np.abs(addr_pos).max()
-    return addr_pos / scale if scale > 0 else addr_pos
+    """User-given address coordinates -> ``(n_frames, n_addr, 3)`` fitted in the ``[-1, 1]`` box over all frames."""
+    array = _per_address_array(positions, "positions", address_mask, n_addr, (2, 3))
+    array = array - array.reshape(-1, array.shape[-1]).mean(axis=0)
+    scale = np.abs(array).max()
+    if scale > 0:
+        array = array / scale
+    if array.shape[-1] == 2:
+        array = np.concatenate([array, np.zeros(array.shape[:-1] + (1,))], axis=-1)
+    return array
 
 
-def extract_plot_data(graph: Graph, *, iterations: int, seed: int, positions: Any = None) -> PlotData:
+def _normalize_colors(address_colors: Any, address_mask: np.ndarray, n_addr: int) -> tuple[np.ndarray, np.ndarray]:
+    """User-given per-address channels -> ``(n_frames, n_addr, C)`` in ``[0, 1]`` and the raw ``(2, C)`` range."""
+    array = _per_address_array(address_colors, "address_colors", address_mask, n_addr, (1, 2, 3))
+    flat = array.reshape(-1, array.shape[-1])
+    lo, hi = np.nanmin(flat, axis=0), np.nanmax(flat, axis=0)
+    span = np.where(hi > lo, hi - lo, 1.0)
+    normalized = np.where(hi > lo, (array - lo) / span, 0.5)
+    return np.nan_to_num(normalized, nan=0.5), np.stack([lo, hi])
+
+
+def extract_plot_data(
+    graph: Graph, *, iterations: int, seed: int, positions: Any = None, address_colors: Any = None
+) -> PlotData:
     """Collect real (non-fictitious) objects of a single Graph and lay them out.
 
-    When ``positions`` is given, it provides the address coordinates (real addresses,
-    or padded length — fictitious rows are dropped); hyper-edge hubs are then placed
-    at the barycenter of their ports instead of being laid out by the spring model.
+    When ``positions`` is given, it provides the address coordinates, 2D or 3D, for one
+    frame or a series of frames (real addresses, or padded length: fictitious rows are
+    dropped); hyper-edge hubs are then placed at the barycenter of their ports instead of
+    being laid out by the spring model. ``address_colors`` gives 1, 2 or 3 channels per
+    address, with the same frame conventions.
     """
     if not graph.is_single:
         raise ValueError("plot_graph only handles single graphs; use separate_graphs() on a batch first.")
@@ -147,14 +196,29 @@ def extract_plot_data(graph: Graph, *, iterations: int, seed: int, positions: An
 
     layout_edges, hub_ids, n_nodes = _star_expansion(classes, ports, n_addr)
     if positions is None:
-        pos = spring_layout(n_nodes, layout_edges, iterations=iterations, seed=seed)
+        flat = spring_layout(n_nodes, layout_edges, iterations=iterations, seed=seed)
+        pos = np.concatenate([flat, np.zeros((n_nodes, 1))], axis=-1)[None]
+        ndim = 2
     else:
-        pos = np.zeros((n_nodes, 2))
-        pos[:n_addr] = _normalize_positions(positions, address_mask, n_addr)
+        addr_pos = _normalize_positions(positions, address_mask, n_addr)
+        ndim = 2 if np.all(addr_pos[..., 2] == 0) else 3
+        pos = np.zeros((addr_pos.shape[0], n_nodes, 3))
+        pos[:, :n_addr] = addr_pos
         for (name, i), hub_id in hub_ids.items():
-            pos[hub_id] = pos[ports[name][i]].mean(axis=0)
+            pos[:, hub_id] = addr_pos[:, ports[name][i]].mean(axis=1)
 
-    return PlotData(n_addr, classes, ports, port_names, features, pos, hub_ids)
+    colors = color_range = None
+    if address_colors is not None:
+        colors, color_range = _normalize_colors(address_colors, address_mask, n_addr)
+        if colors.shape[0] != pos.shape[0]:
+            if pos.shape[0] == 1:
+                pos = np.repeat(pos, colors.shape[0], axis=0)
+            elif colors.shape[0] == 1:
+                colors = np.repeat(colors, pos.shape[0], axis=0)
+            else:
+                raise ValueError(f"positions have {pos.shape[0]} frames but address_colors have {colors.shape[0]}.")
+
+    return PlotData(n_addr, ndim, classes, ports, port_names, features, pos, hub_ids, colors, color_range)
 
 
 # ---------------------------------------------------------------------------
@@ -163,10 +227,10 @@ def extract_plot_data(graph: Graph, *, iterations: int, seed: int, positions: An
 
 
 class ObjGeom(NamedTuple):
-    """Drawable geometry of one hyper-edge object, in layout coordinates."""
+    """Drawable geometry of one hyper-edge object, in layout coordinates (3D, z = 0 in 2D)."""
 
-    lines: list[np.ndarray]  # polylines of shape (k, 2)
-    marker: np.ndarray  # marker position, shape (2,)
+    lines: list[np.ndarray]  # polylines of shape (k, 3)
+    marker: np.ndarray  # marker position, shape (3,)
     labels: list[np.ndarray]  # one label anchor per port
 
 
@@ -178,9 +242,12 @@ def _bezier(a: np.ndarray, control: np.ndarray, b: np.ndarray) -> np.ndarray:
     return (1 - t) ** 2 * a + 2 * t * (1 - t) * control + t**2 * b
 
 
-def _rotate(u: np.ndarray, phi: float) -> np.ndarray:
-    c, s = np.cos(phi), np.sin(phi)
-    return np.array([c * u[0] - s * u[1], s * u[0] + c * u[1]])
+def _perpendicular(direction: np.ndarray) -> np.ndarray:
+    """A unit vector perpendicular to ``direction``; in the xy-plane it is the usual left normal."""
+    normal = np.cross(np.array([0.0, 0.0, 1.0]), direction)
+    if np.linalg.norm(normal) < 1e-9:  # direction is along z
+        normal = np.array([1.0, 0.0, 0.0])
+    return normal / np.linalg.norm(normal)
 
 
 def _pair_ranks(data: PlotData) -> tuple[dict[ObjKey, float], dict[ObjKey, tuple[int, int]]]:
@@ -202,22 +269,37 @@ def _pair_ranks(data: PlotData) -> tuple[dict[ObjKey, float], dict[ObjKey, tuple
     return fan, loop_rank
 
 
-def _order1_geom(anchor: np.ndarray, class_index: int, i: int) -> ObjGeom:
-    """A short stub leaving the address, with a deterministic angle so several stubs stay visible."""
+def stub_direction(class_index: int, i: int) -> np.ndarray:
+    """Deterministic unit direction (in the xy-plane) of an order-1 stub, so several stubs stay visible."""
     angle = 2.0 * np.pi * ((class_index * 0.37 + i * 0.61) % 1.0)
-    tip = anchor + 0.05 * np.array([np.cos(angle), np.sin(angle)])
+    return np.array([np.cos(angle), np.sin(angle), 0.0])
+
+
+def _order1_geom(anchor: np.ndarray, class_index: int, i: int) -> ObjGeom:
+    """A short stub leaving the address."""
+    tip = anchor + 0.05 * stub_direction(class_index, i)
     return ObjGeom([np.stack([anchor, tip])], tip, [(anchor + tip) / 2.0])
 
 
-def _loop_geom(anchor: np.ndarray, rank: tuple[int, int]) -> ObjGeom:
-    """A small circle beside the address; several loops spread around it."""
+def loop_direction(rank: tuple[int, int]) -> np.ndarray:
+    """Unit direction (in the xy-plane) from an address to its ``rank``-th self-loop."""
     j, m = rank
-    u = np.array([np.cos(2.0 * np.pi * j / m + 0.6), np.sin(2.0 * np.pi * j / m + 0.6)])
+    angle = 2.0 * np.pi * j / m + 0.6
+    return np.array([np.cos(angle), np.sin(angle), 0.0])
+
+
+def _loop_geom(anchor: np.ndarray, rank: tuple[int, int]) -> ObjGeom:
+    """A small circle beside the address, in the xy-plane; several loops spread around it."""
+    u = loop_direction(rank)
+    v = np.array([-u[1], u[0], 0.0])
     r_loop = 0.055
     center = anchor + 1.7 * r_loop * u
     theta = np.linspace(0.0, 2.0 * np.pi, 25)[:, None]
-    circle = center + r_loop * np.concatenate([np.cos(theta), np.sin(theta)], axis=1)
-    labels = [center + 1.6 * r_loop * _rotate(u, 0.9), center + 1.6 * r_loop * _rotate(u, -0.9)]
+    circle = center + r_loop * (np.cos(theta) * u + np.sin(theta) * v)
+    labels = [
+        center + 1.6 * r_loop * (np.cos(0.9) * u + np.sin(0.9) * v),
+        center + 1.6 * r_loop * (np.cos(0.9) * u - np.sin(0.9) * v),
+    ]
     return ObjGeom([circle], center + r_loop * u, labels)
 
 
@@ -225,7 +307,7 @@ def _pair_geom(a: np.ndarray, b: np.ndarray, fan: float) -> ObjGeom:
     """A Bezier curve between two addresses, bent according to its rank among parallel edges."""
     chord = b - a
     length = max(float(np.linalg.norm(chord)), 1e-9)
-    normal = np.array([-chord[1], chord[0]]) / length
+    normal = _perpendicular(chord / length)
     height = fan * min(0.3 * length, 0.09)
     curve = _bezier(a, (a + b) / 2.0 + 2.0 * height * normal, b)
     return ObjGeom([curve], curve[8], [curve[3], curve[13]])
@@ -236,15 +318,15 @@ def _hub_geom(hub: np.ndarray, port_pos: list[np.ndarray]) -> ObjGeom:
     return ObjGeom([np.stack([hub, p]) for p in port_pos], hub, [(hub + p) / 2.0 for p in port_pos])
 
 
-def object_geometries(data: PlotData) -> dict[ObjKey, ObjGeom]:
+def object_geometries(data: PlotData, frame: int = 0) -> dict[ObjKey, ObjGeom]:
     """
-    Geometry of every hyper-edge object, in layout coordinates.
+    Geometry of every hyper-edge object at ``frame``, in layout coordinates.
 
     Order-2 edges sharing the same address pair (across all classes) are fanned out
     as symmetric Bezier curves so parallel edges stay distinguishable, and
     self-loops are drawn as small circles attached to their address.
     """
-    pos = data.pos
+    pos = data.pos[frame]
     fan, loop_rank = _pair_ranks(data)
 
     geoms: dict[ObjKey, ObjGeom] = {}
@@ -260,3 +342,32 @@ def object_geometries(data: PlotData) -> dict[ObjKey, ObjGeom]:
             elif len(edge_ports) >= 3:
                 geoms[key] = _hub_geom(pos[data.hub_ids[key]], [pos[p] for p in edge_ports])
     return geoms
+
+
+def object_descriptors(data: PlotData) -> dict[str, list[dict[str, Any]]]:
+    """Topology-only description of every object, for renderers that compute geometry themselves.
+
+    Per class, one dict per real object with its ``ports``, its ``kind`` (``stub``, ``loop``,
+    ``pair``, ``hub`` or ``none`` for port-less objects) and the kind's parameters: the stub
+    ``direction``, the loop ``direction``, the pair ``fan`` offset, or the ``hub`` row of ``pos``.
+    """
+    fan, loop_rank = _pair_ranks(data)
+    out: dict[str, list[dict[str, Any]]] = {}
+    for class_index, name in enumerate(data.classes):
+        items = []
+        for i, edge_ports in enumerate(data.ports[name]):
+            key = (name, i)
+            item: dict[str, Any] = {"ports": edge_ports}
+            if len(edge_ports) == 1:
+                item |= {"kind": "stub", "direction": stub_direction(class_index, i)[:2].round(6).tolist()}
+            elif key in loop_rank:
+                item |= {"kind": "loop", "direction": loop_direction(loop_rank[key])[:2].round(6).tolist()}
+            elif len(edge_ports) == 2:
+                item |= {"kind": "pair", "fan": fan[key]}
+            elif len(edge_ports) >= 3:
+                item |= {"kind": "hub", "hub": data.hub_ids[key]}
+            else:
+                item |= {"kind": "none"}
+            items.append(item)
+        out[name] = items
+    return out
