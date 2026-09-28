@@ -52,10 +52,13 @@ def test_interactive_plot_rejects_batch(mixed_order_graph):
 
 
 def test_interactive_plot_themes(mixed_order_graph):
-    auto = plot_graph_interactive(mixed_order_graph, theme="auto")._repr_html_()
-    assert "prefers-color-scheme: dark" in auto
-    dark = plot_graph_interactive(mixed_order_graph, theme="dark")._repr_html_()
-    assert "prefers-color-scheme" not in dark and "--surface:#1a1a19" in dark and "--s0:" in dark and "--b11:" in dark
+    auto = plot_graph_interactive(mixed_order_graph, theme="auto")
+    fragment = auto._repr_html_()
+    assert ".dark{--surface:#1a1a19" in fragment and _payload(auto)["autoTheme"] is True
+    dark = plot_graph_interactive(mixed_order_graph, theme="dark")
+    fragment = dark._repr_html_()
+    assert ".dark{" not in fragment and "--surface:#1a1a19" in fragment and "--s0:" in fragment and "--b11:" in fragment
+    assert _payload(dark)["autoTheme"] is False
     with pytest.raises(ValueError, match="theme"):
         plot_graph_interactive(mixed_order_graph, theme="solarized")
 
@@ -91,14 +94,16 @@ def test_interactive_multi_graph(multi_graph):
 
 def test_interactive_3d_and_frames(mixed_order_graph):
     frames = np.stack([np.concatenate([SQUARE, np.arange(4)[:, None]], axis=1)] * 3)
-    plot = plot_graph_interactive(mixed_order_graph, positions=frames, interval=50)
+    plot = plot_graph_interactive(mixed_order_graph, positions=frames, interval=50, loop_pause=700)
     payload = _payload(plot)
     assert payload["ndim"] == 3 and len(payload["frames"]) == 3 and len(payload["frames"][0]) == 5
-    assert payload["interval"] == 50
+    assert payload["interval"] == 50 and payload["pause"] == 700
     fragment = plot._repr_html_()
     assert 'type="range" min="0" max="2"' in fragment and "drag to rotate" in fragment
+    assert 'data-mode="rotate"' in fragment and 'data-mode="pan"' in fragment and 'data-act="reset"' in fragment
     static = plot_graph_interactive(mixed_order_graph, positions=SQUARE)._repr_html_()
     assert 'type="range"' not in static and "drag to rotate" not in static
+    assert 'data-mode="rotate"' not in static and 'data-mode="pan"' in static
 
 
 @pytest.mark.parametrize(

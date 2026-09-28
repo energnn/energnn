@@ -100,10 +100,9 @@ def _theme_vars(t: Theme) -> str:
 
 
 def _theme_css(uid: str, theme: str) -> str:
-    """CSS custom properties for the palette; ``auto`` follows the viewer's color-scheme preference."""
+    """CSS custom properties for the palette; with ``auto`` the script adds the ``dark`` class when the notebook is dark."""
     if theme == "auto":
-        light, dark = THEMES["light"], THEMES["dark"]
-        return f"#{uid}{{{_theme_vars(light)}}}@media (prefers-color-scheme: dark){{#{uid}{{{_theme_vars(dark)}}}}}"
+        return f"#{uid}{{{_theme_vars(THEMES['light'])}}}#{uid}.dark{{{_theme_vars(THEMES['dark'])}}}"
     return f"#{uid}{{{_theme_vars(THEMES[theme])}}}"
 
 
@@ -128,6 +127,10 @@ def _css(uid: str, theme: str, stroke: float, logo_width: int) -> str:
         f"#{uid} svg.cv:active{{cursor:grabbing}}"
         f"#{uid} .logo{{position:absolute;right:10px;bottom:8px;width:{logo_width}px;opacity:0.9;"
         f"pointer-events:none}}"
+        f"#{uid} .tb{{position:absolute;top:8px;right:10px;display:flex;gap:4px}}"
+        f"#{uid} .tb button{{font:inherit;font-size:13px;width:26px;height:26px;padding:0;border:1px solid var(--neutral);"
+        f"border-radius:4px;background:var(--surface);color:var(--ink);cursor:pointer;opacity:0.85}}"
+        f"#{uid} .tb button.on{{background:var(--ink);color:var(--surface)}}"
         f"#{uid} .tl{{display:flex;align-items:center;gap:8px;padding:4px 12px 8px;font-size:11px}}"
         f"#{uid} .tl input{{flex:1}}"
         f"#{uid} .tl button{{font:inherit;padding:1px 8px;border:1px solid var(--neutral);border-radius:4px;"
@@ -135,7 +138,7 @@ def _css(uid: str, theme: str, stroke: float, logo_width: int) -> str:
     )
 
 
-def _payload(data: PlotData, size: int, edge_colors: bool, interval: int) -> dict[str, Any]:
+def _payload(data: PlotData, size: int, edge_colors: bool, interval: int, loop_pause: int, theme: str) -> dict[str, Any]:
     """Everything the script needs, JSON-serializable."""
     r_addr = float(np.clip(150.0 / np.sqrt(max(data.n_addr, 1)), 5.0, 13.0))
     r_mark = 0.62 * r_addr
@@ -169,6 +172,8 @@ def _payload(data: PlotData, size: int, edge_colors: bool, interval: int) -> dic
         "classes": classes,
         "addrTips": [_tip(f"address {i}", [], {}) for i in range(data.n_addr)],
         "interval": interval,
+        "pause": loop_pause,
+        "autoTheme": theme == "auto",
     }
 
 
@@ -198,6 +203,20 @@ def _legend_html(data: PlotData, edge_colors: bool) -> str:
     return "".join(items)
 
 
+def _toolbar_html(ndim: int) -> str:
+    """Mode buttons (drag rotates in 3D, or pans) and zoom in / zoom out / reset actions."""
+    buttons = []
+    if ndim == 3:
+        buttons.append('<button type="button" data-mode="rotate" title="drag rotates the view">&#x21bb;</button>')
+    buttons += [
+        '<button type="button" data-mode="pan" title="drag pans the view">&#x2725;</button>',
+        '<button type="button" data-act="zin" title="zoom in">+</button>',
+        '<button type="button" data-act="zout" title="zoom out">&minus;</button>',
+        '<button type="button" data-act="reset" title="reset the view">&#x2302;</button>',
+    ]
+    return f'<div class="tb">{"".join(buttons)}</div>'
+
+
 def plot_graph_interactive(
     graph: Graph,
     *,
@@ -210,6 +229,7 @@ def plot_graph_interactive(
     theme: str = "auto",
     logo: bool = True,
     interval: int = 100,
+    loop_pause: int = 1000,
 ) -> InteractiveGraphPlot:
     """
     Render a single Graph as a self-contained interactive HTML/SVG figure.
@@ -219,7 +239,9 @@ def plot_graph_interactive(
     reveals the port names along its connections. The mouse wheel zooms, dragging
     pans (or rotates the view for 3D positions, shift-drag then pans), and
     double-click resets the view. When ``positions`` or ``address_colors`` carry a
-    time axis, a slider and a play button step through the frames. The result
+    time axis, a slider and a play button step through the frames; playback
+    interpolates positions and colors between frames and pauses at the end of
+    the series before looping. The result
     displays inline in Jupyter/IDE notebooks (via ``_repr_html_``) and can be
     written to a standalone HTML file with :meth:`InteractiveGraphPlot.save`.
     No dependency is required.
@@ -237,10 +259,11 @@ def plot_graph_interactive(
     :param iterations: Number of layout relaxation steps (unused when ``positions`` is given).
     :param seed: Seed for the layout's random initial positions.
     :param size: Width and height of the drawing, in pixels.
-    :param theme: ``"light"``, ``"dark"``, or ``"auto"`` to follow the viewer's
-        color-scheme preference via CSS.
+    :param theme: ``"light"``, ``"dark"``, or ``"auto"`` to follow the notebook's theme (the
+        background color of the output cell, or the OS preference when it cannot be read).
     :param logo: If True, draw the EnerGNN mark in the bottom-right corner.
-    :param interval: Delay between frames when playing a time series, in milliseconds.
+    :param interval: Duration of one frame when playing a time series, in milliseconds.
+    :param loop_pause: Pause at the end of the series before looping, in milliseconds.
     :return: An :class:`InteractiveGraphPlot`.
     :raises ValueError: If the graph is not single, if ``theme`` is invalid, or if the
         positions/colors arrays have a wrong shape.
@@ -249,7 +272,7 @@ def plot_graph_interactive(
         raise ValueError("theme must be 'light', 'dark' or 'auto'.")
 
     data = extract_plot_data(graph, iterations=iterations, seed=seed, positions=positions, address_colors=address_colors)
-    payload = _payload(data, size, edge_colors, interval)
+    payload = _payload(data, size, edge_colors, interval, loop_pause, theme)
     uid = f"energnn-plot-{next(_plot_ids)}"
 
     timeline = ""
@@ -258,14 +281,16 @@ def plot_graph_interactive(
             f'<div class="tl"><button type="button">&#x25B6;</button>'
             f'<input type="range" min="0" max="{data.n_frames - 1}" value="0" step="1"/><span class="fr"></span></div>'
         )
-    hint = ", drag to rotate, shift-drag to pan" if data.ndim == 3 else ", drag to pan"
-    # the logo sits over the canvas, outside the SVG, so zoom and pan leave it in place
+    hint = ", drag to rotate or pan (toolbar), shift-drag to pan" if data.ndim == 3 else ", drag to pan"
+    # the logo and the toolbar sit over the canvas, outside the SVG, so zoom and pan leave them in place
     logo_html = f'<img class="logo" src="{logo_data_uri()}" alt="EnerGNN"/>' if logo else ""
+    toolbar = _toolbar_html(data.ndim)
     fragment = (
         f"<style>{_css(uid, theme, payload['stroke'], max(round(0.15 * size), 60))}</style>"
         f'<div id="{uid}" title="scroll to zoom{hint}, double-click to reset">'
         f'<div class="lg">{_legend_html(data, edge_colors)}</div>'
-        f'<div class="cw"><svg class="cv" width="{size}" height="{size}" viewBox="0 0 {size} {size}"></svg>{logo_html}</div>'
+        f'<div class="cw"><svg class="cv" width="{size}" height="{size}" viewBox="0 0 {size} {size}"></svg>'
+        f"{toolbar}{logo_html}</div>"
         f'{timeline}<div class="tip"></div>'
         f'<script type="application/json">{json.dumps(payload, separators=(",", ":"))}</script>'
         f"<script>{script_js().replace('__UID__', uid)}</script></div>"
