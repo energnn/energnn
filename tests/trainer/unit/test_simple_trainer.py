@@ -5,6 +5,7 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
 import math
+import warnings
 from unittest import mock
 from unittest.mock import MagicMock
 
@@ -288,6 +289,14 @@ class TestJitCaching:
     @pytest.fixture
     def model(self, loader: LinearSystemProblemLoader) -> GNN:
         return create_tiny_model(loader.context_structure)
+
+    def test_training_step_emits_no_buffer_donation_warning(self, model: GNN, batch: ProblemBatch) -> None:
+        """Compiling the training step must not warn about unusable donated buffers (issue #123)."""
+        trainer = Trainer(model=model, gradient_transformation=optax.sgd(1e-3))
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            trainer.training_step(problem_batch=batch, step_with_metrics=False)
+        assert not [w for w in caught if "donated buffers" in str(w.message)]
 
     @pytest.mark.parametrize("step_with_metrics", [True, False])
     def test_forward_vjp_roundtrip(self, model: GNN, batch: ProblemBatch, step_with_metrics: bool) -> None:
