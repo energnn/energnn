@@ -25,9 +25,10 @@ function el(tag,attrs,parent){var e=document.createElementNS(NS,tag);for(var k i
 function rot(p){var cy=Math.cos(yaw),sy=Math.sin(yaw),cp=Math.cos(pitch),sp=Math.sin(pitch);var x=cy*p[0]+sy*p[2],z=-sy*p[0]+cy*p[2];var y=cp*p[1]-sp*z;return [x,y];}
 /* 3D layouts are shrunk so that the rotated [-1, 1] cube stays (almost) inside the canvas */
 var SCALE=D.ndim===3?0.65:1;
-/* the canvas maps [-1-margin, 1+margin] so stubs, loops and fanned edges stay in view */
-var M=D.margin,W=2+2*M;
-function px(p){var q=rot(p);return [PAD+(q[0]*SCALE+1+M)/W*(S-2*PAD),PAD+(1+M-q[1]*SCALE)/W*(S-2*PAD)];}
+/* the canvas maps [-1-margin, 1+margin] so stubs, loops and fanned edges stay in view; zoom (Z) and
+   pan (OX, OY) are applied here, in pixels, so strokes, markers and labels keep their size */
+var M=D.margin,W=2+2*M,Z=1,OX=0,OY=0;
+function px(p){var q=rot(p);return [OX+Z*(PAD+(q[0]*SCALE+1+M)/W*(S-2*PAD)),OY+Z*(PAD+(1+M-q[1]*SCALE)/W*(S-2*PAD))];}
 function pts(list){return list.map(function(p){var q=px(p);return q[0].toFixed(1)+','+q[1].toFixed(1);}).join(' ');}
 function add(a,b,k){return [a[0]+b[0]*k,a[1]+b[1]*k,a[2]+b[2]*k];}
 function norm(a){return Math.sqrt(a[0]*a[0]+a[1]*a[1]+a[2]*a[2]);}
@@ -77,23 +78,31 @@ var legend=root.querySelector('.lg .sc');if(legend&&D.colors){var C=D.colors[0][
 root.querySelectorAll('[data-tip]').forEach(function(e){
  e.addEventListener('mousemove',function(ev){tip.innerHTML=e.getAttribute('data-tip');tip.style.display='block';var r=root.getBoundingClientRect();tip.style.left=(ev.clientX-r.left+14)+'px';tip.style.top=(ev.clientY-r.top+14)+'px';});
  e.addEventListener('mouseleave',function(){tip.style.display='none';});});
-/* view control: the toolbar picks the drag mode (rotate in 3D, pan) and offers zoom in/out and reset;
-   the wheel always zooms on the cursor, shift-drag always pans, double-click resets */
-var vb=[0,0,S,S],drag=null,mode=D.ndim===3?'rotate':'pan';
-function apply(){svg.setAttribute('viewBox',vb.join(' '));}
-function zoomAt(k,mx,my){vb=[mx-(mx-vb[0])*k,my-(my-vb[1])*k,vb[2]*k,vb[3]*k];apply();}
-function reset(){vb=[0,0,S,S];yaw=D.ndim===3?0.6:0;pitch=D.ndim===3?-0.35:0;apply();render();}
+/* view control: the toolbar picks the drag mode (rotate in 3D, pan) and offers zoom in/out, reset and
+   full screen; the wheel always zooms on the cursor, shift-drag always pans, double-click resets */
+var drag=null,mode=D.ndim===3?'rotate':'pan';
+function toSvg(e){var r=svg.getBoundingClientRect();return [(e.clientX-r.left)/r.width*S,(e.clientY-r.top)/r.height*S];}
+function zoomAt(f,cx,cy){Z*=f;OX=cx-(cx-OX)*f;OY=cy-(cy-OY)*f;render();}
+function reset(){Z=1;OX=0;OY=0;yaw=D.ndim===3?0.6:0;pitch=D.ndim===3?-0.35:0;render();}
 function setMode(m){mode=m;root.querySelectorAll('.tb [data-mode]').forEach(function(b){b.classList.toggle('on',b.getAttribute('data-mode')===m);});}
+/* full screen: the browser API when available, else a fixed overlay filling the window; Esc leaves both */
+var fsBtn=root.querySelector('.tb [data-act="fs"]');
+function setFs(on){root.classList.toggle('fs',on);if(fsBtn)fsBtn.textContent=on?'\u2716':'\u26F6';}
+function toggleFs(){var on=!root.classList.contains('fs');setFs(on);
+ if(on&&root.requestFullscreen){var p=root.requestFullscreen();if(p&&p.catch)p.catch(function(){});}
+ else if(!on&&document.fullscreenElement===root&&document.exitFullscreen)document.exitFullscreen();}
+document.addEventListener('fullscreenchange',function(){if(document.fullscreenElement!==root&&root.classList.contains('fs'))setFs(false);});
+document.addEventListener('keydown',function(e){if(e.key==='Escape'&&root.classList.contains('fs'))toggleFs();});
 root.querySelectorAll('.tb button').forEach(function(b){b.addEventListener('click',function(){
  var m=b.getAttribute('data-mode'),a=b.getAttribute('data-act');
- if(m)setMode(m);else if(a==='zin')zoomAt(0.8,vb[0]+vb[2]/2,vb[1]+vb[3]/2);else if(a==='zout')zoomAt(1.25,vb[0]+vb[2]/2,vb[1]+vb[3]/2);else if(a==='reset')reset();});});
+ if(m)setMode(m);else if(a==='zin')zoomAt(1.25,S/2,S/2);else if(a==='zout')zoomAt(0.8,S/2,S/2);else if(a==='reset')reset();else if(a==='fs')toggleFs();});});
 setMode(mode);
-svg.addEventListener('wheel',function(e){e.preventDefault();var r=svg.getBoundingClientRect();
- zoomAt(e.deltaY<0?0.8:1.25,vb[0]+(e.clientX-r.left)/r.width*vb[2],vb[1]+(e.clientY-r.top)/r.height*vb[3]);},{passive:false});
-svg.addEventListener('mousedown',function(e){e.preventDefault();drag={x:e.clientX,y:e.clientY,vb:vb.slice(),yaw:yaw,pitch:pitch,rotate:mode==='rotate'&&D.ndim===3&&!e.shiftKey};});
+svg.addEventListener('wheel',function(e){e.preventDefault();var c=toSvg(e);zoomAt(e.deltaY<0?1.25:0.8,c[0],c[1]);},{passive:false});
+svg.addEventListener('mousedown',function(e){e.preventDefault();drag={x:e.clientX,y:e.clientY,ox:OX,oy:OY,yaw:yaw,pitch:pitch,rotate:mode==='rotate'&&D.ndim===3&&!e.shiftKey};});
 window.addEventListener('mousemove',function(e){if(!drag)return;var r=svg.getBoundingClientRect(),dx=e.clientX-drag.x,dy=e.clientY-drag.y;
- if(drag.rotate){yaw=drag.yaw+dx/r.width*Math.PI;pitch=drag.pitch-dy/r.height*Math.PI;render();}
- else{vb[0]=drag.vb[0]-dx/r.width*vb[2];vb[1]=drag.vb[1]-dy/r.height*vb[3];apply();}});
+ if(drag.rotate){yaw=drag.yaw+dx/r.width*Math.PI;pitch=drag.pitch-dy/r.height*Math.PI;}
+ else{OX=drag.ox+dx*S/r.width;OY=drag.oy+dy*S/r.height;}
+ render();});
 window.addEventListener('mouseup',function(){drag=null;});
 svg.addEventListener('dblclick',reset);
 /* time slider and play button: playback interpolates between frames (one frame per D.interval ms)

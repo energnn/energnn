@@ -105,6 +105,7 @@ def test_interactive_3d_and_frames(mixed_order_graph):
     static = plot_graph_interactive(mixed_order_graph, positions=SQUARE)._repr_html_()
     assert 'type="range"' not in static and "drag to rotate" not in static
     assert 'data-mode="rotate"' not in static and 'data-mode="pan"' in static
+    assert 'data-act="fs"' in static and ".fs{position:fixed" in static
 
 
 @pytest.mark.parametrize(
