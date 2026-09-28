@@ -9,6 +9,15 @@
 The classes only delegate their ``__str__`` to :func:`format_graph`,
 :func:`format_hyper_edge_set` and :func:`format_graph_structure`; all the
 layout logic lives here so that the data classes stay free of it.
+
+The output deliberately uses Unicode box-drawing glyphs (``│ ─ ┼``), ``·``,
+``×`` and ``⋯``. They render in notebooks and in every UTF-8 terminal, which is
+where these reprs are meant to be read. There is no ASCII fallback: a
+``__str__`` cannot know where it will be written, and switching glyphs based on
+``sys.stdout`` would make the same object print differently depending on the
+call site. Writing these strings to a file opened with a non-UTF-8 encoding
+(e.g. the Windows default) raises ``UnicodeEncodeError``; pass
+``encoding="utf-8"`` to ``open``/``logging.FileHandler`` in that case.
 """
 
 from __future__ import annotations
