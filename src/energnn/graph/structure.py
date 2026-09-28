@@ -49,3 +49,7 @@ class GraphStructure(dict):
 
     def __str__(self):
         return format_graph_structure(self)
+
+    def _repr_pretty_(self, p, cycle: bool) -> None:
+        """Display the formatted text in IPython/Jupyter instead of the raw dict ``repr``."""
+        p.text("..." if cycle else str(self))

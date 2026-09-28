@@ -249,6 +249,10 @@ class Graph(dict):
     def __str__(self) -> str:
         return format_graph(self)
 
+    def _repr_pretty_(self, p, cycle: bool) -> None:
+        """Display the formatted text in IPython/Jupyter instead of the raw dict ``repr``."""
+        p.text("..." if cycle else str(self))
+
     # ------------------------------------------------------------------
     # Batch detection
     # ------------------------------------------------------------------
