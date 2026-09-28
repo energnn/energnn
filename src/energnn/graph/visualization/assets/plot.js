@@ -97,9 +97,11 @@ function toSvg(e){var r=svg.getBoundingClientRect();return [(e.clientX-r.left)/r
 function zoomAt(f,cx,cy){Z*=f;OX=cx-(cx-OX)*f;OY=cy-(cy-OY)*f;render();}
 function reset(){Z=1;OX=0;OY=0;yaw=D.ndim===3?0.6:0;pitch=D.ndim===3?-0.35:0;render();}
 function setMode(m){mode=m;root.querySelectorAll('.tb [data-mode]').forEach(function(b){b.classList.toggle('on',b.getAttribute('data-mode')===m);});}
-/* full screen. 1) ask the browser; 2) where that is refused or ignored and the figure lives in a
-   same-origin output iframe (PyCharm), move it, with its stylesheet, into the host page as an overlay
-   covering the notebook view; 3) otherwise enlarge it in place to its container's width. Esc leaves. */
+/* full screen. In a same-origin output iframe (PyCharm) the figure and its stylesheet are moved into
+   the host page as an overlay covering the notebook view (and moved back on exit): the Fullscreen API
+   is useless there, the embedded browser reports success without leaving the output area. Elsewhere the
+   browser is asked, and believed only if the window really spans the screen; else the figure is
+   enlarged in place to its container's width. Esc leaves all of them. */
 var fsBtn=root.querySelector('.tb [data-act="fs"]'),fsOn=false,hoisted=null,sheet=root.previousElementSibling;
 function fsState(on,cls){fsOn=on;root.classList.toggle('fs',on&&cls==='fs');root.classList.toggle('big',on&&cls==='big');
  if(fsBtn)fsBtn.textContent=on?'\u2716':'\u26F6';}
@@ -113,18 +115,21 @@ function unhoist(){if(!hoisted)return;var pd=hoisted.doc,mark=hoisted.mark;
  if(sheet&&sheet.tagName==='STYLE')mark.parentNode.insertBefore(document.adoptNode(sheet),mark);
  mark.parentNode.insertBefore(document.adoptNode(root),mark);mark.parentNode.removeChild(mark);
  pd.removeEventListener('keydown',onKey);hoisted=null;}
-function enterFs(){var settled=false;
+function reallyFullScreen(){try{return document.fullscreenElement===root&&window.innerHeight>=0.9*screen.height;}catch(e){return false;}}
+function enterFs(){fsState(true,null);
+ if(hoist()){fsState(true,'fs');render();return;}
+ var settled=false;
  function fallback(){if(settled)return;settled=true;
-  if(document.fullscreenElement===root)fsState(true,'fs');else if(hoist())fsState(true,'fs');else fsState(true,'big');
+  if(reallyFullScreen())fsState(true,'fs');
+  else{if(document.fullscreenElement===root&&document.exitFullscreen)document.exitFullscreen();fsState(true,'big');}
   render();}
- fsState(true,null);
  var p=null;try{p=root.requestFullscreen?root.requestFullscreen():null;}catch(e){}
  if(p&&p.then)p.then(fallback,fallback);
  setTimeout(fallback,300);}
 function leaveFs(){fsState(false,null);unhoist();
  if(document.fullscreenElement===root&&document.exitFullscreen)document.exitFullscreen();render();}
 function toggleFs(){if(fsOn)leaveFs();else enterFs();}
-document.addEventListener('fullscreenchange',function(){if(fsOn&&!hoisted)fsState(true,document.fullscreenElement===root?'fs':'big');});
+document.addEventListener('fullscreenchange',function(){if(fsOn&&!hoisted)fsState(true,reallyFullScreen()?'fs':'big');});
 document.addEventListener('keydown',onKey);
 root.querySelectorAll('.tb button').forEach(function(b){b.addEventListener('click',function(){
  var m=b.getAttribute('data-mode'),a=b.getAttribute('data-act');
