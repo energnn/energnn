@@ -242,7 +242,7 @@ class LinearSystemProblemGenerator:
     :func:`_draw_n_lines`, so that the mean degree is about 3 like real power grids.
     """
 
-    def __init__(self, *, seed: int = 0, n_max: int = 32):
+    def __init__(self, *, seed: int = 0, n_max: int = 16):
 
         self.seed = seed
         self.n_max = n_max
@@ -313,7 +313,7 @@ class LinearSystemProblemLoader(ProblemLoader):
         seed: int = 0,
         dataset_size: int = 32,
         batch_size: int = 8,
-        n_max: int = 4,
+        n_max: int = 16,
         shuffle: bool = False,
     ):
         self.seed = seed
