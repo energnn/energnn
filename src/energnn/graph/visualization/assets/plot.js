@@ -7,12 +7,16 @@ var S=D.size,PAD=30,N=D.nAddr,T=D.frames.length,t=0,yaw=D.ndim===3?0.6:0,pitch=D
 var svg=root.querySelector('svg.cv'),tip=root.querySelector('.tip'),NS='http://www.w3.org/2000/svg';
 /* theme "auto": follow the notebook, i.e. the first opaque background color above the plot
    (JupyterLab, VS Code and PyCharm themes set it), else the OS preference */
-if(D.autoTheme){var dark=null,e=root.parentElement;
+function detectTheme(){var dark=null,e=root.parentElement;
  while(e&&dark===null){var m=(getComputedStyle(e).backgroundColor||'').match(/rgba?\(([^)]+)\)/);
   if(m){var c=m[1].split(',').map(parseFloat);if(c.length<4||c[3]>0)dark=(0.2126*c[0]+0.7152*c[1]+0.0722*c[2])/255<0.5;}
   e=e.parentElement;}
  if(dark===null)dark=!!(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches);
- if(dark)root.classList.add('dark');}
+ var was=root.classList.contains('dark');root.classList.toggle('dark',dark);return was!==dark;}
+if(D.autoTheme){detectTheme();
+ /* follow theme switches made after load (Furo docs, JupyterLab, VS Code toggle attributes on html/body) */
+ if(window.MutationObserver){var obs=new MutationObserver(function(){if(detectTheme()&&typeof render==='function')render();});
+  [document.documentElement,document.body].forEach(function(n){if(n)obs.observe(n,{attributes:true});});}}
 function css(name){return getComputedStyle(root).getPropertyValue(name).trim();}
 function hex(h){h=h.replace('#','');return [0,2,4].map(function(i){return parseInt(h.substr(i,2),16)/255;});}
 function toHex(c){return '#'+c.map(function(v){v=Math.max(0,Math.min(1,v));return ('0'+Math.round(v*255).toString(16)).slice(-2);}).join('');}
@@ -92,20 +96,22 @@ function toSvg(e){var r=svg.getBoundingClientRect();return [(e.clientX-r.left)/r
 function zoomAt(f,cx,cy){Z*=f;OX=cx-(cx-OX)*f;OY=cy-(cy-OY)*f;render();}
 function reset(){Z=1;OX=0;OY=0;yaw=D.ndim===3?0.6:0;pitch=D.ndim===3?-0.35:0;render();}
 function setMode(m){mode=m;root.querySelectorAll('.tb [data-mode]').forEach(function(b){b.classList.toggle('on',b.getAttribute('data-mode')===m);});}
-/* full screen. In a page of its own (JupyterLab, a saved file): the browser API when available, else a
-   fixed overlay filling the window. In an output iframe (PyCharm, VS Code) neither works: the API is
-   refused and a fixed overlay collapses the iframe, so the figure is enlarged to the iframe's width
-   instead, the host growing the iframe to fit. Esc leaves all of them. */
-var fsBtn=root.querySelector('.tb [data-act="fs"]'),inFrame=true;
-try{inFrame=window.self!==window.top;}catch(e){}
-var fsClass=inFrame?'big':'fs',fsOn=false;
-function setFs(on){fsOn=on;root.classList.toggle(fsClass,on);if(fsBtn)fsBtn.textContent=on?'\u2716':'\u26F6';}
-function toggleFs(){var on=!fsOn;setFs(on);
- if(inFrame)return;
- if(on&&root.requestFullscreen){var p=root.requestFullscreen();if(p&&p.catch)p.catch(function(){});}
- else if(!on&&document.fullscreenElement===root&&document.exitFullscreen)document.exitFullscreen();}
-document.addEventListener('fullscreenchange',function(){if(document.fullscreenElement!==root&&fsOn&&!inFrame)setFs(false);});
-document.addEventListener('keydown',function(e){if(e.key==='Escape'&&fsOn)toggleFs();});
+/* full screen: ask the browser; where the request is refused or ignored (notebook outputs in PyCharm,
+   VS Code and other embedded views) the figure is enlarged in place to the width of its container,
+   which such hosts grow to fit. Esc leaves either. */
+var fsBtn=root.querySelector('.tb [data-act="fs"]'),fsOn=false;
+function fsState(on,cls){fsOn=on;root.classList.toggle('fs',on&&cls==='fs');root.classList.toggle('big',on&&cls==='big');
+ if(fsBtn)fsBtn.textContent=on?'\u2716':'\u26F6';}
+function enterFs(){var settled=false;
+ function fallback(){if(!settled){settled=true;fsState(true,document.fullscreenElement===root?'fs':'big');}}
+ fsState(true,null);
+ var p=null;try{p=root.requestFullscreen?root.requestFullscreen():null;}catch(e){}
+ if(p&&p.then)p.then(fallback,fallback);
+ setTimeout(fallback,300);}
+function leaveFs(){fsState(false,null);if(document.fullscreenElement===root&&document.exitFullscreen)document.exitFullscreen();}
+function toggleFs(){if(fsOn)leaveFs();else enterFs();}
+document.addEventListener('fullscreenchange',function(){if(fsOn)fsState(true,document.fullscreenElement===root?'fs':'big');});
+document.addEventListener('keydown',function(e){if(e.key==='Escape'&&fsOn)leaveFs();});
 root.querySelectorAll('.tb button').forEach(function(b){b.addEventListener('click',function(){
  var m=b.getAttribute('data-mode'),a=b.getAttribute('data-act');
  if(m)setMode(m);else if(a==='zin')zoomAt(1.25,S/2,S/2);else if(a==='zout')zoomAt(0.8,S/2,S/2);else if(a==='reset')reset();else if(a==='fs')toggleFs();});});
