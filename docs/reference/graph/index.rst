@@ -58,6 +58,7 @@ Graph
     Graph.feature_flat_array
     Graph.pad
     Graph.unpad
+    Graph.merge
     Graph.count_connected_components
     Graph.offset_addresses
     Graph.quantiles
@@ -114,6 +115,8 @@ GraphShape
 Graph, hyper-edge set, and shape manipulation functions
 =======================================================
 The following functions help to manipulate graphs, hyper-edge sets, shapes objects and to proceed operations on them.
+:func:`concatenate_graphs` stacks objects (more objects and addresses) while :func:`merge_graphs` joins two graphs
+describing the same objects (more ports and features, e.g. a decision attached to its context).
 
 .. autosummary::
    :toctree: _autosummary
@@ -121,10 +124,12 @@ The following functions help to manipulate graphs, hyper-edge sets, shapes objec
 
     collate_graphs
     concatenate_graphs
+    merge_graphs
     separate_graphs
     check_hyper_edge_set_dict_type
     collate_hyper_edge_sets
     concatenate_hyper_edge_sets
+    merge_hyper_edge_sets
     separate_hyper_edge_sets
     check_dict_shape
     build_hyper_edge_set_shape

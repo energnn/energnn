@@ -19,6 +19,7 @@ from energnn.graph.hyper_edge_set import (
     HyperEdgeSet,
     collate_hyper_edge_sets,
     concatenate_hyper_edge_sets,
+    merge_hyper_edge_sets,
     separate_hyper_edge_sets,
 )
 from energnn.graph.shape import GraphShape, collate_shapes, separate_shapes, sum_shapes
@@ -254,8 +255,18 @@ class Graph(dict):
         p.text("..." if cycle else str(self))
 
     # ------------------------------------------------------------------
-    # Attribute access
+    # Merging
     # ------------------------------------------------------------------
+
+    def merge(self, other: Graph, *, suffixes: tuple[str, str] | None = None) -> Graph:
+        """
+        Join this graph with another one describing the same objects, see :func:`merge_graphs`.
+
+        :param other: Graph describing the same objects, e.g. a decision to attach to its context.
+        :param suffixes: Suffixes appended to every feature name of this graph and of ``other``, e.g. ``("", "_pred")``.
+        :return: A new Graph; this one is left untouched.
+        """
+        return merge_graphs(self, other, suffixes=suffixes)
 
     def __getattr__(self, name: str) -> HyperEdgeSet:
         """Access a hyper-edge set by class name: ``graph.bus`` is ``graph.hyper_edge_sets["bus"]``."""
@@ -531,6 +542,76 @@ def concatenate_graphs(graph_list: list[Graph]) -> Graph:
         true_shape=true_shape,
         current_shape=current_shape,
     )
+
+
+def merge_graphs(left: Graph, right: Graph, *, suffixes: tuple[str, str] | None = None) -> Graph:
+    """
+    Join two graphs describing the same objects: union of classes, ports and features.
+
+    :func:`concatenate_graphs` stacks objects (more objects, more addresses). This works along the other
+    axis: same objects, more attributes. Typical uses: attach a GNN decision or a target to its context.
+
+    Rules:
+
+    - classes are the union of both graphs' classes; a class present in one graph only is kept as is;
+    - for a class present in both, objects are joined one to one with :func:`merge_hyper_edge_sets`:
+      same number of objects, same batch size and same fictitious masks are required; ports are the
+      union of both port dicts, and a port present on both sides must be identical; features are the
+      union of both feature sets, each side's names carrying its suffix when ``suffixes`` is given;
+    - a graph without addresses (a decision) takes the addresses of the other one; when both declare
+      addresses, their masks must be identical.
+
+    :param left: Graph whose backend, classes and attributes come first.
+    :param right: Graph describing the same objects; converted to ``left``'s backend if needed.
+    :param suffixes: Suffixes appended to every feature name of ``left`` and of ``right`` respectively, e.g.
+        ``("", "_pred")``. Without them, a feature name present on both sides of a class is an error.
+    :return: A new Graph. Shapes and address masks are combined, padding is preserved.
+    :raises ValueError: If the graphs are not both single or both batched with the same batch size, if a
+        common class does not describe the same objects, if both declare addresses with different masks,
+        or on a feature-name collision without suffixes.
+    """
+    backend = left._backend
+    xp = backend.xp
+    if type(right._backend) is not type(backend):
+        right = right.to_backend(backend)
+    if left.is_batch != right.is_batch:
+        raise ValueError("Cannot merge a single graph with a batched one.")
+
+    hyper_edge_sets = dict(left.hyper_edge_sets)
+    for name, hes in right.hyper_edge_sets.items():
+        if name in hyper_edge_sets:
+            try:
+                hyper_edge_sets[name] = merge_hyper_edge_sets(hyper_edge_sets[name], hes, suffixes=suffixes)
+            except ValueError as exc:
+                raise ValueError(f"Class '{name}': {exc}") from exc
+        else:
+            hyper_edge_sets[name] = hes
+
+    left_mask, right_mask = np.asarray(left.non_fictitious_addresses), np.asarray(right.non_fictitious_addresses)
+    left_declared, right_declared = left_mask.shape[-1] > 0, right_mask.shape[-1] > 0
+    if (
+        left_declared
+        and right_declared
+        and not (left_mask.shape == right_mask.shape and np.array_equal(left_mask, right_mask))
+    ):
+        raise ValueError("Cannot merge graphs whose address masks differ.")
+    addresses_from = right if right_declared and not left_declared else left
+
+    return type(left)(
+        backend=backend,
+        hyper_edge_sets=hyper_edge_sets,
+        true_shape=_merged_shape(left.true_shape, right.true_shape, addresses_from.true_shape, backend),
+        current_shape=_merged_shape(left.current_shape, right.current_shape, addresses_from.current_shape, backend),
+        non_fictitious_addresses=xp.asarray(addresses_from.non_fictitious_addresses),
+    )
+
+
+def _merged_shape(left: GraphShape, right: GraphShape, addresses_from: GraphShape, backend: Backend) -> GraphShape:
+    """Union of the class counts, addresses taken from the graph that declares them."""
+    hyper_edge_sets = dict(left.hyper_edge_sets)
+    for name, count in right.hyper_edge_sets.items():
+        hyper_edge_sets.setdefault(name, count)
+    return GraphShape(backend=backend, hyper_edge_sets=hyper_edge_sets, addresses=addresses_from.addresses)
 
 
 # ---------------------------------------------------------------------------

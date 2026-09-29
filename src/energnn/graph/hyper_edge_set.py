@@ -543,6 +543,66 @@ def concatenate_hyper_edge_sets(hyper_edge_set_list: list[HyperEdgeSet]) -> Hype
     )
 
 
+def merge_hyper_edge_sets(left: HyperEdgeSet, right: HyperEdgeSet, *, suffixes: tuple[str, str] | None = None) -> HyperEdgeSet:
+    """
+    Join two hyper-edge sets describing the same objects: union of ports and features.
+
+    :func:`concatenate_hyper_edge_sets` stacks objects; this joins attributes object by object, the key
+    being the object index, like a pandas ``merge`` on an implicit key.
+
+    :param left: Hyper-edge set whose ports and features come first.
+    :param right: Hyper-edge set describing the same objects, converted to ``left``'s backend if needed.
+    :param suffixes: Suffixes appended to every feature name of ``left`` and of ``right`` respectively, e.g.
+        ``("", "_pred")``. Without them, a feature name present on both sides is an error. Ports present on
+        both sides must be identical.
+    :return: A new hyper-edge set with the same objects and fictitious mask.
+    :raises ValueError: On a different number of objects or batch size, different fictitious masks,
+        a port present on both sides with different addresses, or a feature-name collision.
+    """
+    backend = left._backend
+    xp = backend.xp
+    if type(right._backend) is not type(backend):
+        right = right.to_backend(backend)
+    if left.is_batch != right.is_batch or left.n_obj != right.n_obj or (left.is_batch and left.n_batch != right.n_batch):
+        detail = f", batches of {left.n_batch} vs {right.n_batch}" if left.is_batch and right.is_batch else ""
+        raise ValueError(
+            f"Cannot merge hyper-edge sets describing different objects: {left.n_obj} vs {right.n_obj} objects{detail}."
+        )
+    if not _same_arrays(left.non_fictitious, right.non_fictitious):
+        raise ValueError("Cannot merge hyper-edge sets whose fictitious masks differ.")
+
+    port_dict: dict[str, Any] | None = None
+    if left.port_dict is not None or right.port_dict is not None:
+        port_dict = dict(left.port_dict or {})
+        for name, addresses in (right.port_dict or {}).items():
+            if name in port_dict and not _same_arrays(port_dict[name], addresses):
+                raise ValueError(f"Port '{name}' exists on both sides with different addresses.")
+            port_dict.setdefault(name, addresses)
+
+    left_features: dict[str, Any] = left.feature_names or {}
+    right_features: dict[str, Any] = right.feature_names or {}
+    left_names = sorted(left_features, key=lambda k: _feature_index(left_features[k]))
+    right_names = sorted(right_features, key=lambda k: _feature_index(right_features[k]))
+    left_map, right_map = _resolve_names(left_names, right_names, suffixes, "Features")
+
+    feature_names: dict[str, Any] | None = None
+    feature_array = None
+    if left_names or right_names:
+        columns = [left.feature_array[..., _feature_index(left_features[name])] for name in left_names]
+        columns += [right.feature_array[..., _feature_index(right_features[name])] for name in right_names]
+        names = [left_map[name] for name in left_names] + [right_map[name] for name in right_names]
+        feature_array = xp.stack(columns, axis=-1)
+        feature_names = {name: _stored_index(left, index) for index, name in enumerate(names)}
+
+    return type(left)(
+        backend=backend,
+        port_dict=port_dict,
+        feature_array=feature_array,
+        feature_names=feature_names,
+        non_fictitious=left.non_fictitious,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Validation helpers (always operate on NumPy arrays)
 # ---------------------------------------------------------------------------
@@ -681,3 +741,25 @@ def _stored_index(hes: HyperEdgeSet, index: int):
     if hes.is_batch:
         return xp.full((hes.n_batch,), index, dtype=xp.int32)
     return index
+
+
+def _same_arrays(a, b) -> bool:
+    a_np, b_np = np.asarray(a), np.asarray(b)
+    return a_np.shape == b_np.shape and bool(np.array_equal(a_np, b_np))
+
+
+def _resolve_names(
+    left: list[str], right: list[str], suffixes: tuple[str, str] | None, what: str
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Append the suffixes to every name of each side; error on a collision without suffixes or after suffixing."""
+    common = sorted(set(left) & set(right))
+    if common and suffixes is None:
+        raise ValueError(f"{what} {common} exist on both sides; pass suffixes=('...', '...') to disambiguate them.")
+    left_suffix, right_suffix = suffixes if suffixes is not None else ("", "")
+    left_map = {name: name + left_suffix for name in left}
+    right_map = {name: name + right_suffix for name in right}
+    merged = list(left_map.values()) + list(right_map.values())
+    duplicates = sorted({name for name in merged if merged.count(name) > 1})
+    if duplicates:
+        raise ValueError(f"{what} {duplicates} collide after applying suffixes {suffixes}.")
+    return left_map, right_map
