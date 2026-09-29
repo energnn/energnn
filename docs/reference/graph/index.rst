@@ -138,6 +138,7 @@ describing the same objects (more ports and features, e.g. a decision attached t
     check_no_nan
     collate_shapes
     max_shape
+    merge_shapes
     separate_shapes
     sum_shapes
     to_numpy

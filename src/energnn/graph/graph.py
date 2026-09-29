@@ -22,7 +22,7 @@ from energnn.graph.hyper_edge_set import (
     merge_hyper_edge_sets,
     separate_hyper_edge_sets,
 )
-from energnn.graph.shape import GraphShape, collate_shapes, separate_shapes, sum_shapes
+from energnn.graph.shape import GraphShape, collate_shapes, merge_shapes, separate_shapes, sum_shapes
 
 HYPER_EDGE_SETS = "hyper_edge_sets"
 TRUE_SHAPE = "true_shape"
@@ -600,18 +600,10 @@ def merge_graphs(left: Graph, right: Graph, *, suffixes: tuple[str, str] | None 
     return type(left)(
         backend=backend,
         hyper_edge_sets=hyper_edge_sets,
-        true_shape=_merged_shape(left.true_shape, right.true_shape, addresses_from.true_shape, backend),
-        current_shape=_merged_shape(left.current_shape, right.current_shape, addresses_from.current_shape, backend),
+        true_shape=merge_shapes(left.true_shape, right.true_shape),
+        current_shape=merge_shapes(left.current_shape, right.current_shape),
         non_fictitious_addresses=xp.asarray(addresses_from.non_fictitious_addresses),
     )
-
-
-def _merged_shape(left: GraphShape, right: GraphShape, addresses_from: GraphShape, backend: Backend) -> GraphShape:
-    """Union of the class counts, addresses taken from the graph that declares them."""
-    hyper_edge_sets = dict(left.hyper_edge_sets)
-    for name, count in right.hyper_edge_sets.items():
-        hyper_edge_sets.setdefault(name, count)
-    return GraphShape(backend=backend, hyper_edge_sets=hyper_edge_sets, addresses=addresses_from.addresses)
 
 
 # ---------------------------------------------------------------------------
