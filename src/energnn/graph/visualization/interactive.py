@@ -24,7 +24,6 @@ import numpy as np
 from energnn.graph.visualization.assets import logo_data_uri, script_js
 from energnn.graph.visualization.layout import (
     FAN_HEIGHT,
-    LOOP_RADIUS,
     STUB_LENGTH,
     PlotData,
     address_radius,
@@ -175,7 +174,6 @@ def _payload(data: PlotData, size: int, edge_colors: bool, interval: int, loop_p
         "nAddr": data.n_addr,
         "rAddr": r_addr,
         "addrR": r_units,
-        "loopR": LOOP_RADIUS,
         "stub": STUB_LENGTH,
         "fanH": FAN_HEIGHT,
         "margin": data.margin,

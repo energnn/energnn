@@ -39,12 +39,14 @@ function add(a,b,k){return [a[0]+b[0]*k,a[1]+b[1]*k,a[2]+b[2]*k];}
 function norm(a){return Math.sqrt(a[0]*a[0]+a[1]*a[1]+a[2]*a[2]);}
 /* geometry of one object from the address positions P of the current frame */
 function geom(o,P){var ports=o.ports;
- if(o.kind==='stub'){var A=P[ports[0]],tp=add(A,[o.direction[0],o.direction[1],0],D.stub*D.addrR);return {lines:[[A,tp]],marker:tp,labels:[add(A,tp,1).map(function(v){return v/2;})]};}
- if(o.kind==='loop'){var A=P[ports[0]],u=[o.direction[0],o.direction[1],0],v=[-u[1],u[0],0],r=D.loopR,c=add(A,u,D.addrR+r+0.01),circle=[];
-  for(var k=0;k<25;k++){var th=2*Math.PI*k/24;circle.push(add(add(c,u,r*Math.cos(th)),v,r*Math.sin(th)));}
-  return {lines:[circle],marker:add(c,u,r),labels:[add(add(c,u,1.6*r*Math.cos(0.9)),v,1.6*r*Math.sin(0.9)),add(add(c,u,1.6*r*Math.cos(0.9)),v,-1.6*r*Math.sin(0.9))]};}
+/* stub, loop and degenerate-hub offsets are divided by the zoom so they stay constant on screen,
+   like the address radius; their spokes start at the address center, so nothing ever detaches */
+ var off=D.stub*D.addrR/Z;
+ if(o.kind==='stub'){var A=P[ports[0]],tp=add(A,[o.direction[0],o.direction[1],0],off);return {lines:[[A,tp]],marker:tp,labels:[add(A,tp,1).map(function(v){return v/2;})]};}
+ if(o.kind==='loop'){var A=P[ports[0]],mk=add(A,[o.direction[0],o.direction[1],0],off),c1=fanned(A,mk,-0.5),c2=fanned(A,mk,0.5);
+  return {lines:[c1,c2],marker:mk,labels:[c1[8],c2[8]]};}
  if(o.kind==='pair'){var curve=fanned(P[ports[0]],P[ports[1]],o.fan);return {lines:[curve],marker:curve[8],labels:[curve[3],curve[13]]};}
- if(o.kind==='hub'){var H=P[o.hub],counts={},seen={},lines=[],labels=[];
+ if(o.kind==='hub'){var H=o.direction?add(P[ports[0]],[o.direction[0],o.direction[1],0],off):P[o.hub],counts={},seen={},lines=[],labels=[];
   ports.forEach(function(p){counts[p]=(counts[p]||0)+1;});
   ports.forEach(function(p){var j=seen[p]||0;seen[p]=j+1;
    if(counts[p]===1){lines.push([H,P[p]]);labels.push(add(H,P[p],1).map(function(v){return v/2;}));}
@@ -61,7 +63,7 @@ function fanned(A,B,fan){var ch=add(B,A,-1),L=Math.max(norm(ch),1e-9),d=ch.map(f
 var objs=[],addrs=[];
 D.classes.forEach(function(c){c.objects.forEach(function(o){if(o.kind==='none')return;
  var g=el('g',{'class':'obj','data-tip':o.tip},svg),color=c.color||'var(--neutral)';
- var nl=o.kind==='hub'?o.ports.length:1,lines=[],labels=[];
+ var nl=o.kind==='hub'?o.ports.length:(o.kind==='loop'?2:1),lines=[],labels=[];
  for(var k=0;k<nl;k++)lines.push(el('polyline',{fill:'none',stroke:color,'stroke-width':D.stroke.toFixed(1),'stroke-opacity':'0.85'},g));
  c.portNames.forEach(function(pn){var t=el('text',{'class':'pl','text-anchor':'middle'},g);t.textContent=pn;labels.push(t);});
  var mk=el('polygon',{'class':'mk',fill:color,stroke:'var(--surface)','stroke-width':'1'},g);

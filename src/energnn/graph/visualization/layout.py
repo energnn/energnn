@@ -314,7 +314,6 @@ def address_radius(n_addr: int) -> float:
     return float(np.clip(150.0 / np.sqrt(max(n_addr, 1)), 5.0, 13.0)) / 290.0
 
 
-LOOP_RADIUS = 0.055
 STUB_LENGTH = 2.6  # in address radii
 FAN_HEIGHT = 0.09  # largest bulge of a fanned-out parallel edge
 
@@ -332,7 +331,8 @@ def layout_margin(n_addr: int, ports: dict[str, list[list[int]]]) -> float:
             pair = (min(edge_ports), max(edge_ports))
             pairs[pair] = pairs.get(pair, 0) + 1
             if pair[0] == pair[1]:
-                reach = max(reach, r_addr + 2 * LOOP_RADIUS + 0.02)
+                reach = max(reach, (STUB_LENGTH + 0.62) * r_addr)
+                fanned = True
         if len(edge_ports) >= 3 and len(set(edge_ports)) < len(edge_ports):
             fanned = True
     if fanned or any(count > 1 for count in pairs.values()):
@@ -360,18 +360,14 @@ def loop_direction(rank: tuple[int, int]) -> np.ndarray:
 
 
 def _loop_geom(anchor: np.ndarray, rank: tuple[int, int], r_addr: float) -> ObjGeom:
-    """A small circle just outside the address circle, in the xy-plane; several loops spread around it."""
-    u = loop_direction(rank)
-    v = np.array([-u[1], u[0], 0.0])
-    r_loop = LOOP_RADIUS
-    center = anchor + (r_addr + r_loop + 0.01) * u
-    theta = np.linspace(0.0, 2.0 * np.pi, 25)[:, None]
-    circle = center + r_loop * (np.cos(theta) * u + np.sin(theta) * v)
-    labels = [
-        center + 1.6 * r_loop * (np.cos(0.9) * u + np.sin(0.9) * v),
-        center + 1.6 * r_loop * (np.cos(0.9) * u - np.sin(0.9) * v),
-    ]
-    return ObjGeom([circle], center + r_loop * u, labels)
+    """A self-loop drawn like a degenerate hub: a marker offset from the address and one fanned spoke per port.
+
+    Both spokes start at the address center, so the loop stays attached whatever the zoom; several
+    loops on one address spread around it.
+    """
+    marker = anchor + STUB_LENGTH * r_addr * loop_direction(rank)
+    curves = [_fanned_curve(anchor, marker, -0.5), _fanned_curve(anchor, marker, 0.5)]
+    return ObjGeom(curves, marker, [curve[8] for curve in curves])
 
 
 def _fanned_curve(a: np.ndarray, b: np.ndarray, fan: float) -> np.ndarray:
@@ -456,6 +452,8 @@ def object_descriptors(data: PlotData) -> dict[str, list[dict[str, Any]]]:
                 item |= {"kind": "pair", "fan": fan[key]}
             elif len(edge_ports) >= 3:
                 item |= {"kind": "hub", "hub": data.hub_ids[key]}
+                if len(set(edge_ports)) == 1:  # all ports on one address: the hub is offset like a stub
+                    item |= {"direction": stub_direction(class_index, i)[:2].round(6).tolist()}
             else:
                 item |= {"kind": "none"}
             items.append(item)

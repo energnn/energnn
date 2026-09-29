@@ -9,7 +9,6 @@ import pytest
 
 from energnn.graph.graph import collate_graphs
 from energnn.graph.visualization.layout import (
-    LOOP_RADIUS,
     STUB_LENGTH,
     address_radius,
     layout_margin,
@@ -199,6 +198,14 @@ def test_object_descriptors_kinds(multi_graph):
     assert len(lines[3]["direction"]) == 2
     assert [d["kind"] for d in descriptors["trafo3w"]] == ["hub", "hub"]
     assert descriptors["trafo3w"][0]["hub"] == 3 and descriptors["trafo3w"][1]["hub"] == 4
+    assert all("direction" not in d for d in descriptors["trafo3w"])  # regular hubs keep their barycenter
+
+
+def test_degenerate_hub_descriptor_carries_its_direction(degenerate_hubs_graph):
+    data = extract_plot_data(degenerate_hubs_graph, iterations=10, seed=0)
+    descriptors = object_descriptors(data)
+    assert len(descriptors["t5"][0]["direction"]) == 2 and len(descriptors["t3"][0]["direction"]) == 2
+    assert "direction" not in descriptors["t3"][1] and "direction" not in descriptors["t4"][0]
 
 
 def test_stubs_and_loops_keep_clear_of_the_address_circle(mixed_order_graph, multi_graph):
@@ -210,10 +217,13 @@ def test_stubs_and_loops_keep_clear_of_the_address_circle(mixed_order_graph, mul
         assert distance >= 2.0 * r_addr  # marker center beyond the circle plus a gap
     data = extract_plot_data(multi_graph, iterations=10, seed=0)
     loop = object_geometries(data)[("line", 3)]
-    inner = np.linalg.norm(loop.lines[0] - data.pos[0, 2], axis=1).min()
-    assert inner >= address_radius(data.n_addr)  # the loop circle starts outside the address circle
-    radii = np.linalg.norm(loop.lines[0] - loop.lines[0].mean(axis=0), axis=1)
-    assert np.ptp(radii) < 0.1 * LOOP_RADIUS  # a circle (the mean of the closed polyline is slightly biased)
+    anchor = data.pos[0, 2]
+    assert np.linalg.norm(loop.marker - anchor) == pytest.approx(STUB_LENGTH * address_radius(data.n_addr))
+    assert len(loop.lines) == 2 and all(len(line) == 17 for line in loop.lines)  # one fanned spoke per port
+    for line in loop.lines:  # both spokes run from the address center to the marker
+        np.testing.assert_allclose(line[0], anchor, atol=1e-9)
+        np.testing.assert_allclose(line[-1], loop.marker, atol=1e-9)
+    assert len(np.unique(np.round(loop.labels, 6), axis=0)) == 2
 
 
 def test_address_radius_shrinks_with_the_number_of_addresses():
@@ -228,7 +238,7 @@ def test_layout_margin_covers_stubs_loops_and_fans(mixed_order_graph, multi_grap
     reach = max(np.abs(g.marker).max() for g in geoms.values())
     assert reach <= 1.0 + with_stubs.margin
     with_loops = extract_plot_data(multi_graph, iterations=10, seed=0)
-    assert with_loops.margin >= address_radius(3) + 2 * LOOP_RADIUS
+    assert with_loops.margin >= (STUB_LENGTH + 0.62) * address_radius(3)
     plain = extract_plot_data(portless_graph, iterations=10, seed=0)
     assert plain.margin == pytest.approx(0.62 * address_radius(3))
     assert layout_margin(3, {"line": [[0, 1], [0, 1]]}) >= 0.09  # fanned parallel edges
