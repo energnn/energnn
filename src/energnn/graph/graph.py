@@ -268,6 +268,10 @@ class Graph(dict):
         """
         return merge_graphs(self, other, suffixes=suffixes)
 
+    # ------------------------------------------------------------------
+    # Attribute access
+    # ------------------------------------------------------------------
+
     def __getattr__(self, name: str) -> HyperEdgeSet:
         """Access a hyper-edge set by class name: ``graph.bus`` is ``graph.hyper_edge_sets["bus"]``."""
         if name.startswith("_"):
