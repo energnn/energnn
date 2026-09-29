@@ -144,3 +144,29 @@ describing the same objects (more ports and features, e.g. a decision attached t
     to_numpy
     np_to_jnp
     jnp_to_np
+
+
+Visualization
+=============
+
+.. currentmodule:: energnn.graph.visualization
+
+The :mod:`energnn.graph.visualization` module draws a single :class:`~energnn.graph.Graph`, either as a
+static matplotlib figure (requires the ``viz`` extra: ``pip install energnn[viz]``) or as a self-contained
+interactive HTML/SVG figure with tooltips, zoom and pan, displayed inline by notebooks (no extra dependency).
+
+Both renderers place the addresses from an array (``address_positions``, for instance latent coordinates from
+a coupler) or the hyper-edges from their own features (``hyper_edge_positions``, e.g. ``{"bus": ["x", "y"]}``,
+the addresses then following the objects that point to them), and color the addresses from an array
+(``address_colors``) or the hyper-edges from their features (``hyper_edge_colors``), with 1 channel (sequential
+colormap) or 2 (bivariate colormap). Hyper-edge classes are told apart by color and marker shape;
+``edge_colors=False`` keeps the shapes only.
+
+.. autosummary::
+   :toctree: _autosummary
+   :nosignatures:
+
+    plot_graph
+    plot_graph_interactive
+    InteractiveGraphPlot
+    spring_layout

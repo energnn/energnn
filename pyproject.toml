@@ -30,6 +30,7 @@ dependencies = [
 
 [project.optional-dependencies]
 gpu = ["jax[cuda12]"]
+viz = ["matplotlib>=3.8"]
 
 
 [dependency-groups]

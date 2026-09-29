@@ -823,6 +823,9 @@ dependencies = [
 gpu = [
     { name = "jax", extra = ["cuda12"] },
 ]
+viz = [
+    { name = "matplotlib" },
+]
 
 [package.dev-dependencies]
 dev = [
@@ -859,13 +862,14 @@ requires-dist = [
     { name = "ipywidgets", specifier = ">=8.1.8" },
     { name = "jax", specifier = ">=0.9" },
     { name = "jax", extras = ["cuda12"], marker = "extra == 'gpu'" },
+    { name = "matplotlib", marker = "extra == 'viz'", specifier = ">=3.8" },
     { name = "mlflow" },
     { name = "optax", specifier = ">=0.2.6" },
     { name = "orbax", specifier = ">=0.1.9" },
     { name = "pandas", specifier = ">=2.2.2" },
     { name = "tqdm", specifier = "==4.67.0" },
 ]
-provides-extras = ["gpu"]
+provides-extras = ["gpu", "viz"]
 
 [package.metadata.requires-dev]
 dev = [

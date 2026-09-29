@@ -1,0 +1,25 @@
+/* Stylesheet of an interactive plot, scoped to its element id (__UID__ is replaced by interactive.py).
+   Colors are the theme's CSS variables (--surface, --ink, --neutral, --c0...), set on the root element by
+   interactive.py; with theme "auto" the script toggles the .dark class on the root to switch palettes.
+   Classes: .lg legend, .cw canvas wrapper, .cv the SVG canvas, .obj one hyper-edge, .mk its marker, .pl its port
+   labels (shown on hover), .addr one address, .tip the tooltip, .tb the toolbar.
+   vector-effect: non-scaling-stroke keeps stroke widths constant under zoom. */
+#__UID__{position:relative;display:inline-block;font-family:system-ui,sans-serif;background:var(--surface);border-radius:6px;color:var(--ink)}
+#__UID__ .lg{display:flex;flex-wrap:wrap;align-items:center;gap:4px 14px;padding:8px 12px 0;font-size:12px}
+#__UID__ .lg span{display:inline-flex;align-items:center;gap:5px}
+#__UID__ .lg .sc{font-size:9px;gap:3px}
+#__UID__ .obj .pl{opacity:0;fill:var(--ink);font-size:9px;pointer-events:none}
+#__UID__ .obj:hover .pl{opacity:1}
+#__UID__ .obj polyline{fill:none;stroke-opacity:0.85;vector-effect:non-scaling-stroke}
+#__UID__ .obj:hover polyline{stroke-width:3px}
+#__UID__ .obj .mk{stroke:var(--surface);stroke-width:1px;vector-effect:non-scaling-stroke}
+#__UID__ .obj:hover .mk{stroke:var(--ink);stroke-width:1.5px}
+#__UID__ .addr circle{stroke:var(--ink);stroke-width:1.2px;vector-effect:non-scaling-stroke}
+#__UID__ .addr:hover circle{stroke-width:2.5px}
+#__UID__ .addr text{fill:var(--ink);text-anchor:middle;dominant-baseline:central;pointer-events:none}
+#__UID__ .tip{display:none;position:absolute;pointer-events:none;background:var(--surface);border:1px solid var(--neutral);border-radius:4px;padding:5px 8px;font-size:11px;line-height:1.5;white-space:nowrap;z-index:10}
+#__UID__ .cw{position:relative}
+#__UID__ svg.cv{cursor:grab;display:block}
+#__UID__ svg.cv:active{cursor:grabbing}
+#__UID__ .tb{position:absolute;top:8px;right:10px;display:flex;gap:4px}
+#__UID__ .tb button{font:inherit;font-size:13px;width:26px;height:26px;padding:0;border:1px solid var(--neutral);border-radius:4px;background:var(--surface);color:var(--ink);cursor:pointer;opacity:0.85}
