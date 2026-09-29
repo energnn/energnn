@@ -272,6 +272,32 @@ def _fill_missing_positions(array: np.ndarray, known: np.ndarray, adjacency, see
             array[members] = offset + 0.35 * extent * flat
 
 
+def _derive_addresses(
+    placed_pos: dict[ObjKey, np.ndarray], ports: dict[str, list[list[int]]], n_addr: int, d: int
+) -> np.ndarray:
+    """Address coordinates as the mean position of the placed objects pointing to them, NaN elsewhere."""
+    addresses = np.zeros((n_addr, d))
+    hits = np.zeros(n_addr)
+    for (name, i), coords in placed_pos.items():
+        for p in ports[name][i]:
+            addresses[p] += coords
+            hits[p] += 1
+    addresses[hits > 0] /= hits[hits > 0, None]
+    addresses[hits == 0] = np.nan
+    return addresses
+
+
+def _push_derived_addresses(
+    pos: np.ndarray, derived: np.ndarray, placed_pos: dict[ObjKey, np.ndarray], ports: dict[str, list[list[int]]], hub_ids
+) -> None:
+    """A derived address sitting on a placed object would hide it: push it away like an order-1 stub, in place."""
+    r_addr = address_radius(len(derived))
+    for a in np.flatnonzero(derived):
+        rows = [hub_ids[(name, i)] for (name, i) in placed_pos if a in ports[name][i]]
+        if np.linalg.norm(pos[rows] - pos[a], axis=-1).min() < 1.5 * r_addr:
+            pos[a] = pos[a] + STUB_LENGTH * r_addr * stub_direction(0, int(a))
+
+
 def _resolve_positions(
     address_positions: Any,
     placed_pos: dict[ObjKey, np.ndarray],
@@ -290,21 +316,14 @@ def _resolve_positions(
     rows of order-3+ objects are left at zero for :func:`_place_hubs`.
     """
     widths = {coords.shape[0] for coords in placed_pos.values()}
+    derived = np.zeros(n_addr, dtype=bool)
     if address_positions is not None:
         addresses = _per_address_array(address_positions, "address_positions", address_mask, n_addr, (2, 3))
         if widths and widths != {addresses.shape[1]}:
             raise ValueError("address_positions and hyper_edge_positions must both be 2D or both be 3D.")
     else:
-        d = widths.pop()
-        addresses = np.zeros((n_addr, d))
-        hits = np.zeros(n_addr)
-        for (name, i), coords in placed_pos.items():
-            for p in ports[name][i]:
-                addresses[p] += coords
-                hits[p] += 1
-        addresses[hits > 0] /= hits[hits > 0, None]
-        addresses[hits == 0] = np.nan
-    derived = hits > 0 if address_positions is None else np.zeros(n_addr, dtype=bool)
+        addresses = _derive_addresses(placed_pos, ports, n_addr, widths.pop())
+        derived = ~np.isnan(addresses).any(axis=-1)
     known = ~np.isnan(addresses).any(axis=-1)
     if n_addr and not known.any():
         raise ValueError(
@@ -315,21 +334,15 @@ def _resolve_positions(
     d = addresses.shape[1]
     pos = np.zeros((n_nodes, d))
     pos[:n_addr] = addresses
-    placed_rows = [hub_ids[key] for key in placed_pos]
     for key, coords in placed_pos.items():
         pos[hub_ids[key]] = coords
-    fitted = np.concatenate([addresses, pos[placed_rows]]) if placed_rows else addresses
+    fitted = np.concatenate([addresses, pos[[hub_ids[key] for key in placed_pos]]])
     center = fitted.mean(axis=0) if len(fitted) else np.zeros(d)
     scale = float(np.abs(fitted - center).max()) if len(fitted) else 0.0
     pos = (pos - center) / scale if scale > 0 else pos - center
     if d == 2:
         pos = np.concatenate([pos, np.zeros((n_nodes, 1))], axis=1)
-    # a derived address sitting on a placed object would hide it: push it away like an order-1 stub
-    r_addr = address_radius(n_addr)
-    for a in np.flatnonzero(derived):
-        rows = [hub_ids[(name, i)] for (name, i) in placed_pos if a in ports[name][i]]
-        if np.linalg.norm(pos[rows] - pos[a], axis=-1).min() < 1.5 * r_addr:
-            pos[a] = pos[a] + STUB_LENGTH * r_addr * stub_direction(0, int(a))
+    _push_derived_addresses(pos, derived, placed_pos, ports, hub_ids)
     return pos, ~known
 
 
