@@ -11,6 +11,8 @@ from energnn.graph.graph import Graph
 from energnn.graph.hyper_edge_set import HyperEdgeSet
 from energnn.graph.shape import GraphShape
 
+SQUARE = np.array([[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0]])
+
 
 @pytest.fixture
 def mixed_order_graph() -> Graph:
@@ -20,10 +22,7 @@ def mixed_order_graph() -> Graph:
             port_dict={"from": np.array([0, 1, 2]), "to": np.array([1, 2, 3])},
             feature_dict={"x": np.array([0.1, 0.2, 0.3])},
         ),
-        "gen": HyperEdgeSet.from_dict(
-            port_dict={"bus": np.array([0, 3])},
-            feature_dict={"p": np.array([1.0, 2.0])},
-        ),
+        "gen": HyperEdgeSet.from_dict(port_dict={"bus": np.array([0, 3])}, feature_dict={"p": np.array([1.0, 2.0])}),
         "trafo3w": HyperEdgeSet.from_dict(
             port_dict={"hv": np.array([0]), "mv": np.array([1]), "lv": np.array([2])},
             feature_dict={"ratio": np.array([1.02])},
@@ -68,16 +67,19 @@ def multi_graph() -> Graph:
 
 
 @pytest.fixture
-def degenerate_hubs_graph() -> Graph:
-    """Order-3+ objects with repeated ports: all on one address (orders 3 and 5), two on one address (order 4)."""
+def located_graph() -> Graph:
+    """Buses carrying their own (x, y) and a load, lines between them (the second line has a NaN flow, set after
+    construction since from_dict rejects NaN), one port-less decision class, and address 3 pointed to by nothing."""
     hes = {
-        "line": HyperEdgeSet.from_dict(port_dict={"from": np.array([0, 1]), "to": np.array([1, 2])}, feature_dict=None),
-        "t3": HyperEdgeSet.from_dict(
-            port_dict={"a": np.array([2, 0]), "b": np.array([2, 0]), "c": np.array([2, 1])}, feature_dict=None
+        "bus": HyperEdgeSet.from_dict(
+            port_dict={"id": np.array([0, 1, 2])},
+            feature_dict={"x": np.array([0.0, 4.0, 0.0]), "y": np.array([0.0, 0.0, 3.0]), "load": np.array([1.0, 2.0, 3.0])},
         ),
-        "t4": HyperEdgeSet.from_dict(
-            port_dict={"a": np.array([0]), "b": np.array([0]), "c": np.array([1]), "d": np.array([2])}, feature_dict=None
+        "line": HyperEdgeSet.from_dict(
+            port_dict={"from": np.array([0, 1]), "to": np.array([1, 2])}, feature_dict={"flow": np.array([10.0, 5.0])}
         ),
-        "t5": HyperEdgeSet.from_dict(port_dict={k: np.array([1]) for k in ("a", "b", "c", "d", "e")}, feature_dict=None),
+        "theta": HyperEdgeSet.from_dict(port_dict=None, feature_dict={"value": np.array([0.5, 0.6, 0.7])}),
     }
-    return Graph.from_dict(hyper_edge_set_dict=hes, n_addresses=3)
+    graph = Graph.from_dict(hyper_edge_set_dict=hes, n_addresses=4)
+    graph.line.flow = np.array([10.0, np.nan])
+    return graph

@@ -6,37 +6,33 @@
 
 """Interactive, dependency-free HTML/SVG rendering of a Graph.
 
-Python extracts the topology (which addresses each object connects, how parallel edges
-are fanned out), the positions and the colors; the embedded script (``assets/plot.js``)
-computes the geometry, so the view can be rotated (3D), zoomed and panned without a server.
+Python runs the whole pipeline and writes the SVG (polylines, markers, address circles, labels), the
+legend and the tooltips. The embedded script (``assets/plot.js``) only adds what needs the browser:
+zoom and pan, tooltips, the notebook's theme, and the colors that depend on it. The elements colored
+by a value carry their normalized channels in a ``data-ch`` attribute, and the legend's color scales
+carry their channel count; that is the whole contract between the two sides.
 """
 
 from __future__ import annotations
 
 import html
 import itertools
-import json
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from energnn.graph.visualization.assets import logo_data_uri, script_js
-from energnn.graph.visualization.layout import (
-    FAN_HEIGHT,
-    STUB_LENGTH,
-    FeatureSpec,
-    PlotData,
-    address_radius,
-    extract_plot_data,
-    object_descriptors,
-)
+from energnn.graph.visualization.assets import logo_data_uri, script_js, stylesheet_css, template_html
+from energnn.graph.visualization.colors import ColorScale, Colors, resolve_colors
+from energnn.graph.visualization.content import FeatureSpec, Topology, read_graph
+from energnn.graph.visualization.geometry import Geometry, geometries
+from energnn.graph.visualization.positions import MARKER_RATIO, Layout, address_radius, lay_out
 from energnn.graph.visualization.theme import SVG_MARKERS, THEMES, Theme
 
 if TYPE_CHECKING:
     from energnn.graph.graph import Graph
 
 _plot_ids = itertools.count()
-_PAD = 30  # canvas margin in pixels, as in plot.js
+_PAD = 30  # canvas margin, in pixels
 
 
 class InteractiveGraphPlot:
@@ -57,7 +53,7 @@ class InteractiveGraphPlot:
 
 
 # ---------------------------------------------------------------------------
-# Static HTML pieces
+# SVG pieces
 # ---------------------------------------------------------------------------
 
 
@@ -87,166 +83,112 @@ def _marker_points(shape: str, r: float) -> list[tuple[float, float]]:
     raise ValueError(f"Unknown marker shape '{shape}'.")
 
 
-def _svg_marker(shape: str, x: float, y: float, r: float, color: str, extra: str = "") -> str:
+def _svg_marker(shape: str, x: float, y: float, r: float, fill: str) -> str:
     points = " ".join(f"{x + dx:.1f},{y + dy:.1f}" for dx, dy in _marker_points(shape, r))
-    return f'<polygon class="mk" points="{points}" fill="{color}" {extra}/>'
+    return f'<polygon class="mk" points="{points}" fill="{fill}"/>'
 
 
-def _tip(title: str, port_lines: list[tuple[str, int]], feature_lines: dict[str, float]) -> str:
-    """Tooltip HTML for one object (names and values escaped; travels through the JSON payload)."""
+def _tip(title: str, ports: list[tuple[str, int]], features: dict[str, float]) -> str:
+    """Tooltip HTML for one object (names and values escaped), ready to sit in a ``data-tip`` attribute."""
     parts = [f"<b>{html.escape(title)}</b>"]
-    parts += [f"{html.escape(pn)} &rarr; {addr}" for pn, addr in port_lines]
-    parts += [f"{html.escape(fn)} = {value:.5g}" for fn, value in feature_lines.items()]
-    return "<br>".join(parts)
+    parts += [f"{html.escape(name)} &rarr; {address}" for name, address in ports]
+    parts += [f"{html.escape(name)} = {value:.5g}" for name, value in features.items()]
+    return html.escape("<br>".join(parts), quote=True)
 
 
-def _theme_vars(t: Theme) -> str:
-    slots = "".join(f"--c{i}:{c};" for i, c in enumerate(t.palette))
-    seq = "".join(f"--s{i}:{c};" for i, c in enumerate(t.sequential))
-    biv = "".join(f"--b{k}:{c};" for k, c in zip(("00", "10", "01", "11"), t.bivariate))
-    return f"--surface:{t.surface};--ink:{t.ink};--neutral:{t.neutral};{slots}{seq}{biv}"
+def _channels_attr(scale: ColorScale | None, row: int) -> str:
+    """``data-ch="u,v"`` for an element colored by a value, empty when it keeps its default color."""
+    if scale is None or scale.missing[row]:
+        return ""
+    return ' data-ch="' + ",".join(f"{c:.4f}" for c in scale.channels[row]) + '"'
 
 
-def _theme_css(uid: str, theme: str) -> str:
-    """CSS custom properties for the palette; with ``auto`` the script adds the ``dark`` class when the notebook is dark."""
-    if theme == "auto":
-        return f"#{uid}{{{_theme_vars(THEMES['light'])}}}#{uid}.dark{{{_theme_vars(THEMES['dark'])}}}"
-    return f"#{uid}{{{_theme_vars(THEMES[theme])}}}"
+class _Canvas:
+    """Maps layout units (the ``[-1, 1]`` box plus its margin) to canvas pixels."""
+
+    def __init__(self, size: int, margin: float, n_addresses: int) -> None:
+        self.size = size
+        self.scale = (size - 2 * _PAD) / (2.0 + 2.0 * margin)
+        self.margin = margin
+        self.r_addr = address_radius(n_addresses) * self.scale
+        self.r_mark = MARKER_RATIO * self.r_addr
+        self.font_size = max(round(0.95 * self.r_addr), 7)
+
+    def px(self, point: np.ndarray) -> tuple[float, float]:
+        return _PAD + (point[0] + 1 + self.margin) * self.scale, _PAD + (1 + self.margin - point[1]) * self.scale
+
+    def points(self, line: np.ndarray) -> str:
+        return " ".join("{:.1f},{:.1f}".format(*self.px(p)) for p in line)
 
 
-def _css(uid: str, theme: str, stroke: float, logo_width: int) -> str:
-    return (
-        f"{_theme_css(uid, theme)}"
-        f"#{uid}{{position:relative;display:inline-block;font-family:system-ui,sans-serif;"
-        f"background:var(--surface);border-radius:6px;color:var(--ink)}}"
-        f"#{uid} .lg{{display:flex;flex-wrap:wrap;align-items:center;gap:4px 14px;padding:8px 12px 0;font-size:12px}}"
-        f"#{uid} .lg span{{display:inline-flex;align-items:center;gap:5px}}"
-        f"#{uid} .lg .sc{{font-size:9px;gap:3px}}"
-        f"#{uid} .obj .pl{{opacity:0;fill:var(--ink);font-size:9px;pointer-events:none}}"
-        f"#{uid} .obj:hover .pl{{opacity:1}}"
-        f"#{uid} .obj:hover polyline{{stroke-width:{2.2 * stroke:.1f}px}}"
-        f"#{uid} .obj:hover .mk{{stroke:var(--ink);stroke-width:1.5px}}"
-        f"#{uid} .addr:hover circle{{stroke-width:2.5px}}"
-        f"#{uid} .tip{{display:none;position:absolute;pointer-events:none;background:var(--surface);"
-        f"border:1px solid var(--neutral);border-radius:4px;padding:5px 8px;font-size:11px;line-height:1.5;"
-        f"white-space:nowrap;z-index:10}}"
-        f"#{uid} .cw{{position:relative}}"
-        f"#{uid} svg.cv{{cursor:grab;display:block}}"
-        f"#{uid} svg.cv:active{{cursor:grabbing}}"
-        f"#{uid} .logo{{position:absolute;right:10px;bottom:8px;width:{logo_width}px;opacity:0.9;"
-        f"pointer-events:none}}"
-        f"#{uid} .tb{{position:absolute;top:8px;right:10px;display:flex;gap:4px}}"
-        f"#{uid} .tb button{{font:inherit;font-size:13px;width:26px;height:26px;padding:0;border:1px solid var(--neutral);"
-        f"border-radius:4px;background:var(--surface);color:var(--ink);cursor:pointer;opacity:0.85}}"
-        f"#{uid} .tb button.on{{background:var(--ink);color:var(--surface)}}"
-    )
-
-
-def _payload(data: PlotData, size: int, edge_colors: bool, theme: str) -> dict[str, Any]:
-    """Everything the script needs, JSON-serializable."""
-    r_units = address_radius(data.n_addr)
-    r_addr = r_units * (size - 2 * _PAD) / (2.0 + 2.0 * data.margin)  # in pixels, on the padded canvas
-    r_mark = 0.62 * r_addr
-    descriptors = object_descriptors(data)
-    n_colors = len(THEMES["light"].palette)
-    classes = []
-    for class_index, name in enumerate(data.classes):
-        objects = []
-        colors = _channels_payload(data.object_colors.get(name), data.missing_object_colors.get(name))
-        for i, item in enumerate(descriptors[name]):
-            tip = _tip(f"{name} #{i}", list(zip(data.port_names[name], item["ports"])), data.features[name][i])
-            objects.append(item | {"tip": tip, "color": colors[i] if colors else None})
-        classes.append(
-            {
-                "name": name,
-                "shape": SVG_MARKERS[class_index % len(SVG_MARKERS)],
-                "color": f"var(--c{class_index % n_colors})" if edge_colors else None,
-                "portNames": data.port_names[name],
-                "objects": objects,
-            }
+def _svg_body(topology: Topology, layout: Layout, colors: Colors, geoms: dict, canvas: _Canvas, class_colors) -> str:
+    parts = []
+    for row, h in enumerate(topology.hyper_edges):
+        geom: Geometry | None = geoms.get(h.key)
+        if geom is None:
+            continue
+        color = class_colors[h.cls]
+        tip = _tip(f"{h.cls} #{h.index}", list(zip(topology.port_names[h.cls], h.ports)), h.features)
+        parts.append(f'<g class="obj" data-tip="{tip}"{_channels_attr(colors.hyper_edges, row)}>')
+        parts += [f'<polyline points="{canvas.points(line)}" stroke="{color}"/>' for line in geom.lines]
+        for name, at in zip(topology.port_names[h.cls], geom.labels):
+            x, y = canvas.px(at)
+            parts.append(f'<text class="pl" x="{x:.1f}" y="{y - 3:.1f}" text-anchor="middle">{html.escape(name)}</text>')
+        parts.append(
+            _svg_marker(
+                SVG_MARKERS[topology.classes.index(h.cls) % len(SVG_MARKERS)], *canvas.px(geom.marker), canvas.r_mark, color
+            )
         )
-    return {
-        "size": size,
-        "ndim": data.ndim,
-        "nAddr": data.n_addr,
-        "rAddr": r_addr,
-        "addrR": r_units,
-        "stub": STUB_LENGTH,
-        "fanH": FAN_HEIGHT,
-        "margin": data.margin,
-        "stroke": float(np.clip(r_addr / 6.0, 1.0, 2.0)),
-        "fontSize": max(round(0.95 * r_addr), 7),
-        "markers": {shape: [[round(x, 2), round(y, 2)] for x, y in _marker_points(shape, r_mark)] for shape in SVG_MARKERS},
-        "pos": np.round(data.pos, 4).tolist(),
-        "colors": _channels_payload(data.colors, data.missing_colors),
-        "inferred": data.inferred.astype(int).tolist(),
-        "classes": classes,
-        "addrTips": [_tip(f"address {i}", [], {}) for i in range(data.n_addr)],
-        "inferredTip": "position inferred",
-        "noColorTip": "no color given",
-        "autoTheme": theme == "auto",
-    }
+        parts.append("</g>")
+    for i, at in enumerate(layout.addresses):
+        x, y = canvas.px(at)
+        tip = _tip(f"address {i}", [], {})
+        missing = colors.addresses is not None and colors.addresses.missing[i]
+        if missing:
+            tip += html.escape("<br><i>no color given</i>", quote=True)
+        parts.append(f'<g class="addr" data-tip="{tip}"{_channels_attr(colors.addresses, i)}>')
+        parts.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{canvas.r_addr:.1f}" fill="var(--surface)"/>')
+        parts.append(f'<text x="{x:.1f}" y="{y:.1f}" font-size="{canvas.font_size}">{i}</text></g>')
+    return "".join(parts)
 
 
-def _channels_payload(colors: np.ndarray | None, missing: np.ndarray | None) -> list | None:
-    """Per address or object, the normalized channels, or ``None`` where the color is missing."""
-    if colors is None:
-        return None
-    rounded = np.round(colors, 4).tolist()
-    if missing is None:
-        return rounded
-    return [None if is_missing else channels for channels, is_missing in zip(rounded, missing)]
-
-
-def _legend_html(data: PlotData, edge_colors: bool) -> str:
-    n_colors = len(THEMES["light"].palette)
+def _legend_html(topology: Topology, colors: Colors, class_colors: dict[str, str]) -> str:
     items = [
         '<span><svg width="14" height="14"><circle cx="7" cy="7" r="5" fill="var(--surface)" stroke="var(--ink)"'
         ' stroke-width="1.2"/></svg>addresses</span>'
     ]
-    if data.inferred.any():
-        items.append(
-            '<span><svg width="14" height="14"><circle cx="7" cy="7" r="5" fill="var(--surface)" stroke="var(--ink)"'
-            ' stroke-width="1.2" stroke-dasharray="2 1.5"/></svg>position inferred</span>'
-        )
-    for class_index, name in enumerate(data.classes):
-        color = f"var(--c{class_index % n_colors})" if edge_colors else "var(--neutral)"
+    for class_index, cls in enumerate(topology.classes):
         shape = SVG_MARKERS[class_index % len(SVG_MARKERS)]
-        items.append(
-            f'<span><svg width="14" height="14">{_svg_marker(shape, 7, 7, 4.5, color)}</svg>{html.escape(name)}</span>'
-        )
-    if data.color_range is not None:
-        items.append(_scale_html("addresses", data.color_range))
-    if data.object_color_range is not None:
-        items.append(_scale_html("hyper-edges", data.object_color_range))
+        marker = _svg_marker(shape, 7, 7, 4.5, class_colors[cls])
+        items.append(f'<span><svg width="14" height="14">{marker}</svg>{html.escape(cls)}</span>')
+    for label, scale in (("addresses", colors.addresses), ("hyper-edges", colors.hyper_edges)):
+        if scale is not None:
+            items.append(_scale_html(label, scale))
     return "".join(items)
 
 
-def _scale_html(label: str, color_range: np.ndarray) -> str:
-    """A color scale placeholder for the legend; the script draws the colormap at ``<!--scale-->``."""
-    lo, hi = color_range
-    n_channels = len(lo)
-    if n_channels == 1:
-        scale = f"{lo[0]:.3g}<!--scale-->{hi[0]:.3g}"
-    elif n_channels == 2:
-        scale = f"ch1 {lo[0]:.3g}&ndash;{hi[0]:.3g}<!--scale-->ch2 {lo[1]:.3g}&ndash;{hi[1]:.3g}"
+def _scale_html(label: str, scale: ColorScale) -> str:
+    """A color scale of the legend; the script draws the colormap at the ``<!--scale-->`` anchor."""
+    lo, hi = scale.low, scale.high
+    if scale.n_channels == 1:
+        text = f"{lo[0]:.3g}<!--scale-->{hi[0]:.3g}"
     else:
-        scale = "RGB"
-    return f'<span class="sc" data-ch="{n_channels}">{label}: {scale}</span>'
+        text = f"ch1 {lo[0]:.3g}&ndash;{hi[0]:.3g}<!--scale-->ch2 {lo[1]:.3g}&ndash;{hi[1]:.3g}"
+    return f'<span class="sc" data-ch="{scale.n_channels}">{label}: {text}</span>'
 
 
-def _toolbar_html(ndim: int) -> str:
-    """Mode buttons (drag rotates in 3D, or pans) and zoom in / zoom out / reset actions."""
-    buttons = []
-    if ndim == 3:
-        buttons.append('<button type="button" data-mode="rotate" title="drag rotates the view">&#x21bb;</button>')
-    buttons += [
-        '<button type="button" data-mode="pan" title="drag pans the view">&#x2725;</button>',
-        '<button type="button" data-act="zin" title="zoom in">+</button>',
-        '<button type="button" data-act="zout" title="zoom out">&minus;</button>',
-        '<button type="button" data-act="reset" title="reset the view">&#x2302;</button>',
-    ]
-    return f'<div class="tb">{"".join(buttons)}</div>'
+def _theme_css(uid: str, theme: str) -> str:
+    """CSS custom properties of the palette; with ``auto`` the script adds the ``dark`` class when the notebook is dark."""
+
+    def variables(t: Theme) -> str:
+        slots = "".join(f"--c{i}:{c};" for i, c in enumerate(t.palette))
+        seq = "".join(f"--s{i}:{c};" for i, c in enumerate(t.sequential))
+        biv = "".join(f"--b{k}:{c};" for k, c in zip(("00", "10", "01", "11"), t.bivariate))
+        return f"--surface:{t.surface};--ink:{t.ink};--neutral:{t.neutral};{slots}{seq}{biv}"
+
+    if theme == "auto":
+        return f"#{uid}{{{variables(THEMES['light'])}}}#{uid}.dark{{{variables(THEMES['dark'])}}}"
+    return f"#{uid}{{{variables(THEMES[theme])}}}"
 
 
 def plot_graph_interactive(
@@ -266,76 +208,65 @@ def plot_graph_interactive(
     """
     Render a single Graph as a self-contained interactive HTML/SVG figure.
 
-    Address indices are always visible; hovering any object (address, hyper-edge
-    marker or line) shows a tooltip with its port addresses and feature values, and
-    reveals the port names along its connections. The mouse wheel zooms (markers,
-    lines and labels keep their size), dragging pans (or rotates the view for 3D
-    positions, shift-drag then pans), double-click resets the view, and the toolbar
-    offers the same. The result displays inline in Jupyter/IDE notebooks (via
-    ``_repr_html_``) and can be written to a standalone HTML file with
-    :meth:`InteractiveGraphPlot.save`. No dependency is required.
+    Address indices are always visible; hovering any object (address, hyper-edge marker or line) shows a
+    tooltip with its port addresses and feature values, and reveals the port names along its connections.
+    The mouse wheel zooms, dragging pans, double-click resets the view, and the toolbar offers the same.
+    The result displays inline in Jupyter/IDE notebooks (via ``_repr_html_``) and can be written to a
+    standalone HTML file with :meth:`InteractiveGraphPlot.save`. No dependency is required.
 
-    :param graph: A single Graph; batched graphs must first go through
-        :func:`energnn.graph.separate_graphs`.
-    :param address_positions: Optional address coordinates of shape ``(n_addresses, 2)`` or
-        ``(n_addresses, 3)``; replaces the force-directed layout. Padded graphs may pass the
-        padded length, fictitious rows are dropped. NaN rows are reconstructed from the graph
-        and drawn with a dashed outline.
-    :param hyper_edge_positions: Optional ``{class: [x_feature, y_feature]}`` (or three features
-        for 3D): the objects of that class are drawn at the coordinates held by those features,
-        as a marker with one spoke per port. Addresses without ``address_positions`` sit at the
-        mean position of the placed objects pointing to them, the others being reconstructed as
-        above.
-    :param address_colors: Optional per-address values of shape ``(n_addresses, C)`` with
-        ``C`` in {1, 2, 3}: sequential colormap, bivariate colormap or RGB; normalized per
-        channel. A NaN leaves the address uncolored.
-    :param hyper_edge_colors: Optional ``{class: [feature, ...]}`` with 1, 2 or 3 features: the
-        markers and lines of those objects are colored from these features like the addresses
-        above, with their own color scale shared by every listed class. A NaN keeps the class
-        color.
-    :param edge_colors: If False, hyper-edges are drawn in the neutral gray instead of one
-        color per class (marker shapes still tell classes apart). This is also what happens as
-        soon as ``hyper_edge_colors`` is given, so that only the feature colors carry a meaning.
+    :param graph: A single Graph; batched graphs must first go through :func:`energnn.graph.separate_graphs`.
+    :param address_positions: Optional address coordinates of shape ``(n_addresses, 2)``; replaces the
+        force-directed layout. Padded graphs may pass the padded length, fictitious rows are dropped.
+    :param hyper_edge_positions: Optional ``{class: [x_feature, y_feature]}``: the objects of that class are
+        drawn at the coordinates held by those features, as a marker with one spoke per port. Without
+        ``address_positions``, each address sits at the mean position of the placed objects pointing to it,
+        and every address must be pointed to by one.
+    :param address_colors: Optional per-address values of shape ``(n_addresses, C)`` with ``C`` in {1, 2}:
+        sequential colormap or bivariate colormap, normalized per channel. A NaN leaves the address uncolored.
+    :param hyper_edge_colors: Optional ``{class: [feature, ...]}`` with 1 or 2 features: the markers and
+        lines of those objects are colored from these features like the addresses above, with their own color
+        scale shared by every listed class. Every other class is then drawn in neutral gray, so that only the
+        feature colors carry a meaning. A NaN keeps that neutral color.
+    :param edge_colors: If False, hyper-edges are drawn in the neutral gray instead of one color per class
+        (marker shapes still tell classes apart).
     :param iterations: Number of layout relaxation steps (unused when positions are given).
     :param seed: Seed for the layout's random initial positions.
     :param size: Width and height of the drawing, in pixels.
-    :param theme: ``"light"``, ``"dark"``, or ``"auto"`` to follow the notebook's theme (the
-        background color of the output cell, or the OS preference when it cannot be read).
+    :param theme: ``"light"``, ``"dark"``, or ``"auto"`` to follow the notebook's theme (the background color
+        of the output cell, or the OS preference when it cannot be read).
     :param logo: If True, draw the EnerGNN mark in the bottom-right corner.
     :return: An :class:`InteractiveGraphPlot`.
-    :raises ValueError: If the graph is not single, if ``theme`` is invalid, if the
-        positions/colors arrays have a wrong shape, or if a feature spec names an unknown class
-        or feature.
+    :raises ValueError: If the graph is not single, if ``theme`` is invalid, if an array has a wrong shape,
+        or if a feature spec names an unknown class or feature.
     """
     if theme not in ("light", "dark", "auto"):
         raise ValueError("theme must be 'light', 'dark' or 'auto'.")
-
-    data = extract_plot_data(
-        graph,
-        iterations=iterations,
-        seed=seed,
-        address_positions=address_positions,
-        hyper_edge_positions=hyper_edge_positions,
-        address_colors=address_colors,
-        hyper_edge_colors=hyper_edge_colors,
-    )
+    topology = read_graph(graph, hyper_edge_positions=hyper_edge_positions)
+    layout = lay_out(topology, address_positions=address_positions, iterations=iterations, seed=seed)
+    colors = resolve_colors(topology, address_colors=address_colors, hyper_edge_colors=hyper_edge_colors)
+    geoms = geometries(topology, layout)
     # once a class is colored by its features, the others are drawn in neutral so the colormap stands alone
-    edge_colors = edge_colors and not data.object_colors
-    payload = _payload(data, size, edge_colors, theme)
+    n_colors = len(THEMES["light"].palette)
+    class_colors = {
+        cls: f"var(--c{i % n_colors})" if edge_colors and colors.hyper_edges is None else "var(--neutral)"
+        for i, cls in enumerate(topology.classes)
+    }
+    canvas = _Canvas(size, layout.margin, topology.n_addresses)
     uid = f"energnn-plot-{next(_plot_ids)}"
-
-    hint = ", drag to rotate or pan (toolbar), shift-drag to pan" if data.ndim == 3 else ", drag to pan"
-    # the logo and the toolbar sit over the canvas, outside the SVG, so zoom and pan leave them in place
-    logo_html = f'<img class="logo" src="{logo_data_uri()}" alt="EnerGNN"/>' if logo else ""
-    toolbar = _toolbar_html(data.ndim)
-    fragment = (
-        f"<style>{_css(uid, theme, payload['stroke'], max(round(0.15 * size), 60))}</style>"
-        f'<div id="{uid}" title="scroll to zoom{hint}, double-click to reset">'
-        f'<div class="lg">{_legend_html(data, edge_colors)}</div>'
-        f'<div class="cw"><svg class="cv" width="{size}" height="{size}" viewBox="0 0 {size} {size}"></svg>'
-        f"{toolbar}{logo_html}</div>"
-        f'<div class="tip"></div>'
-        f'<script type="application/json">{json.dumps(payload, separators=(",", ":"))}</script>'
-        f"<script>{script_js().replace('__UID__', uid)}</script></div>"
-    )
+    logo_width = max(round(0.15 * size), 60)
+    # the pieces holding their own __UID__ (stylesheet, script) go in first, the id is substituted last
+    pieces = {
+        "__CSS__": _theme_css(uid, theme) + stylesheet_css().replace("__LOGO_WIDTH__", str(logo_width)),
+        "__SCRIPT__": script_js(),
+        "__AUTO_THEME__": "1" if theme == "auto" else "0",
+        "__LEGEND__": _legend_html(topology, colors, class_colors),
+        "__SIZE__": str(size),
+        "__BODY__": _svg_body(topology, layout, colors, geoms, canvas, class_colors),
+        # the logo and the toolbar sit over the canvas, outside the SVG, so zoom and pan leave them in place
+        "__LOGO__": f'<img class="logo" src="{logo_data_uri()}" alt="EnerGNN"/>' if logo else "",
+        "__UID__": uid,
+    }
+    fragment = template_html().strip()
+    for placeholder, value in pieces.items():
+        fragment = fragment.replace(placeholder, value)
     return InteractiveGraphPlot(fragment)

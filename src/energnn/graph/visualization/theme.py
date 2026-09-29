@@ -103,12 +103,9 @@ def bivariate_rgb(u: np.ndarray, v: np.ndarray, theme: Theme) -> np.ndarray:
 
 
 def channels_to_rgb(values: np.ndarray, theme: Theme) -> np.ndarray:
-    """Normalized channel values of shape ``(..., C)`` with ``C`` in {1, 2, 3} -> RGB of shape ``(..., 3)``."""
-    n_channels = values.shape[-1]
-    if n_channels == 1:
+    """Normalized channels of shape ``(..., C)`` with ``C`` in {1, 2} -> RGB of shape ``(..., 3)``."""
+    if values.shape[-1] == 1:
         return sequential_rgb(values[..., 0], theme)
-    if n_channels == 2:
+    if values.shape[-1] == 2:
         return bivariate_rgb(values[..., 0], values[..., 1], theme)
-    if n_channels == 3:
-        return np.clip(values, 0.0, 1.0)
-    raise ValueError(f"address colors must have 1, 2 or 3 channels; got {n_channels}.")
+    raise ValueError(f"colors must have 1 or 2 channels; got {values.shape[-1]}.")
