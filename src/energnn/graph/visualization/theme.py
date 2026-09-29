@@ -6,15 +6,25 @@
 
 """Color themes, colormaps and marker shapes shared by the static and interactive renderers.
 
-The palettes are built around the EnerGNN brand gradient (teal ``#00d0a0`` -> green
-``#70e040`` -> lime ``#b0f010``) and the LF Energy blues (``#0090f0``, ``#003070``):
+**Two themes**, light and dark, each a :class:`Theme` of named colors: the *surface* (background), the *ink*
+(text and address outlines), the *neutral* gray (things without a meaningful color), a *palette* of
+categorical colors (one per hyper-edge class, in class order) and the two colormaps used for values:
 
-- the categorical palette (one color per hyper-edge class) starts with those hues and
-  continues with harmonized accents, in an order validated for color-vision deficiencies;
-- the sequential colormap (1-channel address colors) runs along the brand gradient,
-  dark blue -> blue -> teal -> lime;
-- the bivariate colormap (2-channel address colors) blends blue (channel 1) and lime
-  (channel 2) into teal, from a neutral corner.
+- the *sequential* colormap (one channel) is a ramp through four color stops, low to high;
+- the *bivariate* colormap (two channels) is a square whose corners are four colors: the color of a point is
+  the bilinear blend of the corners, channel 1 running left to right and channel 2 bottom to top.
+
+The palettes are built around the EnerGNN brand gradient (teal ``#00d0a0`` -> green ``#70e040`` -> lime
+``#b0f010``) and the LF Energy blues (``#0090f0``, ``#003070``): the categorical palette starts with those
+hues and continues with harmonized accents, in an order validated for color-vision deficiencies; the
+sequential colormap runs dark blue -> blue -> teal -> lime; the bivariate colormap blends blue (channel 1) and
+lime (channel 2) into teal from a neutral corner. The dark variants are re-stepped for a dark surface.
+
+**Marker shapes** double the color encoding: each class gets a shape as well as a color, so classes stay
+separable for color-blind readers, on a black-and-white print, or when every class is drawn in neutral.
+
+The color mapping functions at the end are numpy-only and used by both renderers; ``assets/plot.js`` mirrors
+them for the browser (see :mod:`.interactive`).
 """
 
 from __future__ import annotations
@@ -25,12 +35,14 @@ import numpy as np
 
 
 class Theme(NamedTuple):
-    palette: tuple[str, ...]  # categorical, one slot per hyper-edge class
-    surface: str  # background
-    ink: str  # text
-    neutral: str  # addresses and uncolored hyper-edges
-    sequential: tuple[str, ...]  # 1-channel colormap stops, low -> high
-    bivariate: tuple[str, str, str, str]  # 2-channel corners: (0,0), (1,0), (0,1), (1,1)
+    """The named colors of one theme, all as ``"#rrggbb"`` strings."""
+
+    palette: tuple[str, ...]  #: categorical colors, one per hyper-edge class in class order (cycled if needed)
+    surface: str  #: background
+    ink: str  #: text and address outlines (black on light, white on dark)
+    neutral: str  #: gray of the things without a meaningful color
+    sequential: tuple[str, ...]  #: 1-channel colormap stops, low -> high
+    bivariate: tuple[str, str, str, str]  #: 2-channel colormap corners: (0,0), (1,0), (0,1), (1,1)
 
 
 THEMES = {
@@ -51,13 +63,20 @@ THEMES = {
         bivariate=("#3b3b39", "#0090f0", "#b0f010", "#00d0a0"),
     ),
 }
-# Marker shapes double the color encoding so classes stay separable without color.
+#: Marker shapes per class, in class order, as matplotlib marker codes (cycled if there are more classes).
 MARKERS = ["s", "^", "D", "v", "P", "X", "p", "*"]
+#: The same shapes, by name, for the SVG polygons of the interactive renderer (see ``_marker_points`` there).
 SVG_MARKERS = ["square", "triangle-up", "diamond", "triangle-down", "plus", "cross", "pentagon", "star"]
 
 
 def resolve_theme(theme: str) -> str:
-    """Return ``"light"`` or ``"dark"``; ``"auto"`` follows the luminance of matplotlib's figure facecolor."""
+    """Return ``"light"`` or ``"dark"`` for the static renderer.
+
+    ``"auto"`` follows matplotlib's current figure background: a dark notebook theme usually sets
+    ``figure.facecolor`` to a dark color, which is detected by its luminance.
+
+    :raises ValueError: If ``theme`` is none of ``"light"``, ``"dark"`` and ``"auto"``.
+    """
     if theme in THEMES:
         return theme
     if theme != "auto":
@@ -65,7 +84,7 @@ def resolve_theme(theme: str) -> str:
     import matplotlib
 
     r, g, b = matplotlib.colors.to_rgb(matplotlib.rcParams["figure.facecolor"])
-    return "dark" if 0.2126 * r + 0.7152 * g + 0.0722 * b < 0.5 else "light"
+    return "dark" if 0.2126 * r + 0.7152 * g + 0.0722 * b < 0.5 else "light"  # relative luminance, as in sRGB
 
 
 # ---------------------------------------------------------------------------
@@ -74,7 +93,7 @@ def resolve_theme(theme: str) -> str:
 
 
 def hex_to_rgb(color: str) -> np.ndarray:
-    """``"#rrggbb"`` -> float array in ``[0, 1]``."""
+    """``"#rrggbb"`` -> float array of shape ``(3,)`` in ``[0, 1]``."""
     color = color.lstrip("#")
     return np.array([int(color[i : i + 2], 16) for i in (0, 2, 4)], dtype=float) / 255.0
 
@@ -86,16 +105,31 @@ def rgb_to_hex(rgb: np.ndarray) -> list[str]:
 
 
 def sequential_rgb(values: np.ndarray, theme: Theme) -> np.ndarray:
-    """Map values in ``[0, 1]`` (any shape) through the theme's sequential colormap -> ``(..., 3)``."""
+    """Map channel values in ``[0, 1]`` through the theme's sequential colormap.
+
+    The colormap is piecewise linear between its stops: with four stops, a value ``x`` falls in one of three
+    segments and is linearly interpolated between the two stops of that segment.
+
+    :param values: Any shape.
+    :return: RGB in ``[0, 1]``, shape ``values.shape + (3,)``.
+    """
     stops = np.stack([hex_to_rgb(c) for c in theme.sequential])
-    x = np.clip(np.asarray(values, dtype=float), 0.0, 1.0) * (len(stops) - 1)
-    lo = np.floor(x).astype(int).clip(0, len(stops) - 2)
-    t = (x - lo)[..., None]
+    x = np.clip(np.asarray(values, dtype=float), 0.0, 1.0) * (len(stops) - 1)  # position along the stops
+    lo = np.floor(x).astype(int).clip(0, len(stops) - 2)  # index of the stop just below
+    t = (x - lo)[..., None]  # fraction of the way to the next stop
     return stops[lo] * (1 - t) + stops[lo + 1] * t
 
 
 def bivariate_rgb(u: np.ndarray, v: np.ndarray, theme: Theme) -> np.ndarray:
-    """Bilinear blend of the theme's four corner colors for ``u`` (channel 1) and ``v`` (channel 2) in ``[0, 1]``."""
+    """Map two channels in ``[0, 1]`` through the theme's bivariate colormap.
+
+    The color is the bilinear blend of the four corner colors: ``(0, 0)`` at ``u = v = 0``, ``(1, 0)`` at
+    ``u = 1``, ``(0, 1)`` at ``v = 1``, ``(1, 1)`` at both.
+
+    :param u: Channel 1, any shape.
+    :param v: Channel 2, same shape.
+    :return: RGB in ``[0, 1]``, shape ``u.shape + (3,)``.
+    """
     c00, c10, c01, c11 = (hex_to_rgb(c) for c in theme.bivariate)
     u = np.clip(np.asarray(u, dtype=float), 0.0, 1.0)[..., None]
     v = np.clip(np.asarray(v, dtype=float), 0.0, 1.0)[..., None]
@@ -103,7 +137,10 @@ def bivariate_rgb(u: np.ndarray, v: np.ndarray, theme: Theme) -> np.ndarray:
 
 
 def channels_to_rgb(values: np.ndarray, theme: Theme) -> np.ndarray:
-    """Normalized channels of shape ``(..., C)`` with ``C`` in {1, 2} -> RGB of shape ``(..., 3)``."""
+    """Normalized channels of shape ``(..., C)`` -> RGB of shape ``(..., 3)``, through the colormap matching ``C``.
+
+    :raises ValueError: If ``C`` is not 1 or 2.
+    """
     if values.shape[-1] == 1:
         return sequential_rgb(values[..., 0], theme)
     if values.shape[-1] == 2:

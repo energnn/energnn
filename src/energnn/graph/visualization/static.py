@@ -4,7 +4,20 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 # SPDX-License-Identifier: MPL-2.0
 
-"""Static matplotlib rendering of a Graph. Requires the ``viz`` extra (``pip install energnn[viz]``)."""
+"""Static matplotlib rendering of a Graph. Requires the ``viz`` extra (``pip install energnn[viz]``).
+
+:func:`plot_graph` runs the pipeline (:mod:`.content`, :mod:`.positions`, :mod:`.colors`, :mod:`.geometry`)
+and draws the result on a matplotlib ``Axes``, in layout units (the ``[-1, 1]`` box) taken as data
+coordinates. Everything is gathered in a :class:`_Scene` first, then drawn in four layers, back to front:
+the connection lines, the address circles, the class markers, and the labels; then the legends.
+
+**matplotlib vocabulary used here.** An *artist* is anything drawn on the axes. ``ax.plot`` draws one
+polyline artist (``Line2D``); a NaN point breaks the line, which lets one artist hold many separate
+segments. ``ax.scatter`` draws a *collection* of markers (``PathCollection``) with one color and one size
+per point; ``LineCollection`` does the same for many polylines with one color each. ``zorder`` decides
+what is drawn on top of what. A *colorbar* and an *inset axes* are small extra axes placed next to the
+main one, used here for the color legends.
+"""
 
 from __future__ import annotations
 
@@ -24,27 +37,36 @@ if TYPE_CHECKING:
     from energnn.graph.graph import Graph
 
 _IMPORT_HINT = "requires matplotlib; install it with 'pip install energnn[viz]'."
-_ADDRESS_AREA = (4000.0, 12.0, 130.0)  # address marker area: 4000 / n clipped to [12, 130] points²
+# Area of an address marker in points² (matplotlib's scatter unit): 4000 / n clipped to [12, 130], so that a
+# handful of addresses get big circles and hundreds get small ones, like the address radius of the layout.
+_ADDRESS_AREA = (4000.0, 12.0, 130.0)
 
 
 class _Scene(NamedTuple):
+    """Everything the drawing functions need, computed once by :func:`plot_graph`."""
+
     topology: Topology
     layout: Layout
     colors: Colors
     geoms: dict[tuple[str, int], Geometry]
     theme: Theme
-    node_size: float
-    line_width: float
-    class_colors: dict[str, str]  # class -> its color (palette, or neutral)
+    node_size: float  #: address marker area, in points²
+    line_width: float  #: stroke width of the connections, in points
+    class_colors: dict[str, str]  #: the color of each class: its palette slot, or the neutral gray
 
 
 def _class_colors(topology: Topology, theme: Theme, edge_colors: bool) -> dict[str, str]:
+    """The color of each class: the palette in class order (cycled), or the neutral gray when ``edge_colors`` is off."""
     palette = theme.palette
     return {cls: palette[i % len(palette)] if edge_colors else theme.neutral for i, cls in enumerate(topology.classes)}
 
 
 def _fills(scale: ColorScale | None, fallback: list[str], theme: Theme) -> list[str]:
-    """One color per row of ``scale``: from the channels, or the fallback where the value is missing."""
+    """One ``"#rrggbb"`` per row: the color of the row's channels, or its fallback where the value is missing.
+
+    :param scale: The color scale of the family being drawn, or None when it is not colored by values.
+    :param fallback: The default color of each row (the class color for hyper-edges, the surface for addresses).
+    """
     if scale is None:
         return fallback
     colors = rgb_to_hex(channels_to_rgb(scale.channels, theme))
@@ -52,12 +74,17 @@ def _fills(scale: ColorScale | None, fallback: list[str], theme: Theme) -> list[
 
 
 def _xy(point: np.ndarray) -> tuple[float, float]:
+    """A ``(2,)`` array as the ``(x, y)`` tuple matplotlib's ``annotate`` expects."""
     return float(point[0]), float(point[1])
 
 
 def _draw_connections(ax: Axes, scene: _Scene, port_labels: bool) -> None:
-    """One line artist per class (NaN breaks between its polylines), or one collection when its objects carry
-    their own colors."""
+    """Stroke the polylines of every object (the first, bottom layer), and write the port names if asked.
+
+    Per class, one ``Line2D`` artist holds all the polylines of its objects, separated by NaN points, since
+    they share one color. When the objects are colored by values, a ``LineCollection`` is used instead,
+    since each polyline needs its own color.
+    """
     from matplotlib.collections import LineCollection
 
     colored = scene.colors.hyper_edges
@@ -67,7 +94,7 @@ def _draw_connections(ax: Axes, scene: _Scene, port_labels: bool) -> None:
         colors: list[str] = []
         for row, h in enumerate(scene.topology.hyper_edges):
             geom = scene.geoms.get(h.key)
-            if h.cls != cls or geom is None:
+            if h.cls != cls or geom is None:  # objects without ports have no geometry
                 continue
             lines += geom.lines
             colors += [fills[row]] * len(geom.lines)
@@ -77,16 +104,17 @@ def _draw_connections(ax: Axes, scene: _Scene, port_labels: bool) -> None:
         if not lines:
             continue
         if colored is None:
-            chunks = [chunk for line in lines for chunk in (line, np.full((1, 2), np.nan))]
+            chunks = [chunk for line in lines for chunk in (line, np.full((1, 2), np.nan))]  # NaN breaks the line
             ax.plot(*np.concatenate(chunks).T, color=colors[0], linewidth=scene.line_width, alpha=0.85, zorder=1)
         else:
             ax.add_collection(LineCollection(lines, colors=colors, linewidths=scene.line_width, alpha=0.85, zorder=1))
 
 
 def _draw_addresses(ax: Axes, scene: _Scene, address_labels: bool) -> None:
-    """Hollow circles outlined in the theme's ink, filled with the address colors when given."""
+    """Draw the addresses as circles outlined in ink (the second layer), filled with their color when given, and
+    write their index inside if asked. The circles are one scatter artist with the label ``"addresses"``."""
     pos = scene.layout.addresses
-    face = _fills(scene.colors.addresses, [scene.theme.surface] * len(pos), scene.theme)
+    face = _fills(scene.colors.addresses, [scene.theme.surface] * len(pos), scene.theme)  # hollow: surface-filled
     ax.scatter(pos[:, 0], pos[:, 1], s=scene.node_size, c=face, edgecolors=scene.theme.ink, linewidths=1.2, zorder=3)
     if address_labels:
         for i, at in enumerate(pos):
@@ -94,7 +122,8 @@ def _draw_addresses(ax: Axes, scene: _Scene, address_labels: bool) -> None:
 
 
 def _draw_markers(ax: Axes, scene: _Scene) -> None:
-    """One scatter artist per class, labelled with the class name."""
+    """Draw the class markers (the third layer): one scatter artist per class, labelled with the class name, with the
+    class shape, and one color per object (the class color, or the object's value color)."""
     fills = _fills(scene.colors.hyper_edges, [scene.class_colors[h.cls] for h in scene.topology.hyper_edges], scene.theme)
     for class_index, cls in enumerate(scene.topology.classes):
         rows = [row for row, h in enumerate(scene.topology.hyper_edges) if h.cls == cls and h.key in scene.geoms]
@@ -108,7 +137,9 @@ def _draw_markers(ax: Axes, scene: _Scene) -> None:
 
 
 def _legend(ax: Axes, scene: _Scene) -> None:
-    """A hollow circle for the addresses whatever their fill, one marker per class in its class color."""
+    """The class legend, outside the axes on the upper right: a hollow circle for the addresses (whatever their
+    fill), then one marker per class in its class color. The handles are built by hand rather than taken from the
+    scatter artists, whose per-object colors would not make a meaningful swatch."""
     from matplotlib.lines import Line2D
 
     def marker(shape: str, face: str, edge: str, label: str) -> Line2D:
@@ -125,8 +156,12 @@ def _legend(ax: Axes, scene: _Scene) -> None:
 
 
 def _color_legend(ax: Axes, scale: ColorScale | None, theme: Theme, label: str, slot: int) -> None:
-    """A colorbar for 1 channel, a bivariate square for 2; ``slot`` stacks the squares of the addresses and the
-    hyper-edges."""
+    """The legend of one color scale, outside the axes on the lower right.
+
+    One channel gets a colorbar (matplotlib builds it from a colormap and the raw range). Two channels get a
+    small inset axes showing the bivariate square, its axes labelled with the raw ranges; ``slot`` stacks the
+    squares of the addresses and of the hyper-edges when both are drawn.
+    """
     import matplotlib.colors
     from matplotlib.cm import ScalarMappable
 
@@ -219,10 +254,12 @@ def plot_graph(
     except ImportError as exc:
         raise ImportError("plot_graph " + _IMPORT_HINT) from exc
 
+    # 1. the pipeline
     resolved = THEMES[resolve_theme(theme)]
     topology = read_graph(graph, hyper_edge_positions=hyper_edge_positions)
     layout = lay_out(topology, address_positions=address_positions, iterations=iterations, seed=seed)
     colors = resolve_colors(topology, address_colors=address_colors, hyper_edge_colors=hyper_edge_colors)
+    # 2. the sizes: big circles for a few addresses, small ones for many; lines scaled accordingly
     if node_size is None:
         area, low, high = _ADDRESS_AREA
         node_size = float(np.clip(area / max(topology.n_addresses, 1), low, high))
@@ -231,6 +268,7 @@ def plot_graph(
     class_colors = _class_colors(topology, resolved, edge_colors and colors.hyper_edges is None)
     scene = _Scene(topology, layout, colors, geometries(topology, layout), resolved, node_size, line_width, class_colors)
 
+    # 3. the axes: no frame, equal aspect so the layout keeps its shape
     if ax is None:
         # constrained layout keeps the legend and color scales, placed outside the axes, inside the figure
         fig = plt.figure(figsize=(7, 7), layout="constrained")
@@ -239,6 +277,7 @@ def plot_graph(
     ax.set_facecolor(resolved.surface)
     ax.set_aspect("equal")
     ax.axis("off")
+    # 4. the layers, back to front, then the legends
     _draw_connections(ax, scene, port_labels)
     _draw_addresses(ax, scene, address_labels)
     _draw_markers(ax, scene)

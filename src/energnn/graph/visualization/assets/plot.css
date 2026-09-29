@@ -1,4 +1,9 @@
-/* Interactive plot styles; #__UID__ is replaced by the plot id, the color variables are set per theme. */
+/* Stylesheet of an interactive plot, scoped to its element id (__UID__ is replaced by interactive.py).
+   Colors are the theme's CSS variables (--surface, --ink, --neutral, --c0...), set on the root element by
+   interactive.py; with theme "auto" the script toggles the .dark class on the root to switch palettes.
+   Classes: .lg legend, .cw canvas wrapper, .cv the SVG canvas, .obj one hyper-edge, .mk its marker, .pl its port
+   labels (shown on hover), .addr one address, .tip the tooltip, .tb the toolbar.
+   vector-effect: non-scaling-stroke keeps stroke widths constant under zoom. */
 #__UID__{position:relative;display:inline-block;font-family:system-ui,sans-serif;background:var(--surface);border-radius:6px;color:var(--ink)}
 #__UID__ .lg{display:flex;flex-wrap:wrap;align-items:center;gap:4px 14px;padding:8px 12px 0;font-size:12px}
 #__UID__ .lg span{display:inline-flex;align-items:center;gap:5px}
