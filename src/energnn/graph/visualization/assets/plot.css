@@ -16,6 +16,5 @@
 #__UID__ .cw{position:relative}
 #__UID__ svg.cv{cursor:grab;display:block}
 #__UID__ svg.cv:active{cursor:grabbing}
-#__UID__ .logo{position:absolute;right:10px;bottom:8px;width:__LOGO_WIDTH__px;opacity:0.9;pointer-events:none}
 #__UID__ .tb{position:absolute;top:8px;right:10px;display:flex;gap:4px}
 #__UID__ .tb button{font:inherit;font-size:13px;width:26px;height:26px;padding:0;border:1px solid var(--neutral);border-radius:4px;background:var(--surface);color:var(--ink);cursor:pointer;opacity:0.85}

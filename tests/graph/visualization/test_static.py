@@ -97,13 +97,6 @@ def test_given_positions(mixed_order_graph):
     np.testing.assert_allclose(drawn, [[-1.0, -1.0], [1.0, -1.0], [1.0, 1.0], [-1.0, 1.0]], atol=1e-6)
 
 
-def test_logo_artist(mixed_order_graph):
-    from matplotlib.offsetbox import AnnotationBbox
-
-    assert sum(isinstance(a, AnnotationBbox) for a in plot_graph(mixed_order_graph).artists) == 1
-    assert not any(isinstance(a, AnnotationBbox) for a in plot_graph(mixed_order_graph, logo=False).artists)
-
-
 def test_address_colors_fill_and_add_a_legend(mixed_order_graph):
     ax = plot_graph(mixed_order_graph, address_colors=np.array([[0.0], [1.0], [2.0], [np.nan]]), theme="light")
     faces = ax.collections[0].get_facecolor()

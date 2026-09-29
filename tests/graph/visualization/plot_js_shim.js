@@ -46,15 +46,15 @@ const svg = root.querySelector('svg.cv'), view = svg.querySelector('.view');
 const addrs = view.querySelectorAll('.addr'), objs = view.querySelectorAll('.obj');
 const cls = g => g.attrs['data-tip'].match(/<b>(\w+)/)[1];
 svg.fire('wheel', { preventDefault() {}, deltaY: -1, clientX: 320, clientY: 320 });
-const zoomed = view.getAttribute('transform');
+const zoomed = view.getAttribute('transform'), fixedZoomed = view.querySelector('.fx').getAttribute('transform');
 svg.fire('dblclick', {});
-const reset = view.getAttribute('transform');
+const reset = view.getAttribute('transform'), fixedReset = view.querySelector('.fx').getAttribute('transform');
 addrs[0].fire('mousemove', { clientX: 10, clientY: 10 });
 console.log(JSON.stringify({
   addressFills: addrs.map(g => g.querySelector('circle').getAttribute('fill')),
   busFills: objs.filter(g => cls(g) === 'bus').map(g => g.querySelector('.mk').getAttribute('fill')),
   lineStrokes: objs.filter(g => cls(g) === 'line').map(g => g.querySelector('polyline').getAttribute('stroke')),
   scaleSvgs: root.querySelectorAll('.lg .sc').filter(sc => sc.querySelector('svg')).length,
-  transformAfterZoom: zoomed, transformAfterReset: reset,
+  transformAfterZoom: zoomed, transformAfterReset: reset, fixedAfterZoom: fixedZoomed, fixedAfterReset: fixedReset,
   tooltipOnHover: root.querySelector('.tip').innerHTML,
 }));

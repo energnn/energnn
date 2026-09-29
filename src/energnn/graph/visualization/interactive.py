@@ -9,8 +9,10 @@
 Python runs the whole pipeline and writes the SVG (polylines, markers, address circles, labels), the
 legend and the tooltips. The embedded script (``assets/plot.js``) only adds what needs the browser:
 zoom and pan, tooltips, the notebook's theme, and the colors that depend on it. The elements colored
-by a value carry their normalized channels in a ``data-ch`` attribute, and the legend's color scales
-carry their channel count; that is the whole contract between the two sides.
+by a value carry their normalized channels in a ``data-ch`` attribute, the legend's color scales carry
+their channel count, and the markers, address circles and labels that must keep their size under zoom
+sit at the origin of a ``.fx`` group translated to their position; that is the whole contract between
+the two sides.
 """
 
 from __future__ import annotations
@@ -21,7 +23,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from energnn.graph.visualization.assets import logo_data_uri, script_js, stylesheet_css, template_html
+from energnn.graph.visualization.assets import script_js, stylesheet_css, template_html
 from energnn.graph.visualization.colors import ColorScale, Colors, resolve_colors
 from energnn.graph.visualization.content import FeatureSpec, Topology, read_graph
 from energnn.graph.visualization.geometry import Geometry, geometries
@@ -83,9 +85,15 @@ def _marker_points(shape: str, r: float) -> list[tuple[float, float]]:
     raise ValueError(f"Unknown marker shape '{shape}'.")
 
 
-def _svg_marker(shape: str, x: float, y: float, r: float, fill: str) -> str:
-    points = " ".join(f"{x + dx:.1f},{y + dy:.1f}" for dx, dy in _marker_points(shape, r))
+def _svg_marker(shape: str, r: float, fill: str) -> str:
+    """A marker polygon centered on the origin."""
+    points = " ".join(f"{dx:.1f},{dy:.1f}" for dx, dy in _marker_points(shape, r))
     return f'<polygon class="mk" points="{points}" fill="{fill}"/>'
+
+
+def _fixed(x: float, y: float, inner: str) -> str:
+    """A group translated to ``(x, y)`` whose content keeps its size under zoom (the script counter-scales it)."""
+    return f'<g class="fx" data-at="{x:.1f},{y:.1f}" transform="translate({x:.1f} {y:.1f})">{inner}</g>'
 
 
 def _tip(title: str, ports: list[tuple[str, int]], features: dict[str, float]) -> str:
@@ -132,13 +140,9 @@ def _svg_body(topology: Topology, layout: Layout, colors: Colors, geoms: dict, c
         parts.append(f'<g class="obj" data-tip="{tip}"{_channels_attr(colors.hyper_edges, row)}>')
         parts += [f'<polyline points="{canvas.points(line)}" stroke="{color}"/>' for line in geom.lines]
         for name, at in zip(topology.port_names[h.cls], geom.labels):
-            x, y = canvas.px(at)
-            parts.append(f'<text class="pl" x="{x:.1f}" y="{y - 3:.1f}" text-anchor="middle">{html.escape(name)}</text>')
-        parts.append(
-            _svg_marker(
-                SVG_MARKERS[topology.classes.index(h.cls) % len(SVG_MARKERS)], *canvas.px(geom.marker), canvas.r_mark, color
-            )
-        )
+            parts.append(_fixed(*canvas.px(at), f'<text class="pl" y="-3" text-anchor="middle">{html.escape(name)}</text>'))
+        shape = SVG_MARKERS[topology.classes.index(h.cls) % len(SVG_MARKERS)]
+        parts.append(_fixed(*canvas.px(geom.marker), _svg_marker(shape, canvas.r_mark, color)))
         parts.append("</g>")
     for i, at in enumerate(layout.addresses):
         x, y = canvas.px(at)
@@ -147,8 +151,8 @@ def _svg_body(topology: Topology, layout: Layout, colors: Colors, geoms: dict, c
         if missing:
             tip += html.escape("<br><i>no color given</i>", quote=True)
         parts.append(f'<g class="addr" data-tip="{tip}"{_channels_attr(colors.addresses, i)}>')
-        parts.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{canvas.r_addr:.1f}" fill="var(--surface)"/>')
-        parts.append(f'<text x="{x:.1f}" y="{y:.1f}" font-size="{canvas.font_size}">{i}</text></g>')
+        circle = f'<circle r="{canvas.r_addr:.1f}" fill="var(--surface)"/><text font-size="{canvas.font_size}">{i}</text>'
+        parts.append(_fixed(x, y, circle) + "</g>")
     return "".join(parts)
 
 
@@ -159,7 +163,7 @@ def _legend_html(topology: Topology, colors: Colors, class_colors: dict[str, str
     ]
     for class_index, cls in enumerate(topology.classes):
         shape = SVG_MARKERS[class_index % len(SVG_MARKERS)]
-        marker = _svg_marker(shape, 7, 7, 4.5, class_colors[cls])
+        marker = f'<g transform="translate(7 7)">{_svg_marker(shape, 4.5, class_colors[cls])}</g>'
         items.append(f'<span><svg width="14" height="14">{marker}</svg>{html.escape(cls)}</span>')
     for label, scale in (("addresses", colors.addresses), ("hyper-edges", colors.hyper_edges)):
         if scale is not None:
@@ -203,7 +207,6 @@ def plot_graph_interactive(
     seed: int = 0,
     size: int = 640,
     theme: str = "auto",
-    logo: bool = True,
 ) -> InteractiveGraphPlot:
     """
     Render a single Graph as a self-contained interactive HTML/SVG figure.
@@ -234,7 +237,6 @@ def plot_graph_interactive(
     :param size: Width and height of the drawing, in pixels.
     :param theme: ``"light"``, ``"dark"``, or ``"auto"`` to follow the notebook's theme (the background color
         of the output cell, or the OS preference when it cannot be read).
-    :param logo: If True, draw the EnerGNN mark in the bottom-right corner.
     :return: An :class:`InteractiveGraphPlot`.
     :raises ValueError: If the graph is not single, if ``theme`` is invalid, if an array has a wrong shape,
         or if a feature spec names an unknown class or feature.
@@ -253,17 +255,14 @@ def plot_graph_interactive(
     }
     canvas = _Canvas(size, layout.margin, topology.n_addresses)
     uid = f"energnn-plot-{next(_plot_ids)}"
-    logo_width = max(round(0.15 * size), 60)
     # the pieces holding their own __UID__ (stylesheet, script) go in first, the id is substituted last
     pieces = {
-        "__CSS__": _theme_css(uid, theme) + stylesheet_css().replace("__LOGO_WIDTH__", str(logo_width)),
+        "__CSS__": _theme_css(uid, theme) + stylesheet_css(),
         "__SCRIPT__": script_js(),
         "__AUTO_THEME__": "1" if theme == "auto" else "0",
         "__LEGEND__": _legend_html(topology, colors, class_colors),
         "__SIZE__": str(size),
         "__BODY__": _svg_body(topology, layout, colors, geoms, canvas, class_colors),
-        # the logo and the toolbar sit over the canvas, outside the SVG, so zoom and pan leave them in place
-        "__LOGO__": f'<img class="logo" src="{logo_data_uri()}" alt="EnerGNN"/>' if logo else "",
         "__UID__": uid,
     }
     fragment = template_html().strip()

@@ -8,12 +8,10 @@
 
 from __future__ import annotations
 
-import io
 from typing import TYPE_CHECKING, Any, NamedTuple, cast
 
 import numpy as np
 
-from energnn.graph.visualization.assets import logo_png
 from energnn.graph.visualization.colors import ColorScale, Colors, resolve_colors
 from energnn.graph.visualization.content import FeatureSpec, Topology, read_graph
 from energnn.graph.visualization.geometry import Geometry, geometries
@@ -158,17 +156,6 @@ def _color_legend(ax: Axes, scale: ColorScale | None, theme: Theme, label: str, 
             inset.spines[side].set_visible(False)
 
 
-def _add_logo(ax: Axes) -> None:
-    """The EnerGNN mark in the bottom-right corner of the axes, at a fixed pixel size."""
-    import matplotlib.image
-    from matplotlib.offsetbox import AnnotationBbox, OffsetImage
-
-    image = OffsetImage(matplotlib.image.imread(io.BytesIO(logo_png()), format="png"), zoom=0.3, alpha=0.9)  # ~96 px wide
-    box = AnnotationBbox(image, (1.0, 0.0), xycoords="axes fraction", box_alignment=(1.0, 0.0), frameon=False, pad=0.0)
-    box.set_zorder(5)
-    ax.add_artist(box)
-
-
 def plot_graph(
     graph: Graph,
     *,
@@ -184,7 +171,6 @@ def plot_graph(
     seed: int = 0,
     node_size: float | None = None,
     theme: str = "auto",
-    logo: bool = True,
 ) -> Axes:
     """
     Plot a single (non-batched) Graph with one color and marker per hyper-edge class.
@@ -223,7 +209,6 @@ def plot_graph(
     :param node_size: Address marker area; inferred from the number of addresses when None.
     :param theme: ``"light"``, ``"dark"``, or ``"auto"`` to follow matplotlib's current figure facecolor
         (e.g. dark notebook themes).
-    :param logo: If True, draw the EnerGNN mark in the bottom-right corner.
     :return: The matplotlib Axes containing the plot.
     :raises ImportError: If matplotlib is not installed.
     :raises ValueError: If the graph is not single, if ``theme`` is invalid, if an array has a wrong shape,
@@ -260,6 +245,4 @@ def plot_graph(
     _legend(ax, scene)
     _color_legend(ax, colors.addresses, resolved, "addresses", 0)
     _color_legend(ax, colors.hyper_edges, resolved, "hyper-edges", 1 if colors.addresses is not None else 0)
-    if logo:
-        _add_logo(ax)
     return ax

@@ -34,7 +34,7 @@ def test_interactive_plot_content(mixed_order_graph):
     # tooltips hold the ports and the feature values, escaped for the attribute
     assert "&lt;b&gt;trafo3w #0&lt;/b&gt;&lt;br&gt;hv &amp;rarr; 0&lt;br&gt;" in fragment and "ratio = 1.02" in fragment
     assert 'data-tip="&lt;b&gt;address 0&lt;/b&gt;"' in fragment
-    for expected in (">gen<", ">line<", ">trafo3w<", "addresses", 'class="logo" src="data:image/png;base64,'):
+    for expected in (">gen<", ">line<", ">trafo3w<", "addresses"):
         assert expected in fragment
     assert 'data-ch="' not in fragment  # nothing colored by a value
 
@@ -59,9 +59,9 @@ def test_interactive_plot_themes_and_ids(mixed_order_graph):
     assert ids[0].group(1) != ids[1].group(1)
 
 
-def test_interactive_edge_colors_and_logo_off(mixed_order_graph):
-    plain = plot_graph_interactive(mixed_order_graph, edge_colors=False, logo=False)._repr_html_()
-    assert "var(--c0)" not in plain and 'stroke="var(--neutral)"' in plain and 'class="logo"' not in plain
+def test_interactive_edge_colors_off(mixed_order_graph):
+    plain = plot_graph_interactive(mixed_order_graph, edge_colors=False)._repr_html_()
+    assert "var(--c0)" not in plain and 'stroke="var(--neutral)"' in plain
     colored = plot_graph_interactive(mixed_order_graph)._repr_html_()
     assert all(f"var(--c{i})" in colored for i in range(3))
 
@@ -175,4 +175,6 @@ def test_plot_js_paints_colors_scales_zoom_and_tooltips(located_graph, tmp_path)
         state["transformAfterZoom"] == "translate(-80.0 -80.0) scale(1.250)"
         and state["transformAfterReset"] == "translate(0.0 0.0) scale(1.000)"
     )
+    # markers, address circles and labels are counter-scaled so they keep their size
+    assert state["fixedAfterZoom"].endswith(" scale(0.800)") and state["fixedAfterReset"].endswith(" scale(1.000)")
     assert state["tooltipOnHover"].startswith("<b>address 0</b>")

@@ -36,9 +36,11 @@ function detectTheme(){var dark=null,e=root.parentElement,guard=0;
 if(root.getAttribute('data-auto-theme')==='1'){detectTheme();
  if(window.MutationObserver){var obs=new MutationObserver(function(){if(detectTheme())paint();});
   [document.documentElement,document.body].forEach(function(n){if(n)obs.observe(n,{attributes:true});});}}
-/* zoom and pan: a transform on the view group; strokes keep their width (non-scaling-stroke in the CSS) */
-var Z=1,OX=0,OY=0,drag=null;
-function render(){view.setAttribute('transform','translate('+OX.toFixed(1)+' '+OY.toFixed(1)+') scale('+Z.toFixed(3)+')');}
+/* zoom and pan: a transform on the view group; strokes keep their width (non-scaling-stroke in the CSS) and the
+   .fx groups (markers, address circles, labels) are counter-scaled so they keep their size too */
+var Z=1,OX=0,OY=0,drag=null,fixed=view.querySelectorAll('.fx');
+function render(){view.setAttribute('transform','translate('+OX.toFixed(1)+' '+OY.toFixed(1)+') scale('+Z.toFixed(3)+')');
+ fixed.forEach(function(e){e.setAttribute('transform','translate('+e.getAttribute('data-at').replace(',',' ')+') scale('+(1/Z).toFixed(3)+')');});}
 function toSvg(e){var r=svg.getBoundingClientRect();return [(e.clientX-r.left)/r.width*S,(e.clientY-r.top)/r.height*S];}
 function zoomAt(f,cx,cy){Z*=f;OX=cx-(cx-OX)*f;OY=cy-(cy-OY)*f;render();}
 function reset(){Z=1;OX=0;OY=0;render();}
