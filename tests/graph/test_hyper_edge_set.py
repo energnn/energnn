@@ -204,3 +204,47 @@ def test_check_valid_ports_integer_pass():
 def test_check_valid_ports_non_integer_raises():
     with pytest.raises(ValueError):
         check_valid_ports({"x": np.array([1.0, 2.3], dtype=np.float32)})
+
+
+# ---------------------------------------------------------------------------
+# set_feature / attribute access
+# ---------------------------------------------------------------------------
+
+
+def test_set_feature_appends_replaces_and_reads_by_attribute(backend):
+    hes = HyperEdgeSet.from_dict(port_dict={"id": np.arange(3)}, feature_dict={"p": np.arange(3.0)}, backend=backend)
+    hes.error = np.array([0.5, 0.25, 0.0])
+    assert np.asarray(hes.error).tolist() == [0.5, 0.25, 0.0]
+    assert {k: np.asarray(v).tolist() for k, v in hes.feature_dict.items()} == {
+        "p": [0.0, 1.0, 2.0],
+        "error": [0.5, 0.25, 0.0],
+    }
+    assert np.asarray(hes.feature_array).shape == (3, 2) and hes.feature_array.dtype == np.float32
+    hes.set_feature("p", np.array([7, 8, 9]))  # replaces the column in place, the index is unchanged
+    assert np.asarray(hes.p).tolist() == [7.0, 8.0, 9.0]
+    assert np.asarray(hes.feature_array).shape == (3, 2)
+    with pytest.raises(AttributeError, match="neither an attribute nor a feature"):
+        hes.missing
+    with pytest.raises(ValueError, match="expected \\(3,\\)"):
+        hes.bad = np.zeros(4)
+
+
+def test_set_feature_on_a_set_without_features_and_on_a_batch(backend):
+    hes = HyperEdgeSet.from_dict(port_dict={"id": np.arange(2)}, backend=backend)
+    hes.x = np.array([1.0, 2.0])
+    assert np.asarray(hes.feature_array).tolist() == [[1.0], [2.0]]
+    batch = collate_hyper_edge_sets([hes, hes])
+    batch.y = np.array([[3.0, 4.0], [5.0, 6.0]])
+    assert np.asarray(batch.feature_array).shape == (2, 2, 2)
+    assert np.asarray(batch.feature_names["y"]).tolist() == [1, 1]
+    first, second = separate_hyper_edge_sets(batch)
+    assert np.asarray(second.y).tolist() == [5.0, 6.0]
+    with pytest.raises(ValueError, match="expected \\(2, 2\\)"):
+        batch.z = np.zeros(2)
+
+
+def test_regular_attributes_are_not_turned_into_features(backend):
+    hes = HyperEdgeSet.from_dict(feature_dict={"p": np.arange(3.0)}, backend=backend)
+    hes.non_fictitious = backend.xp.array([1.0, 0.0, 1.0])  # property setter, not a feature
+    assert sorted(hes.feature_names) == ["p"]
+    assert np.asarray(hes.non_fictitious).tolist() == [1.0, 0.0, 1.0]

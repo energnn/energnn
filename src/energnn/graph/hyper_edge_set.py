@@ -313,6 +313,54 @@ class HyperEdgeSet(dict):
                 self.feature_array = array.reshape([self.n_batch, self.n_obj, -1], order="F")
 
     # ------------------------------------------------------------------
+    # Feature edition
+    # ------------------------------------------------------------------
+
+    def set_feature(self, name: str, value) -> None:
+        """
+        Add a feature column, or replace an existing one, in place.
+
+        Also available as attribute assignment: ``hes.error = array`` is ``hes.set_feature("error", array)``,
+        and ``hes.error`` reads the column back.
+
+        :param name: Feature name.
+        :param value: Array of shape ``(n_obj,)`` for a single set, ``(n_batch, n_obj)`` for a batch. It is cast
+            to the dtype of the existing features (``float32`` when there is none).
+        :raises ValueError: If the shape does not match the objects of this set.
+        """
+        xp = self._backend.xp
+        expected = (self.n_batch, self.n_obj) if self.is_batch else (self.n_obj,)
+        dtype = self.feature_array.dtype if self.feature_array is not None else xp.float32
+        column = xp.asarray(value, dtype=dtype)
+        if tuple(column.shape) != expected:
+            raise ValueError(f"Feature '{name}' has shape {tuple(column.shape)}, expected {expected}.")
+        names = dict(self.feature_names or {})
+        columns = [self.feature_array[..., i] for i in range(len(names))]
+        if name in names:
+            columns[_feature_index(names[name])] = column
+        else:
+            names[name] = _stored_index(self, len(columns))
+            columns.append(column)
+        self.feature_array = xp.stack(columns, axis=-1)
+        self[FEATURE_NAMES] = names
+
+    def __getattr__(self, name: str):
+        """Read a feature column by name: ``hes.error``. Only called when no regular attribute matches."""
+        if name.startswith("_"):
+            raise AttributeError(name)
+        names = self.get(FEATURE_NAMES)
+        if names and name in names:
+            return self.feature_array[..., _feature_index(names[name])]
+        raise AttributeError(f"{type(self).__name__} has neither an attribute nor a feature named '{name}'.")
+
+    def __setattr__(self, name: str, value) -> None:
+        """Regular attributes and properties behave as usual; any other name becomes a feature column."""
+        if name.startswith("_") or hasattr(type(self), name):
+            super().__setattr__(name, value)
+        else:
+            self.set_feature(name, value)
+
+    # ------------------------------------------------------------------
     # Padding / un-padding
     # ------------------------------------------------------------------
 
@@ -393,8 +441,10 @@ def collate_hyper_edge_sets(hyper_edge_set_list: list[HyperEdgeSet]) -> HyperEdg
         xp.stack([e.feature_array for e in hyper_edge_set_list], axis=0) if first.feature_array is not None else None
     )
     feature_names = (
-        {k: xp.stack([e.feature_names[k] for e in hyper_edge_set_list if e.feature_names is not None])
-            for k in first.feature_names}
+        {
+            k: xp.stack([e.feature_names[k] for e in hyper_edge_set_list if e.feature_names is not None])
+            for k in first.feature_names
+        }
         if first.feature_names is not None
         else None
     )
@@ -473,8 +523,10 @@ def concatenate_hyper_edge_sets(hyper_edge_set_list: list[HyperEdgeSet]) -> Hype
     first = hyper_edge_set_list[0]
 
     port_dict = (
-        {k: xp.concatenate([hes.port_dict[k] for hes in hyper_edge_set_list if hes.port_dict is not None])
-            for k in first.port_dict}
+        {
+            k: xp.concatenate([hes.port_dict[k] for hes in hyper_edge_set_list if hes.port_dict is not None])
+            for k in first.port_dict
+        }
         if first.port_dict is not None
         else None
     )
@@ -615,3 +667,17 @@ def _check_keys_consistency(hes_1: HyperEdgeSet, hes_2: HyperEdgeSet) -> None:
         raise ValueError("Inconsistent port_names keys among hyper-edge sets.")
     if hes_1.feature_names and hes_2.feature_names and hes_1.feature_names.keys() != hes_2.feature_names.keys():
         raise ValueError("Inconsistent feature_names keys among hyper-edge sets.")
+
+
+def _feature_index(value) -> int:
+    """Feature index as an int, whatever the stored form (int, 0-d array, or one index per batch element)."""
+    array = np.asarray(value)
+    return int(array.reshape(-1)[0]) if array.ndim else int(array)
+
+
+def _stored_index(hes: HyperEdgeSet, index: int):
+    """Feature index in the form the hyper-edge set uses: an int for a single set, one per batch element."""
+    xp = hes._backend.xp
+    if hes.is_batch:
+        return xp.full((hes.n_batch,), index, dtype=xp.int32)
+    return index

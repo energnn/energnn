@@ -83,6 +83,7 @@ HyperEdgeSet
     HyperEdgeSet.port_names
     HyperEdgeSet.feature_dict
     HyperEdgeSet.feature_flat_array
+    HyperEdgeSet.set_feature
     HyperEdgeSet.pad
     HyperEdgeSet.unpad
     HyperEdgeSet.offset_addresses
