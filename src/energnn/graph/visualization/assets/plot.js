@@ -1,9 +1,9 @@
 /* Interactive Graph renderer. Reads the JSON payload next to it, builds the SVG elements
-   once, then re-projects them on every rotation / frame change. Mirrors
+   once, then re-projects them on every rotation, zoom or pan. Mirrors
    energnn.graph.visualization.layout.object_geometries. __UID__ is replaced by the plot id. */
 (function(){
 var root=document.getElementById('__UID__');var D=JSON.parse(root.querySelector('script[type="application/json"]').textContent);
-var S=D.size,PAD=30,N=D.nAddr,T=D.frames.length,t=0,yaw=D.ndim===3?0.6:0,pitch=D.ndim===3?-0.35:0;
+var S=D.size,PAD=30,N=D.nAddr,P=D.pos,yaw=D.ndim===3?0.6:0,pitch=D.ndim===3?-0.35:0;
 var svg=root.querySelector('svg.cv'),tip=root.querySelector('.tip'),NS='http://www.w3.org/2000/svg';
 /* theme "auto": follow the notebook, i.e. the first opaque background color above the plot
    (JupyterLab, VS Code and PyCharm themes set it), else the OS preference */
@@ -15,7 +15,7 @@ function detectTheme(){var dark=null,e=root.parentElement,guard=0;
  var was=root.classList.contains('dark');root.classList.toggle('dark',dark);return was!==dark;}
 if(D.autoTheme){detectTheme();
  /* follow theme switches made after load (Furo docs, JupyterLab, VS Code toggle attributes on html/body) */
- if(window.MutationObserver){var obs=new MutationObserver(function(){if(detectTheme()&&typeof render==='function')render();});
+ if(window.MutationObserver){var obs=new MutationObserver(function(){if(detectTheme()&&typeof render==='function'){render();scales();}});
   [document.documentElement,document.body].forEach(function(n){if(n)obs.observe(n,{attributes:true});});}}
 function win(e){return (e.ownerDocument&&e.ownerDocument.defaultView)||window;}
 function css(name){return win(root).getComputedStyle(root).getPropertyValue(name).trim();}
@@ -24,7 +24,7 @@ function toHex(c){return '#'+c.map(function(v){v=Math.max(0,Math.min(1,v));retur
 function mix(a,b,t){return [a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t,a[2]+(b[2]-a[2])*t];}
 function seqColor(v){var st=[0,1,2,3].map(function(i){return hex(css('--s'+i));});var x=Math.max(0,Math.min(1,v))*3,lo=Math.min(2,Math.floor(x));return mix(st[lo],st[lo+1],x-lo);}
 function bivColor(u,v){var c00=hex(css('--b00')),c10=hex(css('--b10')),c01=hex(css('--b01')),c11=hex(css('--b11'));return mix(mix(c00,c10,u),mix(c01,c11,u),v);}
-function addrColor(ch){if(ch.length===1)return toHex(seqColor(ch[0]));if(ch.length===2)return toHex(bivColor(ch[0],ch[1]));return toHex(ch);}
+function chColor(ch){if(ch.length===1)return toHex(seqColor(ch[0]));if(ch.length===2)return toHex(bivColor(ch[0],ch[1]));return toHex(ch);}
 function el(tag,attrs,parent){var e=document.createElementNS(NS,tag);for(var k in attrs)e.setAttribute(k,attrs[k]);if(parent)parent.appendChild(e);return e;}
 /* view rotation (3D only): yaw around the vertical axis, pitch around the horizontal one */
 function rot(p){var cy=Math.cos(yaw),sy=Math.sin(yaw),cp=Math.cos(pitch),sp=Math.sin(pitch);var x=cy*p[0]+sy*p[2],z=-sy*p[0]+cy*p[2];var y=cp*p[1]-sp*z;return [x,y];}
@@ -37,8 +37,8 @@ function px(p){var q=rot(p);return [OX+Z*(PAD+(q[0]*SCALE+1+M)/W*(S-2*PAD)),OY+Z
 function pts(list){return list.map(function(p){var q=px(p);return q[0].toFixed(1)+','+q[1].toFixed(1);}).join(' ');}
 function add(a,b,k){return [a[0]+b[0]*k,a[1]+b[1]*k,a[2]+b[2]*k];}
 function norm(a){return Math.sqrt(a[0]*a[0]+a[1]*a[1]+a[2]*a[2]);}
-/* geometry of one object from the address positions P of the current frame */
-function geom(o,P){var ports=o.ports;
+/* geometry of one object from the node positions P */
+function geom(o){var ports=o.ports;
 /* stub, loop and degenerate-hub offsets are divided by the zoom so they stay constant on screen,
    like the address radius; their spokes start at the address center, so nothing ever detaches */
  var off=D.stub*D.addrR/Z;
@@ -59,7 +59,7 @@ function fanned(A,B,fan){var ch=add(B,A,-1),L=Math.max(norm(ch),1e-9),d=ch.map(f
  var ctrl=add(add(A,B,1).map(function(v){return v/2;}),n,2*h),curve=[];
  for(var k=0;k<17;k++){var t=k/16;curve.push(A.map(function(v,i){return (1-t)*(1-t)*v+2*t*(1-t)*ctrl[i]+t*t*B[i];}));}
  return curve;}
-/* build the elements once */
+/* build the elements once; an object colored by hyper_edge_colors keeps its channels for render() */
 var objs=[],addrs=[];
 D.classes.forEach(function(c){c.objects.forEach(function(o){if(o.kind==='none')return;
  var g=el('g',{'class':'obj','data-tip':o.tip},svg),color=c.color||'var(--neutral)';
@@ -67,32 +67,28 @@ D.classes.forEach(function(c){c.objects.forEach(function(o){if(o.kind==='none')r
  for(var k=0;k<nl;k++)lines.push(el('polyline',{fill:'none',stroke:color,'stroke-width':D.stroke.toFixed(1),'stroke-opacity':'0.85'},g));
  c.portNames.forEach(function(pn){var t=el('text',{'class':'pl','text-anchor':'middle'},g);t.textContent=pn;labels.push(t);});
  var mk=el('polygon',{'class':'mk',fill:color,stroke:'var(--surface)','stroke-width':'1'},g);
- objs.push({o:o,shape:c.shape,lines:lines,labels:labels,mk:mk});});});
+ objs.push({o:o,shape:c.shape,lines:lines,labels:labels,mk:mk,channels:o.color||null});});});
 for(var i=0;i<N;i++){var g=el('g',{'class':'addr','data-tip':D.addrTips[i]},svg);
  var c=el('circle',{r:D.rAddr.toFixed(1),fill:'var(--surface)',stroke:'var(--ink)','stroke-width':'1.2'},g);
- if(D.inferred[0][i])c.setAttribute('stroke-dasharray','3 2');
- var tx=el('text',{'text-anchor':'middle','dominant-baseline':'central',fill:'var(--ink)','font-size':D.fontSize,'pointer-events':'none'},g);tx.textContent=i;addrs.push({g:g,c:c,t:tx});}
+ if(D.inferred[i])c.setAttribute('stroke-dasharray','3 2');
+ var tx=el('text',{'text-anchor':'middle','dominant-baseline':'central',fill:'var(--ink)','font-size':D.fontSize,'pointer-events':'none'},g);tx.textContent=i;
+ var notes=[];if(D.inferred[i])notes.push(D.inferredTip);if(D.colors&&!D.colors[i])notes.push(D.noColorTip);
+ if(notes.length)g.setAttribute('data-tip',D.addrTips[i]+'<br><i>'+notes.join(', ')+'</i>');addrs.push({c:c,t:tx});}
 var MK=D.markers;
 function markerPts(shape,x,y){return MK[shape].map(function(d){return (x+d[0]).toFixed(1)+','+(y+d[1]).toFixed(1);}).join(' ');}
-/* frame at a fractional time: positions and color channels are interpolated linearly */
-function lerpRows(a,b,k){return a.map(function(row,i){return row&&b[i]?row.map(function(v,j){return v+(b[i][j]-v)*k;}):(k<0.5?row:b[i]);});}
-function at(list){var i0=Math.min(T-1,Math.max(0,Math.floor(t))),i1=Math.min(T-1,i0+1),k=t-i0;return k>0&&i1>i0?lerpRows(list[i0],list[i1],k):list[i0];}
-function render(){var P=at(D.frames),C=D.colors?at(D.colors):null;
- objs.forEach(function(ob){var G=geom(ob.o,P);G.lines.forEach(function(l,k){ob.lines[k].setAttribute('points',pts(l));});
+function render(){
+ objs.forEach(function(ob){var G=geom(ob.o);G.lines.forEach(function(l,k){ob.lines[k].setAttribute('points',pts(l));});
   G.labels.forEach(function(p,k){if(ob.labels[k]){var q=px(p);ob.labels[k].setAttribute('x',q[0].toFixed(1));ob.labels[k].setAttribute('y',(q[1]-3).toFixed(1));}});
-  var m=px(G.marker);ob.mk.setAttribute('points',markerPts(ob.shape,m[0],m[1]));});
+  var m=px(G.marker);ob.mk.setAttribute('points',markerPts(ob.shape,m[0],m[1]));
+  if(ob.channels){var col=chColor(ob.channels);ob.mk.setAttribute('fill',col);ob.lines.forEach(function(l){l.setAttribute('stroke',col);});}});
  for(var i=0;i<N;i++){var q=px(P[i]);addrs[i].c.setAttribute('cx',q[0].toFixed(1));addrs[i].c.setAttribute('cy',q[1].toFixed(1));
   addrs[i].t.setAttribute('x',q[0].toFixed(1));addrs[i].t.setAttribute('y',q[1].toFixed(1));
-  if(C)addrs[i].c.setAttribute('fill',C[i]?addrColor(C[i]):'var(--surface)');
-  var fr=Math.min(T-1,Math.max(0,Math.round(t))),notes=[];
-  if(D.inferred[fr][i])notes.push(D.inferredTip);if(D.colors&&!D.colors[fr][i])notes.push(D.noColorTip);
-  addrs[i].c.setAttribute('stroke-dasharray',D.inferred[fr][i]?'3 2':'');
-  addrs[i].g.setAttribute('data-tip',D.addrTips[i]+(notes.length?'<br><i>'+notes.join(', ')+'</i>':''));}
- var lab=root.querySelector('.tl .fr');if(lab)lab.textContent='t = '+(Math.round(t*10)/10)+' / '+(T-1);}
-/* color scale in the legend, computed from the active theme's CSS variables */
-var legend=root.querySelector('.lg .sc');if(legend&&D.colors){var C=D.colors[0][0].length,anchor=legend.childNodes[1];
+  if(D.colors)addrs[i].c.setAttribute('fill',D.colors[i]?chColor(D.colors[i]):'var(--surface)');}}
+/* color scales in the legend (addresses, hyper-edges), computed from the active theme's CSS variables */
+function scales(){root.querySelectorAll('.lg .sc').forEach(function(legend){var C=+legend.getAttribute('data-ch'),old=legend.querySelector('svg');if(old)old.remove();
+ var anchor=null;legend.childNodes.forEach(function(n){if(n.nodeType===8)anchor=n;});if(!anchor)return;
  if(C===1){var bar=el('svg',{width:'90',height:'10'});for(var k=0;k<30;k++)el('rect',{x:k*3,y:0,width:3,height:10,fill:toHex(seqColor(k/29))},bar);legend.insertBefore(bar,anchor);}
- else if(C===2){var sq=el('svg',{width:'40',height:'40'});for(var a=0;a<8;a++)for(var b=0;b<8;b++)el('rect',{x:a*5,y:35-b*5,width:5,height:5,fill:toHex(bivColor(a/7,b/7))},sq);legend.insertBefore(sq,anchor);}}
+ else if(C===2){var sq=el('svg',{width:'40',height:'40'});for(var a=0;a<8;a++)for(var b=0;b<8;b++)el('rect',{x:a*5,y:35-b*5,width:5,height:5,fill:toHex(bivColor(a/7,b/7))},sq);legend.insertBefore(sq,anchor);}});}
 /* tooltips */
 root.querySelectorAll('[data-tip]').forEach(function(e){
  e.addEventListener('mousemove',function(ev){tip.innerHTML=e.getAttribute('data-tip');tip.style.display='block';var r=root.getBoundingClientRect();tip.style.left=(ev.clientX-r.left+14)+'px';tip.style.top=(ev.clientY-r.top+14)+'px';});
@@ -117,16 +113,5 @@ svg.addEventListener('mousedown',function(e){e.preventDefault();drag={x:e.client
  function up(){drag=null;w.removeEventListener('mousemove',move);w.removeEventListener('mouseup',up);}
  w.addEventListener('mousemove',move);w.addEventListener('mouseup',up);});
 svg.addEventListener('dblclick',reset);
-/* time slider and play button: playback interpolates between frames (one frame per D.interval ms)
-   and pauses D.pause ms at the end before looping */
-var slider=root.querySelector('.tl input'),play=root.querySelector('.tl button'),playing=false,last=0,pauseUntil=0;
-function stop(){playing=false;play.textContent='▶';}
-function step(now){if(!playing)return;
- if(pauseUntil){if(now>=pauseUntil){pauseUntil=0;t=0;last=now;}}
- else{t+=(now-last)/D.interval;last=now;if(t>=T-1){t=T-1;pauseUntil=now+D.pause;}}
- slider.value=Math.round(t);render();requestAnimationFrame(step);}
-if(slider){slider.addEventListener('input',function(){stop();t=+slider.value;render();});
- play.addEventListener('click',function(){if(playing){stop();return;}
-  if(t>=T-1)t=0;playing=true;pauseUntil=0;play.textContent='■';last=performance.now();requestAnimationFrame(step);});}
-render();
+render();scales();
 })();

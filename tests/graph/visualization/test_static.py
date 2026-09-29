@@ -10,10 +10,9 @@ import pytest
 matplotlib = pytest.importorskip("matplotlib", reason="plot_graph needs the 'viz' extra")
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
-from matplotlib.animation import FuncAnimation  # noqa: E402
 
 from energnn.graph.graph import collate_graphs  # noqa: E402
-from energnn.graph.visualization import animate_graph, plot_graph  # noqa: E402
+from energnn.graph.visualization import plot_graph  # noqa: E402
 from energnn.graph.visualization.theme import THEMES  # noqa: E402
 
 SQUARE = np.array([[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0]])
@@ -106,7 +105,7 @@ def test_parallel_edges_have_distinct_markers(multi_graph):
 
 
 def test_injected_positions(mixed_order_graph):
-    drawn = np.asarray(_collection(plot_graph(mixed_order_graph, positions=SQUARE), "addresses").get_offsets())
+    drawn = np.asarray(_collection(plot_graph(mixed_order_graph, address_positions=SQUARE), "addresses").get_offsets())
     expected = np.array([[-1.0, -1.0], [1.0, -1.0], [1.0, 1.0], [-1.0, 1.0]])
     np.testing.assert_allclose(drawn, expected, atol=1e-6)
 
@@ -118,7 +117,7 @@ def test_logo_artist(mixed_order_graph):
     assert sum(isinstance(a, AnnotationBbox) for a in with_logo.artists) == 1
     without = plot_graph(mixed_order_graph, logo=False)
     assert not any(isinstance(a, AnnotationBbox) for a in without.artists)
-    in_3d = plot_graph(mixed_order_graph, positions=np.concatenate([SQUARE, np.arange(4)[:, None]], axis=1))
+    in_3d = plot_graph(mixed_order_graph, address_positions=np.concatenate([SQUARE, np.arange(4)[:, None]], axis=1))
     assert sum(isinstance(a, AnnotationBbox) for a in in_3d.artists) == 1
     in_3d.figure.canvas.draw()  # the artist must render on 3D axes too
 
@@ -130,7 +129,7 @@ def test_logo_artist(mixed_order_graph):
 
 def test_plot_graph_3d_creates_3d_axes(mixed_order_graph):
     positions = np.concatenate([SQUARE, [[0.0], [5.0], [10.0], [5.0]]], axis=1)
-    ax = plot_graph(mixed_order_graph, positions=positions, port_labels=True)
+    ax = plot_graph(mixed_order_graph, address_positions=positions, port_labels=True)
     assert hasattr(ax, "zaxis")
     assert [c.get_label() for c in ax.collections] == ["addresses", "gen", "line", "trafo3w"]
     assert len(ax.lines) == 3  # one line artist per class
@@ -140,7 +139,7 @@ def test_plot_graph_3d_creates_3d_axes(mixed_order_graph):
 def test_plot_graph_3d_rejects_2d_axes(mixed_order_graph):
     _, ax = plt.subplots()
     with pytest.raises(ValueError, match="projection='3d'"):
-        plot_graph(mixed_order_graph, positions=np.zeros((4, 3)) + np.arange(4)[:, None], ax=ax)
+        plot_graph(mixed_order_graph, address_positions=np.zeros((4, 3)) + np.arange(4)[:, None], ax=ax)
 
 
 # ---------------------------------------------------------------------------
@@ -173,34 +172,8 @@ def test_address_colors_three_channels_are_rgb(mixed_order_graph):
 
 
 # ---------------------------------------------------------------------------
-# Frames and animation
+# Errors, inferred positions, feature-driven positions and colors
 # ---------------------------------------------------------------------------
-
-
-def test_frame_selects_time_step(mixed_order_graph):
-    frames = np.stack([SQUARE, SQUARE[::-1]])
-    first = _collection(plot_graph(mixed_order_graph, positions=frames, frame=0), "addresses").get_offsets()
-    second = _collection(plot_graph(mixed_order_graph, positions=frames, frame=1), "addresses").get_offsets()
-    np.testing.assert_allclose(np.asarray(first), np.asarray(second)[::-1], atol=1e-6)
-    with pytest.raises(IndexError, match="frame"):
-        plot_graph(mixed_order_graph, positions=frames, frame=2)
-
-
-def test_animate_graph(mixed_order_graph):
-    frames = np.stack([SQUARE, SQUARE[::-1], SQUARE])
-    colors = np.random.default_rng(0).random((3, 4, 1))
-    animation = animate_graph(mixed_order_graph, positions=frames, address_colors=colors, interval=10)
-    assert isinstance(animation, FuncAnimation)
-    ax = animation._fig.axes[0]
-    n_before = len(ax.collections)
-    animation._func(1)  # draw the second frame in place
-    assert len(ax.collections) == n_before
-    assert len(animation._fig.axes) >= 2  # colorbar added once, not per frame
-
-
-def test_animate_graph_needs_frames(mixed_order_graph):
-    with pytest.raises(ValueError, match="time axis"):
-        animate_graph(mixed_order_graph, positions=SQUARE)
 
 
 def test_plot_graph_import_error_mentions_extra(mixed_order_graph, monkeypatch):
@@ -221,7 +194,7 @@ def test_plot_graph_import_error_mentions_extra(mixed_order_graph, monkeypatch):
 def test_inferred_positions_and_missing_colors_are_drawn_distinctly(mixed_order_graph):
     positions = np.array([[0.0, 0.0], [10.0, 0.0], [np.nan, np.nan], [0.0, 10.0]])
     colors = np.array([[0.0], [1.0], [2.0], [np.nan]])
-    ax = plot_graph(mixed_order_graph, positions=positions, address_colors=colors, theme="light")
+    ax = plot_graph(mixed_order_graph, address_positions=positions, address_colors=colors, theme="light")
     addresses = _collection(ax, "addresses")
     styles = [ls for ls in addresses.get_linestyle()]
     assert styles[2] != styles[0]  # the inferred address has a dashed outline
@@ -230,3 +203,58 @@ def test_inferred_positions_and_missing_colors_are_drawn_distinctly(mixed_order_
     assert tuple(faces[0]) != _rgba(THEMES["light"].surface)
     labels = [t.get_text() for t in ax.get_legend().get_texts()]
     assert "address (position inferred)" in labels
+
+
+def _located_graph():
+    from energnn.graph.graph import Graph
+    from energnn.graph.hyper_edge_set import HyperEdgeSet
+
+    hes = {
+        "bus": HyperEdgeSet.from_dict(
+            port_dict={"id": np.array([0, 1, 2])},
+            feature_dict={"x": np.array([0.0, 4.0, 0.0]), "y": np.array([0.0, 0.0, 3.0]), "load": np.array([1.0, 2.0, 3.0])},
+        ),
+        "line": HyperEdgeSet.from_dict(
+            port_dict={"from": np.array([0, 1]), "to": np.array([1, 2])}, feature_dict={"flow": np.array([10.0, 5.0])}
+        ),
+    }
+    graph = Graph.from_dict(hyper_edge_set_dict=hes, n_addresses=3)
+    graph.line.flow = np.array([10.0, np.nan])  # from_dict rejects NaN; the second flow is unknown
+    return graph
+
+
+def test_hyper_edge_positions_place_the_markers():
+    ax = plot_graph(_located_graph(), hyper_edge_positions={"bus": ["x", "y"]}, theme="light")
+    buses = np.asarray(_collection(ax, "bus").get_offsets())
+    addresses = np.asarray(_collection(ax, "addresses").get_offsets())
+    # the buses are drawn at their features (fitted to the box), each address a stub away from its bus
+    np.testing.assert_allclose(buses, (np.array([[0.0, 0.0], [4.0, 0.0], [0.0, 3.0]]) - [4 / 3, 1.0]) / (8 / 3), atol=1e-6)
+    assert np.all(np.linalg.norm(buses - addresses, axis=1) > 0.05)
+
+
+def test_hyper_edge_colors_color_markers_and_lines_per_object():
+    from matplotlib.collections import LineCollection
+
+    ax = plot_graph(_located_graph(), hyper_edge_colors={"bus": ["load"], "line": ["flow"]}, theme="light")
+    faces = _collection(ax, "bus").get_facecolor()
+    assert len(np.unique(faces, axis=0)) == 3
+    assert tuple(faces[0]) == _rgba(THEMES["light"].sequential[0])  # load 1 is the low end of the shared scale
+    line_collections = [c for c in ax.collections if isinstance(c, LineCollection)]
+    assert len(line_collections) == 2  # colored classes use one collection each, with per-object colors
+    lines = _collection(ax, "line")
+    line_faces = lines.get_facecolor()
+    assert tuple(line_faces[0]) == _rgba(THEMES["light"].sequential[-1])  # flow 10 is the high end
+    assert tuple(line_faces[1]) == _rgba(THEMES["light"].palette[1])  # NaN flow: the class color
+    labels = [a.get_ylabel() for a in ax.figure.axes]
+    assert "hyper-edges" in labels and "addresses" not in labels
+    both = plot_graph(_located_graph(), address_colors=np.arange(3.0)[:, None], hyper_edge_colors={"bus": ["load"]})
+    labels = [a.get_ylabel() for a in both.figure.axes]
+    assert "hyper-edges" in labels and "addresses" in labels
+
+
+def test_legend_keeps_class_colors_for_colored_classes():
+    ax = plot_graph(_located_graph(), hyper_edge_colors={"bus": ["load"]}, theme="light")
+    legend = ax.get_legend()
+    assert [t.get_text() for t in legend.get_texts()] == ["addresses", "bus", "line"]
+    bus_handle = legend.legend_handles[1]
+    assert _rgba(bus_handle.get_markerfacecolor()) == _rgba(THEMES["light"].palette[0])

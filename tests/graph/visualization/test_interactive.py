@@ -28,7 +28,7 @@ def test_interactive_plot_content(mixed_order_graph):
     for expected in ["line", "gen", "trafo3w", "addresses", "energnn-plot-"]:
         assert expected in fragment
     payload = _payload(plot)
-    assert payload["nAddr"] == 4 and payload["ndim"] == 2 and len(payload["frames"]) == 1
+    assert payload["nAddr"] == 4 and payload["ndim"] == 2 and len(payload["pos"]) == 5
     assert [c["name"] for c in payload["classes"]] == ["gen", "line", "trafo3w"]
     # one descriptor per real hyper-edge, with tooltips holding ports and feature values
     assert sum(len(c["objects"]) for c in payload["classes"]) == 6
@@ -93,18 +93,16 @@ def test_interactive_multi_graph(multi_graph):
     assert sorted(kinds) == ["hub", "hub", "loop", "pair", "pair", "pair"]
 
 
-def test_interactive_3d_and_frames(mixed_order_graph):
-    frames = np.stack([np.concatenate([SQUARE, np.arange(4)[:, None]], axis=1)] * 3)
-    plot = plot_graph_interactive(mixed_order_graph, positions=frames, interval=50, loop_pause=700)
+def test_interactive_3d(mixed_order_graph):
+    positions = np.concatenate([SQUARE, np.arange(4)[:, None]], axis=1)
+    plot = plot_graph_interactive(mixed_order_graph, address_positions=positions)
     payload = _payload(plot)
-    assert payload["ndim"] == 3 and len(payload["frames"]) == 3 and len(payload["frames"][0]) == 5
-    assert payload["interval"] == 50 and payload["pause"] == 700
+    assert payload["ndim"] == 3 and len(payload["pos"]) == 5
     fragment = plot._repr_html_()
-    assert 'type="range" min="0" max="2"' in fragment and "drag to rotate" in fragment
+    assert "drag to rotate" in fragment
     assert 'data-mode="rotate"' in fragment and 'data-mode="pan"' in fragment and 'data-act="reset"' in fragment
-    static = plot_graph_interactive(mixed_order_graph, positions=SQUARE)._repr_html_()
-    assert 'type="range"' not in static and "drag to rotate" not in static
-    assert 'data-mode="rotate"' not in static and 'data-mode="pan"' in static
+    flat = plot_graph_interactive(mixed_order_graph, address_positions=SQUARE)._repr_html_()
+    assert "drag to rotate" not in flat and 'data-mode="rotate"' not in flat and 'data-mode="pan"' in flat
 
 
 @pytest.mark.parametrize(
@@ -114,15 +112,16 @@ def test_interactive_address_colors(mixed_order_graph, n_channels, scale):
     colors = np.arange(4, dtype=float)[:, None].repeat(n_channels, axis=1)
     plot = plot_graph_interactive(mixed_order_graph, address_colors=colors)
     payload = _payload(plot)
-    assert np.asarray(payload["colors"]).shape == (1, 4, n_channels)
-    assert payload["colors"][0][0] == [0.0] * n_channels and payload["colors"][0][3] == [1.0] * n_channels
-    assert scale in plot._repr_html_()
+    assert np.asarray(payload["colors"]).shape == (4, n_channels)
+    assert payload["colors"][0] == [0.0] * n_channels and payload["colors"][3] == [1.0] * n_channels
+    assert f'<span class="sc" data-ch="{n_channels}">addresses: {scale}</span>' in plot._repr_html_()
+    assert all(o["color"] is None for c in payload["classes"] for o in c["objects"])
 
 
 def test_injected_positions_padded_length(mixed_order_graph, padded_shape):
     mixed_order_graph.pad(padded_shape)
     positions = np.arange(14, dtype=float).reshape(7, 2)  # padded length: extra rows dropped
-    assert _payload(plot_graph_interactive(mixed_order_graph, positions=positions))["nAddr"] == 4
+    assert _payload(plot_graph_interactive(mixed_order_graph, address_positions=positions))["nAddr"] == 4
 
 
 def test_interactive_plot_save(mixed_order_graph, tmp_path):
@@ -140,15 +139,48 @@ def test_interactive_degenerate_hubs(degenerate_hubs_graph):
     assert kinds["t3"] == ["hub", "hub"] and kinds["t4"] == ["hub"] and kinds["t5"] == ["hub"]
     hubs = {c["name"]: [o["hub"] for o in c["objects"]] for c in payload["classes"] if c["name"] != "line"}
     assert sorted(h for hs in hubs.values() for h in hs) == [3, 4, 5, 6]
-    assert len(payload["frames"][0]) == 7  # 3 addresses + 4 hubs, all positioned by Python
+    assert len(payload["pos"]) == 7  # 3 addresses + 4 hubs, all positioned by Python
 
 
 def test_interactive_inferred_positions_and_missing_colors(mixed_order_graph):
     positions = np.array([[0.0, 0.0], [10.0, 0.0], [np.nan, np.nan], [0.0, 10.0]])
     colors = np.array([[0.0], [1.0], [2.0], [np.nan]])
-    plot = plot_graph_interactive(mixed_order_graph, positions=positions, address_colors=colors)
+    plot = plot_graph_interactive(mixed_order_graph, address_positions=positions, address_colors=colors)
     payload = _payload(plot)
-    assert payload["inferred"] == [[0, 0, 1, 0]]
-    assert payload["colors"][0][3] is None and payload["colors"][0][0] == [0.0]
-    assert all(np.isfinite(np.asarray(payload["frames"])).ravel())
+    assert payload["inferred"] == [0, 0, 1, 0]
+    assert payload["colors"][3] is None and payload["colors"][0] == [0.0]
+    assert all(np.isfinite(np.asarray(payload["pos"])).ravel())
     assert "position inferred" in plot._repr_html_()
+
+
+def _located_graph():
+    from energnn.graph.graph import Graph
+    from energnn.graph.hyper_edge_set import HyperEdgeSet
+
+    hes = {
+        "bus": HyperEdgeSet.from_dict(
+            port_dict={"id": np.array([0, 1, 2])},
+            feature_dict={"x": np.array([0.0, 4.0, 0.0]), "y": np.array([0.0, 0.0, 3.0]), "load": np.array([1.0, 2.0, 3.0])},
+        ),
+        "line": HyperEdgeSet.from_dict(
+            port_dict={"from": np.array([0, 1]), "to": np.array([1, 2])}, feature_dict={"flow": np.array([10.0, 5.0])}
+        ),
+    }
+    graph = Graph.from_dict(hyper_edge_set_dict=hes, n_addresses=3)
+    graph.line.flow = np.array([10.0, np.nan])  # from_dict rejects NaN; the second flow is unknown
+    return graph
+
+
+def test_interactive_hyper_edge_positions_and_colors():
+    plot = plot_graph_interactive(
+        _located_graph(), hyper_edge_positions={"bus": ["x", "y"]}, hyper_edge_colors={"line": ["flow"]}
+    )
+    payload = _payload(plot)
+    classes = {c["name"]: c for c in payload["classes"]}
+    assert [o["kind"] for o in classes["bus"]["objects"]] == ["hub"] * 3  # placed buses are hubs with one spoke
+    assert len(payload["pos"]) == 6  # 3 addresses + 3 placed buses
+    assert [o["hub"] for o in classes["bus"]["objects"]] == [3, 4, 5]
+    assert [o["color"] for o in classes["line"]["objects"]] == [[0.5], None]  # NaN flow: class color; lone value: mid
+    assert all(o["color"] is None for o in classes["bus"]["objects"])
+    assert '<span class="sc" data-ch="1">hyper-edges: 10<!--scale-->10</span>' in plot._repr_html_()
+    assert "addresses:" not in plot._repr_html_()

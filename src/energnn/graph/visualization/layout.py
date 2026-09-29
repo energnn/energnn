@@ -4,17 +4,16 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 # SPDX-License-Identifier: MPL-2.0
 
-"""Layout of a Graph in space: address positions, address colors and hyper-edge geometries.
+"""Layout of a Graph in space: address and hyper-edge positions, colors, and hyper-edge geometries.
 
 Everything here is renderer-agnostic and depends on numpy only.
 
-- Positions are always stored in 3D, with ``z = 0`` for 2D layouts, and always with a
-  leading time axis: ``pos`` has shape ``(n_frames, n_nodes, 3)``. A single frame is the
-  common case; a series of frames comes from ``positions`` given with an extra leading axis.
-- Coordinates live in a ``[-1, 1]`` box, normalized once over all frames so that motion
-  between frames is preserved.
-- Address colors are 1, 2 or 3 channels per address, normalized per channel over all
-  frames to ``[0, 1]``; the theme maps them to RGB.
+- Positions are always stored in 3D, with ``z = 0`` for 2D layouts: ``pos`` has shape
+  ``(n_nodes, 3)``, the addresses first, then one row per hyper-edge drawn as a hub (objects
+  placed by ``hyper_edge_positions`` and objects of order 3 or more).
+- Coordinates live in a ``[-1, 1]`` box.
+- Colors are 1, 2 or 3 channels per address or per hyper-edge, normalized per channel to
+  ``[0, 1]``; the theme maps them to RGB.
 """
 
 from __future__ import annotations
@@ -28,6 +27,8 @@ if TYPE_CHECKING:
 
 # Object key: (hyper-edge class name, index among the real objects of that class).
 ObjKey = tuple[str, int]
+# ``{class: [feature names]}``: coordinates or color channels read from the features of a class.
+FeatureSpec = dict[str, list[str]]
 
 
 def spring_layout(n_nodes: int, edges: np.ndarray, *, iterations: int = 150, seed: int = 0) -> np.ndarray:
@@ -80,17 +81,17 @@ class PlotData(NamedTuple):
     ports: dict[str, list[list[int]]]  # class -> per real object, port addresses (sorted port order)
     port_names: dict[str, list[str]]  # class -> sorted port names
     features: dict[str, list[dict[str, float]]]  # class -> per real object, feature name -> value
-    pos: np.ndarray  # (n_frames, n_nodes, 3): addresses then hubs, z = 0 in 2D
-    hub_ids: dict[ObjKey, int]  # (class, object index) -> hub row in pos
-    colors: np.ndarray | None  # (n_frames, n_addr, C) normalized to [0, 1], or None
-    color_range: np.ndarray | None  # (2, C): per-channel (min, max) of the raw values
+    pos: np.ndarray  # (n_nodes, 3): addresses, then hub rows; z = 0 in 2D
+    hub_ids: dict[ObjKey, int]  # objects drawn as a hub (placed, or of order 3+) -> their row in pos
+    placed: frozenset[ObjKey]  # objects positioned by ``hyper_edge_positions``: a hub wherever their order
+    colors: np.ndarray | None  # (n_addr, C) address colors normalized to [0, 1], or None
+    color_range: np.ndarray | None  # (2, C): per-channel (min, max) of the raw address colors
+    missing_colors: np.ndarray | None  # (n_addr,) bool: color not given (NaN), address left hollow
+    object_colors: dict[str, np.ndarray]  # colored class -> (n_objects, C) normalized to [0, 1]
+    object_color_range: np.ndarray | None  # (2, C): per-channel (min, max) of the raw hyper-edge colors
+    missing_object_colors: dict[str, np.ndarray]  # colored class -> (n_objects,) bool: NaN, class color kept
     margin: float  # how far geometries (stubs, loops, curves, markers) may reach beyond the [-1, 1] box
-    inferred: np.ndarray  # (n_frames, n_addr) bool: position not given (NaN) and reconstructed from the graph
-    missing_colors: np.ndarray | None  # (n_frames, n_addr) bool: color not given (NaN), address left hollow
-
-    @property
-    def n_frames(self) -> int:
-        return self.pos.shape[0]
+    inferred: np.ndarray  # (n_addr,) bool: position not given and reconstructed from the graph
 
 
 def _real_ports(hes) -> tuple[list[str], list[list[int]]]:
@@ -112,76 +113,107 @@ def _real_features(hes, n_real: int) -> list[dict[str, float]]:
     return [{fn: float(feature_array[j, int(idx)]) for fn, idx in names} for j in range(len(feature_array))]
 
 
-def _star_expansion(classes: list[str], ports: dict[str, list[list[int]]], n_addr: int):
-    """Edges of the layout graph: order-2 objects link their ports, higher orders get a hub node."""
+def _feature_columns(
+    spec: FeatureSpec | None,
+    what: str,
+    classes: list[str],
+    features: dict[str, list[dict[str, float]]],
+    widths: tuple[int, ...],
+) -> dict[str, np.ndarray]:
+    """Read ``{class: [feature names]}`` -> ``{class: (n_objects, len(names))}`` from the real objects' features."""
+    columns: dict[str, np.ndarray] = {}
+    if not spec:
+        return columns
+    for name, feature_names in spec.items():
+        if name not in classes:
+            raise ValueError(f"{what}: unknown hyper-edge class '{name}'; the graph has {classes}.")
+        feature_names = list(feature_names)
+        if len(feature_names) not in widths:
+            raise ValueError(f"{what}['{name}'] must list {' or '.join(map(str, widths))} feature names; got {feature_names}.")
+        known = sorted(features[name][0]) if features[name] else []
+        unknown = [fn for fn in feature_names if features[name] and fn not in features[name][0]]
+        if unknown:
+            raise ValueError(f"{what}['{name}']: class '{name}' has no feature {unknown}; its features are {known}.")
+        columns[name] = np.array([[obj[fn] for fn in feature_names] for obj in features[name]], dtype=float).reshape(
+            len(features[name]), len(feature_names)
+        )
+    widths_found = {c.shape[1] for c in columns.values()}
+    if len(widths_found) > 1:
+        raise ValueError(f"{what}: every class must list the same number of feature names; got {spec}.")
+    return columns
+
+
+def _star_expansion(classes: list[str], ports: dict[str, list[list[int]]], n_addr: int, placed: frozenset[ObjKey]):
+    """Edges of the layout graph and hub rows: placed objects and objects of order 3+ get a hub node linked to
+    their distinct ports, other order-2 objects link their two ports directly."""
     layout_edges: list[tuple[int, int]] = []
     hub_ids: dict[ObjKey, int] = {}
     next_id = n_addr
     for name in classes:
         for i, edge_ports in enumerate(ports[name]):
-            if len(edge_ports) == 2:
-                layout_edges.append((edge_ports[0], edge_ports[1]))
-            elif len(edge_ports) >= 3:
+            if (name, i) in placed or len(edge_ports) >= 3:
                 hub_ids[(name, i)] = next_id
                 layout_edges.extend((next_id, p) for p in sorted(set(edge_ports)))
                 next_id += 1
+            elif len(edge_ports) == 2:
+                layout_edges.append((edge_ports[0], edge_ports[1]))
     return np.array(layout_edges, dtype=int).reshape(-1, 2), hub_ids, next_id
 
 
 def _place_hubs(
-    pos: np.ndarray, hub_ids: dict[ObjKey, int], ports: dict[str, list[list[int]]], classes: list[str], from_layout: bool
+    pos: np.ndarray,
+    hub_ids: dict[ObjKey, int],
+    placed: frozenset[ObjKey],
+    ports: dict[str, list[list[int]]],
+    classes: list[str],
+    from_layout: bool,
 ) -> None:
-    """Position the hub of every order-3+ object, for all frames, in place.
+    """Position the hub of every order-3+ object in place (placed objects keep their given position).
 
     A hub sits at the barycenter of its *distinct* port addresses (kept from the spring layout
     when ``from_layout``). Degenerate cases are handled for any order: a hub whose ports all hit
     one address is offset from it like an order-1 stub; a hub landing on one of its addresses is
     pushed away the same way; hubs sharing the same address set are spread side by side.
     """
-    n_addr = min(hub_ids.values()) if hub_ids else pos.shape[1]  # hub rows come after the addresses
+    n_addr = min(hub_ids.values()) if hub_ids else pos.shape[0]  # hub rows come after the addresses
     r_addr = address_radius(n_addr)
     by_addresses: dict[tuple[int, ...], list[ObjKey]] = {}
     for key in hub_ids:
-        by_addresses.setdefault(tuple(sorted(set(ports[key[0]][key[1]]))), []).append(key)
+        if key not in placed:
+            by_addresses.setdefault(tuple(sorted(set(ports[key[0]][key[1]]))), []).append(key)
     for addresses, keys in by_addresses.items():
-        anchors = pos[:, list(addresses)]  # (n_frames, n_distinct, 3)
+        anchors = pos[list(addresses)]  # (n_distinct, 3)
         for j, (name, i) in enumerate(keys):
             direction = stub_direction(classes.index(name), i)
             if len(addresses) == 1:
-                hub = anchors[:, 0] + STUB_LENGTH * r_addr * direction
+                hub = anchors[0] + STUB_LENGTH * r_addr * direction
             elif from_layout:
-                hub = pos[:, hub_ids[(name, i)]].copy()
+                hub = pos[hub_ids[(name, i)]].copy()
             else:
-                hub = anchors.mean(axis=1)
+                hub = anchors.mean(axis=0)
                 if len(keys) > 1:  # parallel hubs: spread them across the first spoke
-                    chord = anchors[:, 1] - anchors[:, 0]
-                    normal = np.stack([-chord[:, 1], chord[:, 0], np.zeros(len(chord))], axis=1)
-                    norms = np.linalg.norm(normal, axis=1, keepdims=True)
-                    normal = np.where(norms > 1e-9, normal / np.maximum(norms, 1e-9), np.array([1.0, 0.0, 0.0]))
+                    chord = anchors[1] - anchors[0]
+                    normal = np.array([-chord[1], chord[0], 0.0])
+                    norm = np.linalg.norm(normal)
+                    normal = normal / norm if norm > 1e-9 else np.array([1.0, 0.0, 0.0])
                     hub = hub + (j - (len(keys) - 1) / 2.0) * 2.0 * r_addr * normal
-            too_close = np.linalg.norm(anchors - hub[:, None], axis=-1).min(axis=1) < 1.5 * r_addr
-            hub = np.where(too_close[:, None], hub + STUB_LENGTH * r_addr * direction, hub)
-            pos[:, hub_ids[(name, i)]] = hub
+            if np.linalg.norm(anchors - hub, axis=-1).min() < 1.5 * r_addr:
+                hub = hub + STUB_LENGTH * r_addr * direction
+            pos[hub_ids[(name, i)]] = hub
 
 
 def _per_address_array(values: Any, name: str, address_mask: np.ndarray, n_addr: int, last_dims: tuple[int, ...]):
-    """Validate a per-address array, drop fictitious rows and add the time axis.
+    """Validate a per-address array and drop fictitious rows.
 
-    Accepts ``(n_addr, k)`` / ``(n_current, k)`` and ``(n_frames, n_addr, k)`` /
-    ``(n_frames, n_current, k)`` for ``k`` in ``last_dims``; returns ``(n_frames, n_addr, k)``.
+    Accepts ``(n_addr, k)`` and ``(n_current, k)`` for ``k`` in ``last_dims``; returns ``(n_addr, k)``.
     """
     array = np.asarray(values, dtype=float)
-    if array.ndim == 2:
-        array = array[None]
-    if array.ndim != 3 or array.shape[-1] not in last_dims:
-        raise ValueError(
-            f"{name} must have shape (n_addresses, k) or (n_frames, n_addresses, k) with k in {last_dims}; "
-            f"got {array.shape}."
-        )
-    if array.shape[1] == len(address_mask):
-        array = array[:, address_mask]
-    if array.shape[1] != n_addr:
-        raise ValueError(f"{name} must have {n_addr} (real) or {len(address_mask)} (current) addresses; got {array.shape[1]}.")
+    if array.ndim != 2 or array.shape[-1] not in last_dims:
+        raise ValueError(f"{name} must have shape (n_addresses, k) with k in {last_dims}; got {array.shape}.")
+    if array.shape[0] == len(address_mask):
+        array = array[address_mask]
+    if array.shape[0] != n_addr:
+        raise ValueError(f"{name} must have {n_addr} (real) or {len(address_mask)} (current) addresses; got {array.shape[0]}.")
     return array
 
 
@@ -202,7 +234,7 @@ def _adjacency(n_addr: int, ports: dict[str, list[list[int]]]):
 
 
 def _fill_missing_positions(array: np.ndarray, known: np.ndarray, adjacency, seed: int) -> None:
-    """Replace NaN address coordinates in place, frame by frame.
+    """Replace NaN address coordinates in place.
 
     Unknown addresses of a component holding at least one known address get the harmonic
     (Tutte) embedding: each sits at the mean of its neighbors, solved as one sparse linear
@@ -213,85 +245,128 @@ def _fill_missing_positions(array: np.ndarray, known: np.ndarray, adjacency, see
     import scipy.sparse.csgraph  # type: ignore[import-untyped]
     import scipy.sparse.linalg  # type: ignore[import-untyped]
 
-    d = array.shape[2]
+    d = array.shape[1]
     _, labels = scipy.sparse.csgraph.connected_components(adjacency, directed=False)
     laplacian = scipy.sparse.diags(np.asarray(adjacency.sum(axis=1)).ravel()) - adjacency
     laplacian = laplacian.tocsr()
-    for t in range(array.shape[0]):
-        known_t = known[t]
-        if known_t.all():
+    known_pos = array[known]
+    center = known_pos.mean(axis=0)
+    extent = max(float(np.abs(known_pos - center).max()), 1e-9)
+    for label in np.unique(labels):
+        members = np.flatnonzero(labels == label)
+        unknown = members[~known[members]]
+        if unknown.size == 0:
             continue
-        known_pos = array[t, known_t]
-        center = known_pos.mean(axis=0)
-        extent = max(float(np.abs(known_pos - center).max()), 1e-9)
-        for label in np.unique(labels):
-            members = np.flatnonzero(labels == label)
-            unknown = members[~known_t[members]]
-            if unknown.size == 0:
-                continue
-            boundary = members[known_t[members]]
-            if boundary.size:
-                rhs = -laplacian[unknown][:, boundary] @ array[t, boundary]
-                array[t, unknown] = scipy.sparse.linalg.spsolve(laplacian[unknown][:, unknown].tocsc(), rhs).reshape(-1, d)
-            else:  # nothing known in this component: a small spring layout to the right of the known cloud
-                local = adjacency[members][:, members].tocoo()
-                edges = np.stack([local.row, local.col], axis=1) if local.nnz else np.zeros((0, 2), dtype=int)
-                flat = spring_layout(members.size, edges, iterations=60, seed=seed)[:, :d]
-                if d == 3:
-                    flat = np.concatenate([flat, np.zeros((members.size, 1))], axis=1)
-                offset = center.copy()
-                offset[0] += 1.5 * extent
-                array[t, members] = offset + 0.35 * extent * flat
+        boundary = members[known[members]]
+        if boundary.size:
+            rhs = -laplacian[unknown][:, boundary] @ array[boundary]
+            array[unknown] = scipy.sparse.linalg.spsolve(laplacian[unknown][:, unknown].tocsc(), rhs).reshape(-1, d)
+        else:  # nothing known in this component: a small spring layout to the right of the known cloud
+            local = adjacency[members][:, members].tocoo()
+            edges = np.stack([local.row, local.col], axis=1) if local.nnz else np.zeros((0, 2), dtype=int)
+            flat = spring_layout(members.size, edges, iterations=60, seed=seed)[:, :d]
+            if d == 3:
+                flat = np.concatenate([flat, np.zeros((members.size, 1))], axis=1)
+            offset = center.copy()
+            offset[0] += 1.5 * extent
+            array[members] = offset + 0.35 * extent * flat
 
 
-def _normalize_positions(
-    positions: Any, address_mask: np.ndarray, n_addr: int, ports: dict[str, list[list[int]]], seed: int
+def _resolve_positions(
+    address_positions: Any,
+    placed_pos: dict[ObjKey, np.ndarray],
+    address_mask: np.ndarray,
+    n_addr: int,
+    ports: dict[str, list[list[int]]],
+    hub_ids: dict[ObjKey, int],
+    n_nodes: int,
+    seed: int,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """User-given address coordinates -> ``(n_frames, n_addr, 3)`` fitted in the ``[-1, 1]`` box over all frames.
+    """User-given coordinates -> ``(n_nodes, 3)`` fitted in the ``[-1, 1]`` box, and the inferred-address mask.
 
-    NaN rows are inferred from the graph (see :func:`_fill_missing_positions`); the returned
-    ``(n_frames, n_addr)`` mask tells which addresses were inferred.
+    Addresses come from ``address_positions`` when given, else from the placed hyper-edges that point
+    to them (mean of their positions, then pushed off any object they would sit on, like a stub);
+    the remaining NaN rows are inferred from the graph (see :func:`_fill_missing_positions`). Hub
+    rows of order-3+ objects are left at zero for :func:`_place_hubs`.
     """
-    array = _per_address_array(positions, "positions", address_mask, n_addr, (2, 3))
-    known = ~np.isnan(array).any(axis=-1)
-    if not known.any():
-        raise ValueError("positions are all missing (NaN); give at least one address coordinate, or no positions at all.")
+    widths = {coords.shape[0] for coords in placed_pos.values()}
+    if address_positions is not None:
+        addresses = _per_address_array(address_positions, "address_positions", address_mask, n_addr, (2, 3))
+        if widths and widths != {addresses.shape[1]}:
+            raise ValueError("address_positions and hyper_edge_positions must both be 2D or both be 3D.")
+    else:
+        d = widths.pop()
+        addresses = np.zeros((n_addr, d))
+        hits = np.zeros(n_addr)
+        for (name, i), coords in placed_pos.items():
+            for p in ports[name][i]:
+                addresses[p] += coords
+                hits[p] += 1
+        addresses[hits > 0] /= hits[hits > 0, None]
+        addresses[hits == 0] = np.nan
+    derived = hits > 0 if address_positions is None else np.zeros(n_addr, dtype=bool)
+    known = ~np.isnan(addresses).any(axis=-1)
+    if n_addr and not known.any():
+        raise ValueError(
+            "no address position is known: give address_positions, or hyper_edge_positions for objects with ports."
+        )
     if not known.all():
-        _fill_missing_positions(array, known, _adjacency(n_addr, ports), seed)
-    array = array - array.reshape(-1, array.shape[-1]).mean(axis=0)
-    scale = np.abs(array).max()
-    if scale > 0:
-        array = array / scale
-    if array.shape[-1] == 2:
-        array = np.concatenate([array, np.zeros(array.shape[:-1] + (1,))], axis=-1)
-    return array, ~known
+        _fill_missing_positions(addresses, known, _adjacency(n_addr, ports), seed)
+    d = addresses.shape[1]
+    pos = np.zeros((n_nodes, d))
+    pos[:n_addr] = addresses
+    placed_rows = [hub_ids[key] for key in placed_pos]
+    for key, coords in placed_pos.items():
+        pos[hub_ids[key]] = coords
+    fitted = np.concatenate([addresses, pos[placed_rows]]) if placed_rows else addresses
+    center = fitted.mean(axis=0) if len(fitted) else np.zeros(d)
+    scale = float(np.abs(fitted - center).max()) if len(fitted) else 0.0
+    pos = (pos - center) / scale if scale > 0 else pos - center
+    if d == 2:
+        pos = np.concatenate([pos, np.zeros((n_nodes, 1))], axis=1)
+    # a derived address sitting on a placed object would hide it: push it away like an order-1 stub
+    r_addr = address_radius(n_addr)
+    for a in np.flatnonzero(derived):
+        rows = [hub_ids[(name, i)] for (name, i) in placed_pos if a in ports[name][i]]
+        if np.linalg.norm(pos[rows] - pos[a], axis=-1).min() < 1.5 * r_addr:
+            pos[a] = pos[a] + STUB_LENGTH * r_addr * stub_direction(0, int(a))
+    return pos, ~known
 
 
-def _normalize_colors(address_colors: Any, address_mask: np.ndarray, n_addr: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """User-given per-address channels -> ``(n_frames, n_addr, C)`` in ``[0, 1]``, the raw ``(2, C)`` range, and the
-    ``(n_frames, n_addr)`` mask of addresses with a missing (NaN) color."""
-    array = _per_address_array(address_colors, "address_colors", address_mask, n_addr, (1, 2, 3))
+def _normalize_channels(array: np.ndarray, what: str) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Raw ``(n, C)`` channels -> ``(n, C)`` in ``[0, 1]``, the raw ``(2, C)`` range, and the ``(n,)`` NaN mask."""
     missing = np.isnan(array).any(axis=-1)
     if missing.all():
-        raise ValueError("address_colors are all missing (NaN).")
-    flat = array.reshape(-1, array.shape[-1])
-    lo, hi = np.nanmin(flat, axis=0), np.nanmax(flat, axis=0)
+        raise ValueError(f"{what} are all missing (NaN).")
+    lo, hi = np.nanmin(array, axis=0), np.nanmax(array, axis=0)
     span = np.where(hi > lo, hi - lo, 1.0)
     normalized = np.where(hi > lo, (array - lo) / span, 0.5)
     return np.nan_to_num(normalized, nan=0.5), np.stack([lo, hi]), missing
 
 
 def extract_plot_data(
-    graph: Graph, *, iterations: int, seed: int, positions: Any = None, address_colors: Any = None
+    graph: Graph,
+    *,
+    iterations: int,
+    seed: int,
+    address_positions: Any = None,
+    hyper_edge_positions: FeatureSpec | None = None,
+    address_colors: Any = None,
+    hyper_edge_colors: FeatureSpec | None = None,
 ) -> PlotData:
     """Collect real (non-fictitious) objects of a single Graph and lay them out.
 
-    When ``positions`` is given, it provides the address coordinates, 2D or 3D, for one
-    frame or a series of frames (real addresses, or padded length: fictitious rows are
-    dropped); hyper-edge hubs are then placed at the barycenter of their ports instead of
-    being laid out by the spring model; NaN rows are reconstructed from the graph (harmonic
-    embedding between the known addresses). ``address_colors`` gives 1, 2 or 3 channels per
-    address, with the same frame conventions; a NaN leaves the address uncolored.
+    ``address_positions`` gives the address coordinates, 2D or 3D (real addresses, or padded
+    length: fictitious rows are dropped). ``hyper_edge_positions`` maps a class to the 2 or 3
+    features holding its objects' coordinates: those objects are drawn as a marker at that
+    position with one spoke per port, and the addresses they point to sit at their mean position
+    unless ``address_positions`` says otherwise. Addresses whose position is still unknown are
+    reconstructed from the graph (harmonic embedding between the known ones). Without any
+    position, a spring layout is used. ``address_colors`` gives 1, 2 or 3 channels per address
+    (NaN leaves the address hollow); ``hyper_edge_colors`` maps a class to the 1, 2 or 3 features
+    coloring its objects (NaN keeps the class color). A feature holding NaN can only come from
+    :meth:`~energnn.graph.HyperEdgeSet.set_feature`, since :meth:`~energnn.graph.HyperEdgeSet.from_dict`
+    rejects it.
     """
     if not graph.is_single:
         raise ValueError("plot_graph only handles single graphs; use separate_graphs() on a batch first.")
@@ -308,36 +383,46 @@ def extract_plot_data(
         port_names[name], ports[name] = _real_ports(g.hyper_edge_sets[name])
         features[name] = _real_features(g.hyper_edge_sets[name], len(ports[name]))
 
-    layout_edges, hub_ids, n_nodes = _star_expansion(classes, ports, n_addr)
-    if positions is None:
+    # objects placed by their features; an object with a NaN coordinate is drawn like the others
+    placed_pos = {
+        (name, i): array[i]
+        for name, array in _feature_columns(hyper_edge_positions, "hyper_edge_positions", classes, features, (2, 3)).items()
+        for i in range(len(array))
+        if np.isfinite(array[i]).all()
+    }
+    placed = frozenset(placed_pos)
+    layout_edges, hub_ids, n_nodes = _star_expansion(classes, ports, n_addr, placed)
+    if address_positions is None and not placed_pos:
         flat = spring_layout(n_nodes, layout_edges, iterations=iterations, seed=seed)
-        pos = np.concatenate([flat, np.zeros((n_nodes, 1))], axis=-1)[None]
-        ndim = 2
-        inferred = np.zeros((1, n_addr), dtype=bool)
+        pos = np.concatenate([flat, np.zeros((n_nodes, 1))], axis=-1)
+        inferred = np.zeros(n_addr, dtype=bool)
     else:
-        addr_pos, inferred = _normalize_positions(positions, address_mask, n_addr, ports, seed)
-        ndim = 2 if np.all(addr_pos[..., 2] == 0) else 3
-        pos = np.zeros((addr_pos.shape[0], n_nodes, 3))
-        pos[:, :n_addr] = addr_pos
-    _place_hubs(pos, hub_ids, ports, classes, from_layout=positions is None)
+        pos, inferred = _resolve_positions(address_positions, placed_pos, address_mask, n_addr, ports, hub_ids, n_nodes, seed)
+    ndim = 2 if np.all(pos[:, 2] == 0) else 3
+    _place_hubs(pos, hub_ids, placed, ports, classes, from_layout=address_positions is None and not placed_pos)
 
     colors = color_range = missing_colors = None
     if address_colors is not None:
-        colors, color_range, missing_colors = _normalize_colors(address_colors, address_mask, n_addr)
-        if colors.shape[0] != pos.shape[0]:
-            if pos.shape[0] == 1:
-                pos = np.repeat(pos, colors.shape[0], axis=0)
-                inferred = np.repeat(inferred, colors.shape[0], axis=0)
-            elif colors.shape[0] == 1:
-                colors = np.repeat(colors, pos.shape[0], axis=0)
-                missing_colors = np.repeat(missing_colors, pos.shape[0], axis=0)
-            else:
-                raise ValueError(f"positions have {pos.shape[0]} frames but address_colors have {colors.shape[0]}.")
+        array = _per_address_array(address_colors, "address_colors", address_mask, n_addr, (1, 2, 3))
+        colors, color_range, missing_colors = _normalize_channels(array, "address_colors")
 
-    margin = layout_margin(n_addr, ports)
+    object_colors: dict[str, np.ndarray] = {}
+    missing_object_colors: dict[str, np.ndarray] = {}
+    object_color_range = None
+    raw_colors = _feature_columns(hyper_edge_colors, "hyper_edge_colors", classes, features, (1, 2, 3))
+    if raw_colors:
+        stacked = np.concatenate(list(raw_colors.values()))
+        normalized, object_color_range, missing = _normalize_channels(stacked, "hyper_edge_colors")
+        start = 0
+        for name, array in raw_colors.items():
+            object_colors[name] = normalized[start : start + len(array)]
+            missing_object_colors[name] = missing[start : start + len(array)]
+            start += len(array)
+
     return PlotData(
-        n_addr, ndim, classes, ports, port_names, features, pos, hub_ids, colors, color_range, margin, inferred, missing_colors
-    )
+        n_addr, ndim, classes, ports, port_names, features, pos, hub_ids, placed, colors, color_range, missing_colors,
+        object_colors, object_color_range, missing_object_colors, layout_margin(n_addr, ports), inferred,
+    )  # fmt: skip
 
 
 # ---------------------------------------------------------------------------
@@ -374,7 +459,7 @@ def _pair_ranks(data: PlotData) -> tuple[dict[ObjKey, float], dict[ObjKey, tuple
     pair_groups: dict[tuple[int, int], list[ObjKey]] = {}
     for name in data.classes:
         for i, edge_ports in enumerate(data.ports[name]):
-            if len(edge_ports) == 2:
+            if len(edge_ports) == 2 and (name, i) not in data.placed:
                 pair_groups.setdefault((min(edge_ports), max(edge_ports)), []).append((name, i))
 
     fan: dict[ObjKey, float] = {}
@@ -485,15 +570,16 @@ def _hub_geom(hub: np.ndarray, pos: np.ndarray, edge_ports: list[int]) -> ObjGeo
     return ObjGeom(lines, hub, labels)
 
 
-def object_geometries(data: PlotData, frame: int = 0) -> dict[ObjKey, ObjGeom]:
+def object_geometries(data: PlotData) -> dict[ObjKey, ObjGeom]:
     """
-    Geometry of every hyper-edge object at ``frame``, in layout coordinates.
+    Geometry of every hyper-edge object, in layout coordinates.
 
     Order-2 edges sharing the same address pair (across all classes) are fanned out
     as symmetric Bezier curves so parallel edges stay distinguishable, and
-    self-loops are drawn as small circles attached to their address.
+    self-loops are drawn as small circles attached to their address. Objects placed by
+    ``hyper_edge_positions`` are drawn as a hub at their position, with one spoke per port.
     """
-    pos = data.pos[frame]
+    pos = data.pos
     fan, loop_rank = _pair_ranks(data)
     r_addr = address_radius(data.n_addr)
 
@@ -501,7 +587,9 @@ def object_geometries(data: PlotData, frame: int = 0) -> dict[ObjKey, ObjGeom]:
     for class_index, name in enumerate(data.classes):
         for i, edge_ports in enumerate(data.ports[name]):
             key = (name, i)
-            if len(edge_ports) == 1:
+            if key in data.placed:
+                geoms[key] = _hub_geom(pos[data.hub_ids[key]], pos, edge_ports)
+            elif len(edge_ports) == 1:
                 geoms[key] = _order1_geom(pos[edge_ports[0]], class_index, i, r_addr)
             elif key in loop_rank:
                 geoms[key] = _loop_geom(pos[edge_ports[0]], loop_rank[key], r_addr)
@@ -518,6 +606,7 @@ def object_descriptors(data: PlotData) -> dict[str, list[dict[str, Any]]]:
     Per class, one dict per real object with its ``ports``, its ``kind`` (``stub``, ``loop``,
     ``pair``, ``hub`` or ``none`` for port-less objects) and the kind's parameters: the stub
     ``direction``, the loop ``direction``, the pair ``fan`` offset, or the ``hub`` row of ``pos``.
+    Objects placed by ``hyper_edge_positions`` are hubs whatever their order.
     """
     fan, loop_rank = _pair_ranks(data)
     out: dict[str, list[dict[str, Any]]] = {}
@@ -526,7 +615,9 @@ def object_descriptors(data: PlotData) -> dict[str, list[dict[str, Any]]]:
         for i, edge_ports in enumerate(data.ports[name]):
             key = (name, i)
             item: dict[str, Any] = {"ports": edge_ports}
-            if len(edge_ports) == 1:
+            if key in data.placed:
+                item |= {"kind": "hub", "hub": data.hub_ids[key]}
+            elif len(edge_ports) == 1:
                 item |= {"kind": "stub", "direction": stub_direction(class_index, i)[:2].round(6).tolist()}
             elif key in loop_rank:
                 item |= {"kind": "loop", "direction": loop_direction(loop_rank[key])[:2].round(6).tolist()}

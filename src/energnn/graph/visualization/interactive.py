@@ -7,9 +7,8 @@
 """Interactive, dependency-free HTML/SVG rendering of a Graph.
 
 Python extracts the topology (which addresses each object connects, how parallel edges
-are fanned out) and the per-frame address positions and colors; the embedded script
-(``assets/plot.js``) computes the geometry, so the view can be rotated (3D), zoomed,
-panned and stepped through time without a server.
+are fanned out), the positions and the colors; the embedded script (``assets/plot.js``)
+computes the geometry, so the view can be rotated (3D), zoomed and panned without a server.
 """
 
 from __future__ import annotations
@@ -25,6 +24,7 @@ from energnn.graph.visualization.assets import logo_data_uri, script_js
 from energnn.graph.visualization.layout import (
     FAN_HEIGHT,
     STUB_LENGTH,
+    FeatureSpec,
     PlotData,
     address_radius,
     extract_plot_data,
@@ -139,14 +139,10 @@ def _css(uid: str, theme: str, stroke: float, logo_width: int) -> str:
         f"#{uid} .tb button{{font:inherit;font-size:13px;width:26px;height:26px;padding:0;border:1px solid var(--neutral);"
         f"border-radius:4px;background:var(--surface);color:var(--ink);cursor:pointer;opacity:0.85}}"
         f"#{uid} .tb button.on{{background:var(--ink);color:var(--surface)}}"
-        f"#{uid} .tl{{display:flex;align-items:center;gap:8px;padding:4px 12px 8px;font-size:11px}}"
-        f"#{uid} .tl input{{flex:1}}"
-        f"#{uid} .tl button{{font:inherit;padding:1px 8px;border:1px solid var(--neutral);border-radius:4px;"
-        f"background:var(--surface);color:var(--ink);cursor:pointer}}"
     )
 
 
-def _payload(data: PlotData, size: int, edge_colors: bool, interval: int, loop_pause: int, theme: str) -> dict[str, Any]:
+def _payload(data: PlotData, size: int, edge_colors: bool, theme: str) -> dict[str, Any]:
     """Everything the script needs, JSON-serializable."""
     r_units = address_radius(data.n_addr)
     r_addr = r_units * (size - 2 * _PAD) / (2.0 + 2.0 * data.margin)  # in pixels, on the padded canvas
@@ -156,9 +152,10 @@ def _payload(data: PlotData, size: int, edge_colors: bool, interval: int, loop_p
     classes = []
     for class_index, name in enumerate(data.classes):
         objects = []
+        colors = _channels_payload(data.object_colors.get(name), data.missing_object_colors.get(name))
         for i, item in enumerate(descriptors[name]):
             tip = _tip(f"{name} #{i}", list(zip(data.port_names[name], item["ports"])), data.features[name][i])
-            objects.append(item | {"tip": tip})
+            objects.append(item | {"tip": tip, "color": colors[i] if colors else None})
         classes.append(
             {
                 "name": name,
@@ -180,29 +177,25 @@ def _payload(data: PlotData, size: int, edge_colors: bool, interval: int, loop_p
         "stroke": float(np.clip(r_addr / 6.0, 1.0, 2.0)),
         "fontSize": max(round(0.95 * r_addr), 7),
         "markers": {shape: [[round(x, 2), round(y, 2)] for x, y in _marker_points(shape, r_mark)] for shape in SVG_MARKERS},
-        "frames": np.round(data.pos, 4).tolist(),
-        "colors": None if data.colors is None else _colors_payload(data),
+        "pos": np.round(data.pos, 4).tolist(),
+        "colors": _channels_payload(data.colors, data.missing_colors),
         "inferred": data.inferred.astype(int).tolist(),
         "classes": classes,
         "addrTips": [_tip(f"address {i}", [], {}) for i in range(data.n_addr)],
         "inferredTip": "position inferred",
         "noColorTip": "no color given",
-        "interval": interval,
-        "pause": loop_pause,
         "autoTheme": theme == "auto",
     }
 
 
-def _colors_payload(data: PlotData) -> list:
-    """Per frame and address, the normalized channels, or ``None`` where the color is missing."""
-    assert data.colors is not None
-    rounded = np.round(data.colors, 4).tolist()
-    if data.missing_colors is None:
+def _channels_payload(colors: np.ndarray | None, missing: np.ndarray | None) -> list | None:
+    """Per address or object, the normalized channels, or ``None`` where the color is missing."""
+    if colors is None:
+        return None
+    rounded = np.round(colors, 4).tolist()
+    if missing is None:
         return rounded
-    return [
-        [None if missing else channels for channels, missing in zip(frame, missing_frame)]
-        for frame, missing_frame in zip(rounded, data.missing_colors)
-    ]
+    return [None if is_missing else channels for channels, is_missing in zip(rounded, missing)]
 
 
 def _legend_html(data: PlotData, edge_colors: bool) -> str:
@@ -222,18 +215,24 @@ def _legend_html(data: PlotData, edge_colors: bool) -> str:
         items.append(
             f'<span><svg width="14" height="14">{_svg_marker(shape, 7, 7, 4.5, color)}</svg>{html.escape(name)}</span>'
         )
-    if data.colors is not None and data.color_range is not None:
-        lo, hi = data.color_range
-        n_channels = data.colors.shape[-1]
-        if n_channels == 1:
-            items.append(f'<span class="sc">{lo[0]:.3g}<!--scale-->{hi[0]:.3g}</span>')
-        elif n_channels == 2:
-            items.append(
-                f'<span class="sc">ch1 {lo[0]:.3g}&ndash;{hi[0]:.3g}<!--scale-->ch2 {lo[1]:.3g}&ndash;{hi[1]:.3g}</span>'
-            )
-        else:
-            items.append('<span class="sc">RGB</span>')
+    if data.color_range is not None:
+        items.append(_scale_html("addresses", data.color_range))
+    if data.object_color_range is not None:
+        items.append(_scale_html("hyper-edges", data.object_color_range))
     return "".join(items)
+
+
+def _scale_html(label: str, color_range: np.ndarray) -> str:
+    """A color scale placeholder for the legend; the script draws the colormap at ``<!--scale-->``."""
+    lo, hi = color_range
+    n_channels = len(lo)
+    if n_channels == 1:
+        scale = f"{lo[0]:.3g}<!--scale-->{hi[0]:.3g}"
+    elif n_channels == 2:
+        scale = f"ch1 {lo[0]:.3g}&ndash;{hi[0]:.3g}<!--scale-->ch2 {lo[1]:.3g}&ndash;{hi[1]:.3g}"
+    else:
+        scale = "RGB"
+    return f'<span class="sc" data-ch="{n_channels}">{label}: {scale}</span>'
 
 
 def _toolbar_html(ndim: int) -> str:
@@ -253,16 +252,16 @@ def _toolbar_html(ndim: int) -> str:
 def plot_graph_interactive(
     graph: Graph,
     *,
-    positions: Any = None,
+    address_positions: Any = None,
+    hyper_edge_positions: FeatureSpec | None = None,
     address_colors: Any = None,
+    hyper_edge_colors: FeatureSpec | None = None,
     edge_colors: bool = True,
     iterations: int = 150,
     seed: int = 0,
     size: int = 640,
     theme: str = "auto",
     logo: bool = True,
-    interval: int = 100,
-    loop_pause: int = 1000,
 ) -> InteractiveGraphPlot:
     """
     Render a single Graph as a self-contained interactive HTML/SVG figure.
@@ -272,51 +271,56 @@ def plot_graph_interactive(
     reveals the port names along its connections. The mouse wheel zooms (markers,
     lines and labels keep their size), dragging pans (or rotates the view for 3D
     positions, shift-drag then pans), double-click resets the view, and the toolbar
-    offers the same. When ``positions`` or ``address_colors`` carry a
-    time axis, a slider and a play button step through the frames; playback
-    interpolates positions and colors between frames and pauses at the end of
-    the series before looping. The result
-    displays inline in Jupyter/IDE notebooks (via ``_repr_html_``) and can be
-    written to a standalone HTML file with :meth:`InteractiveGraphPlot.save`.
-    No dependency is required.
+    offers the same. The result displays inline in Jupyter/IDE notebooks (via
+    ``_repr_html_``) and can be written to a standalone HTML file with
+    :meth:`InteractiveGraphPlot.save`. No dependency is required.
 
     :param graph: A single Graph; batched graphs must first go through
         :func:`energnn.graph.separate_graphs`.
-    :param positions: Optional address coordinates of shape ``(n_addresses, 2)`` or
-        ``(n_addresses, 3)``; replaces the force-directed layout. A leading axis gives a
-        series of frames. Padded graphs may pass the padded length, fictitious rows are dropped.
-        NaN rows are reconstructed from the graph and drawn with a dashed outline.
+    :param address_positions: Optional address coordinates of shape ``(n_addresses, 2)`` or
+        ``(n_addresses, 3)``; replaces the force-directed layout. Padded graphs may pass the
+        padded length, fictitious rows are dropped. NaN rows are reconstructed from the graph
+        and drawn with a dashed outline.
+    :param hyper_edge_positions: Optional ``{class: [x_feature, y_feature]}`` (or three features
+        for 3D): the objects of that class are drawn at the coordinates held by those features,
+        as a marker with one spoke per port. Addresses without ``address_positions`` sit at the
+        mean position of the placed objects pointing to them, the others being reconstructed as
+        above.
     :param address_colors: Optional per-address values of shape ``(n_addresses, C)`` with
         ``C`` in {1, 2, 3}: sequential colormap, bivariate colormap or RGB; normalized per
-        channel over all frames. A leading axis gives a series of frames. A NaN leaves the
-        address uncolored.
+        channel. A NaN leaves the address uncolored.
+    :param hyper_edge_colors: Optional ``{class: [feature, ...]}`` with 1, 2 or 3 features: the
+        markers and lines of those objects are colored from these features like the addresses
+        above, with their own color scale shared by every listed class. A NaN keeps the class
+        color.
     :param edge_colors: If False, hyper-edges are drawn in the neutral gray instead of one
         color per class (marker shapes still tell classes apart).
-    :param iterations: Number of layout relaxation steps (unused when ``positions`` is given).
+    :param iterations: Number of layout relaxation steps (unused when positions are given).
     :param seed: Seed for the layout's random initial positions.
     :param size: Width and height of the drawing, in pixels.
     :param theme: ``"light"``, ``"dark"``, or ``"auto"`` to follow the notebook's theme (the
         background color of the output cell, or the OS preference when it cannot be read).
     :param logo: If True, draw the EnerGNN mark in the bottom-right corner.
-    :param interval: Duration of one frame when playing a time series, in milliseconds.
-    :param loop_pause: Pause at the end of the series before looping, in milliseconds.
     :return: An :class:`InteractiveGraphPlot`.
-    :raises ValueError: If the graph is not single, if ``theme`` is invalid, or if the
-        positions/colors arrays have a wrong shape.
+    :raises ValueError: If the graph is not single, if ``theme`` is invalid, if the
+        positions/colors arrays have a wrong shape, or if a feature spec names an unknown class
+        or feature.
     """
     if theme not in ("light", "dark", "auto"):
         raise ValueError("theme must be 'light', 'dark' or 'auto'.")
 
-    data = extract_plot_data(graph, iterations=iterations, seed=seed, positions=positions, address_colors=address_colors)
-    payload = _payload(data, size, edge_colors, interval, loop_pause, theme)
+    data = extract_plot_data(
+        graph,
+        iterations=iterations,
+        seed=seed,
+        address_positions=address_positions,
+        hyper_edge_positions=hyper_edge_positions,
+        address_colors=address_colors,
+        hyper_edge_colors=hyper_edge_colors,
+    )
+    payload = _payload(data, size, edge_colors, theme)
     uid = f"energnn-plot-{next(_plot_ids)}"
 
-    timeline = ""
-    if data.n_frames > 1:
-        timeline = (
-            f'<div class="tl"><button type="button">&#x25B6;</button>'
-            f'<input type="range" min="0" max="{data.n_frames - 1}" value="0" step="1"/><span class="fr"></span></div>'
-        )
     hint = ", drag to rotate or pan (toolbar), shift-drag to pan" if data.ndim == 3 else ", drag to pan"
     # the logo and the toolbar sit over the canvas, outside the SVG, so zoom and pan leave them in place
     logo_html = f'<img class="logo" src="{logo_data_uri()}" alt="EnerGNN"/>' if logo else ""
@@ -327,7 +331,7 @@ def plot_graph_interactive(
         f'<div class="lg">{_legend_html(data, edge_colors)}</div>'
         f'<div class="cw"><svg class="cv" width="{size}" height="{size}" viewBox="0 0 {size} {size}"></svg>'
         f"{toolbar}{logo_html}</div>"
-        f'{timeline}<div class="tip"></div>'
+        f'<div class="tip"></div>'
         f'<script type="application/json">{json.dumps(payload, separators=(",", ":"))}</script>'
         f"<script>{script_js().replace('__UID__', uid)}</script></div>"
     )
