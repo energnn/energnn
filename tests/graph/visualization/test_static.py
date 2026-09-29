@@ -216,3 +216,17 @@ def test_plot_graph_import_error_mentions_extra(mixed_order_graph, monkeypatch):
     monkeypatch.setattr(builtins, "__import__", fake_import)
     with pytest.raises(ImportError, match=r"energnn\[viz\]"):
         plot_graph(mixed_order_graph, theme="light")
+
+
+def test_inferred_positions_and_missing_colors_are_drawn_distinctly(mixed_order_graph):
+    positions = np.array([[0.0, 0.0], [10.0, 0.0], [np.nan, np.nan], [0.0, 10.0]])
+    colors = np.array([[0.0], [1.0], [2.0], [np.nan]])
+    ax = plot_graph(mixed_order_graph, positions=positions, address_colors=colors, theme="light")
+    addresses = _collection(ax, "addresses")
+    styles = [ls for ls in addresses.get_linestyle()]
+    assert styles[2] != styles[0]  # the inferred address has a dashed outline
+    faces = addresses.get_facecolor()
+    assert tuple(faces[3]) == _rgba(THEMES["light"].surface)  # missing color: hollow
+    assert tuple(faces[0]) != _rgba(THEMES["light"].surface)
+    labels = [t.get_text() for t in ax.get_legend().get_texts()]
+    assert "address (position inferred)" in labels

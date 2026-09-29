@@ -181,13 +181,28 @@ def _payload(data: PlotData, size: int, edge_colors: bool, interval: int, loop_p
         "fontSize": max(round(0.95 * r_addr), 7),
         "markers": {shape: [[round(x, 2), round(y, 2)] for x, y in _marker_points(shape, r_mark)] for shape in SVG_MARKERS},
         "frames": np.round(data.pos, 4).tolist(),
-        "colors": None if data.colors is None else np.round(data.colors, 4).tolist(),
+        "colors": None if data.colors is None else _colors_payload(data),
+        "inferred": data.inferred.astype(int).tolist(),
         "classes": classes,
         "addrTips": [_tip(f"address {i}", [], {}) for i in range(data.n_addr)],
+        "inferredTip": "position inferred",
+        "noColorTip": "no color given",
         "interval": interval,
         "pause": loop_pause,
         "autoTheme": theme == "auto",
     }
+
+
+def _colors_payload(data: PlotData) -> list:
+    """Per frame and address, the normalized channels, or ``None`` where the color is missing."""
+    assert data.colors is not None
+    rounded = np.round(data.colors, 4).tolist()
+    if data.missing_colors is None:
+        return rounded
+    return [
+        [None if missing else channels for channels, missing in zip(frame, missing_frame)]
+        for frame, missing_frame in zip(rounded, data.missing_colors)
+    ]
 
 
 def _legend_html(data: PlotData, edge_colors: bool) -> str:
@@ -196,6 +211,11 @@ def _legend_html(data: PlotData, edge_colors: bool) -> str:
         '<span><svg width="14" height="14"><circle cx="7" cy="7" r="5" fill="var(--surface)" stroke="var(--ink)"'
         ' stroke-width="1.2"/></svg>addresses</span>'
     ]
+    if data.inferred.any():
+        items.append(
+            '<span><svg width="14" height="14"><circle cx="7" cy="7" r="5" fill="var(--surface)" stroke="var(--ink)"'
+            ' stroke-width="1.2" stroke-dasharray="2 1.5"/></svg>position inferred</span>'
+        )
     for class_index, name in enumerate(data.classes):
         color = f"var(--c{class_index % n_colors})" if edge_colors else "var(--neutral)"
         shape = SVG_MARKERS[class_index % len(SVG_MARKERS)]
@@ -265,9 +285,11 @@ def plot_graph_interactive(
     :param positions: Optional address coordinates of shape ``(n_addresses, 2)`` or
         ``(n_addresses, 3)``; replaces the force-directed layout. A leading axis gives a
         series of frames. Padded graphs may pass the padded length, fictitious rows are dropped.
+        NaN rows are reconstructed from the graph and drawn with a dashed outline.
     :param address_colors: Optional per-address values of shape ``(n_addresses, C)`` with
         ``C`` in {1, 2, 3}: sequential colormap, bivariate colormap or RGB; normalized per
-        channel over all frames. A leading axis gives a series of frames.
+        channel over all frames. A leading axis gives a series of frames. A NaN leaves the
+        address uncolored.
     :param edge_colors: If False, hyper-edges are drawn in the neutral gray instead of one
         color per class (marker shapes still tell classes apart).
     :param iterations: Number of layout relaxation steps (unused when ``positions`` is given).

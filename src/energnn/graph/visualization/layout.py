@@ -85,6 +85,8 @@ class PlotData(NamedTuple):
     colors: np.ndarray | None  # (n_frames, n_addr, C) normalized to [0, 1], or None
     color_range: np.ndarray | None  # (2, C): per-channel (min, max) of the raw values
     margin: float  # how far geometries (stubs, loops, curves, markers) may reach beyond the [-1, 1] box
+    inferred: np.ndarray  # (n_frames, n_addr) bool: position not given (NaN) and reconstructed from the graph
+    missing_colors: np.ndarray | None  # (n_frames, n_addr) bool: color not given (NaN), address left hollow
 
     @property
     def n_frames(self) -> int:
@@ -183,26 +185,100 @@ def _per_address_array(values: Any, name: str, address_mask: np.ndarray, n_addr:
     return array
 
 
-def _normalize_positions(positions: Any, address_mask: np.ndarray, n_addr: int) -> np.ndarray:
-    """User-given address coordinates -> ``(n_frames, n_addr, 3)`` fitted in the ``[-1, 1]`` box over all frames."""
+def _adjacency(n_addr: int, ports: dict[str, list[list[int]]]):
+    """Sparse symmetric adjacency between addresses: the ports of one object are pairwise neighbors."""
+    import scipy.sparse  # type: ignore[import-untyped]
+
+    rows, cols = [], []
+    for edge_ports in (p for plist in ports.values() for p in plist):
+        distinct = sorted(set(edge_ports))
+        for a in distinct:
+            for b in distinct:
+                if a != b:
+                    rows.append(a)
+                    cols.append(b)
+    weights = np.ones(len(rows))
+    return scipy.sparse.coo_matrix((weights, (rows, cols)), shape=(n_addr, n_addr)).tocsr()
+
+
+def _fill_missing_positions(array: np.ndarray, known: np.ndarray, adjacency, seed: int) -> None:
+    """Replace NaN address coordinates in place, frame by frame.
+
+    Unknown addresses of a component holding at least one known address get the harmonic
+    (Tutte) embedding: each sits at the mean of its neighbors, solved as one sparse linear
+    system with the known addresses as boundary. Components without any known address get a
+    small spring layout placed beside the known cloud.
+    """
+    import scipy.sparse  # type: ignore[import-untyped]
+    import scipy.sparse.csgraph  # type: ignore[import-untyped]
+    import scipy.sparse.linalg  # type: ignore[import-untyped]
+
+    d = array.shape[2]
+    _, labels = scipy.sparse.csgraph.connected_components(adjacency, directed=False)
+    laplacian = scipy.sparse.diags(np.asarray(adjacency.sum(axis=1)).ravel()) - adjacency
+    laplacian = laplacian.tocsr()
+    for t in range(array.shape[0]):
+        known_t = known[t]
+        if known_t.all():
+            continue
+        known_pos = array[t, known_t]
+        center = known_pos.mean(axis=0)
+        extent = max(float(np.abs(known_pos - center).max()), 1e-9)
+        for label in np.unique(labels):
+            members = np.flatnonzero(labels == label)
+            unknown = members[~known_t[members]]
+            if unknown.size == 0:
+                continue
+            boundary = members[known_t[members]]
+            if boundary.size:
+                rhs = -laplacian[unknown][:, boundary] @ array[t, boundary]
+                array[t, unknown] = scipy.sparse.linalg.spsolve(laplacian[unknown][:, unknown].tocsc(), rhs).reshape(-1, d)
+            else:  # nothing known in this component: a small spring layout to the right of the known cloud
+                local = adjacency[members][:, members].tocoo()
+                edges = np.stack([local.row, local.col], axis=1) if local.nnz else np.zeros((0, 2), dtype=int)
+                flat = spring_layout(members.size, edges, iterations=60, seed=seed)[:, :d]
+                if d == 3:
+                    flat = np.concatenate([flat, np.zeros((members.size, 1))], axis=1)
+                offset = center.copy()
+                offset[0] += 1.5 * extent
+                array[t, members] = offset + 0.35 * extent * flat
+
+
+def _normalize_positions(
+    positions: Any, address_mask: np.ndarray, n_addr: int, ports: dict[str, list[list[int]]], seed: int
+) -> tuple[np.ndarray, np.ndarray]:
+    """User-given address coordinates -> ``(n_frames, n_addr, 3)`` fitted in the ``[-1, 1]`` box over all frames.
+
+    NaN rows are inferred from the graph (see :func:`_fill_missing_positions`); the returned
+    ``(n_frames, n_addr)`` mask tells which addresses were inferred.
+    """
     array = _per_address_array(positions, "positions", address_mask, n_addr, (2, 3))
+    known = ~np.isnan(array).any(axis=-1)
+    if not known.any():
+        raise ValueError("positions are all missing (NaN); give at least one address coordinate, or no positions at all.")
+    if not known.all():
+        _fill_missing_positions(array, known, _adjacency(n_addr, ports), seed)
     array = array - array.reshape(-1, array.shape[-1]).mean(axis=0)
     scale = np.abs(array).max()
     if scale > 0:
         array = array / scale
     if array.shape[-1] == 2:
         array = np.concatenate([array, np.zeros(array.shape[:-1] + (1,))], axis=-1)
-    return array
+    return array, ~known
 
 
-def _normalize_colors(address_colors: Any, address_mask: np.ndarray, n_addr: int) -> tuple[np.ndarray, np.ndarray]:
-    """User-given per-address channels -> ``(n_frames, n_addr, C)`` in ``[0, 1]`` and the raw ``(2, C)`` range."""
+def _normalize_colors(address_colors: Any, address_mask: np.ndarray, n_addr: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """User-given per-address channels -> ``(n_frames, n_addr, C)`` in ``[0, 1]``, the raw ``(2, C)`` range, and the
+    ``(n_frames, n_addr)`` mask of addresses with a missing (NaN) color."""
     array = _per_address_array(address_colors, "address_colors", address_mask, n_addr, (1, 2, 3))
+    missing = np.isnan(array).any(axis=-1)
+    if missing.all():
+        raise ValueError("address_colors are all missing (NaN).")
     flat = array.reshape(-1, array.shape[-1])
     lo, hi = np.nanmin(flat, axis=0), np.nanmax(flat, axis=0)
     span = np.where(hi > lo, hi - lo, 1.0)
     normalized = np.where(hi > lo, (array - lo) / span, 0.5)
-    return np.nan_to_num(normalized, nan=0.5), np.stack([lo, hi])
+    return np.nan_to_num(normalized, nan=0.5), np.stack([lo, hi]), missing
 
 
 def extract_plot_data(
@@ -213,8 +289,9 @@ def extract_plot_data(
     When ``positions`` is given, it provides the address coordinates, 2D or 3D, for one
     frame or a series of frames (real addresses, or padded length: fictitious rows are
     dropped); hyper-edge hubs are then placed at the barycenter of their ports instead of
-    being laid out by the spring model. ``address_colors`` gives 1, 2 or 3 channels per
-    address, with the same frame conventions.
+    being laid out by the spring model; NaN rows are reconstructed from the graph (harmonic
+    embedding between the known addresses). ``address_colors`` gives 1, 2 or 3 channels per
+    address, with the same frame conventions; a NaN leaves the address uncolored.
     """
     if not graph.is_single:
         raise ValueError("plot_graph only handles single graphs; use separate_graphs() on a batch first.")
@@ -236,26 +313,31 @@ def extract_plot_data(
         flat = spring_layout(n_nodes, layout_edges, iterations=iterations, seed=seed)
         pos = np.concatenate([flat, np.zeros((n_nodes, 1))], axis=-1)[None]
         ndim = 2
+        inferred = np.zeros((1, n_addr), dtype=bool)
     else:
-        addr_pos = _normalize_positions(positions, address_mask, n_addr)
+        addr_pos, inferred = _normalize_positions(positions, address_mask, n_addr, ports, seed)
         ndim = 2 if np.all(addr_pos[..., 2] == 0) else 3
         pos = np.zeros((addr_pos.shape[0], n_nodes, 3))
         pos[:, :n_addr] = addr_pos
     _place_hubs(pos, hub_ids, ports, classes, from_layout=positions is None)
 
-    colors = color_range = None
+    colors = color_range = missing_colors = None
     if address_colors is not None:
-        colors, color_range = _normalize_colors(address_colors, address_mask, n_addr)
+        colors, color_range, missing_colors = _normalize_colors(address_colors, address_mask, n_addr)
         if colors.shape[0] != pos.shape[0]:
             if pos.shape[0] == 1:
                 pos = np.repeat(pos, colors.shape[0], axis=0)
+                inferred = np.repeat(inferred, colors.shape[0], axis=0)
             elif colors.shape[0] == 1:
                 colors = np.repeat(colors, pos.shape[0], axis=0)
+                missing_colors = np.repeat(missing_colors, pos.shape[0], axis=0)
             else:
                 raise ValueError(f"positions have {pos.shape[0]} frames but address_colors have {colors.shape[0]}.")
 
     margin = layout_margin(n_addr, ports)
-    return PlotData(n_addr, ndim, classes, ports, port_names, features, pos, hub_ids, colors, color_range, margin)
+    return PlotData(
+        n_addr, ndim, classes, ports, port_names, features, pos, hub_ids, colors, color_range, margin, inferred, missing_colors
+    )
 
 
 # ---------------------------------------------------------------------------

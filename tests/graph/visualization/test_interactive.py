@@ -141,3 +141,14 @@ def test_interactive_degenerate_hubs(degenerate_hubs_graph):
     hubs = {c["name"]: [o["hub"] for o in c["objects"]] for c in payload["classes"] if c["name"] != "line"}
     assert sorted(h for hs in hubs.values() for h in hs) == [3, 4, 5, 6]
     assert len(payload["frames"][0]) == 7  # 3 addresses + 4 hubs, all positioned by Python
+
+
+def test_interactive_inferred_positions_and_missing_colors(mixed_order_graph):
+    positions = np.array([[0.0, 0.0], [10.0, 0.0], [np.nan, np.nan], [0.0, 10.0]])
+    colors = np.array([[0.0], [1.0], [2.0], [np.nan]])
+    plot = plot_graph_interactive(mixed_order_graph, positions=positions, address_colors=colors)
+    payload = _payload(plot)
+    assert payload["inferred"] == [[0, 0, 1, 0]]
+    assert payload["colors"][0][3] is None and payload["colors"][0][0] == [0.0]
+    assert all(np.isfinite(np.asarray(payload["frames"])).ravel())
+    assert "position inferred" in plot._repr_html_()

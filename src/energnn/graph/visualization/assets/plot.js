@@ -70,11 +70,12 @@ D.classes.forEach(function(c){c.objects.forEach(function(o){if(o.kind==='none')r
  objs.push({o:o,shape:c.shape,lines:lines,labels:labels,mk:mk});});});
 for(var i=0;i<N;i++){var g=el('g',{'class':'addr','data-tip':D.addrTips[i]},svg);
  var c=el('circle',{r:D.rAddr.toFixed(1),fill:'var(--surface)',stroke:'var(--ink)','stroke-width':'1.2'},g);
- var tx=el('text',{'text-anchor':'middle','dominant-baseline':'central',fill:'var(--ink)','font-size':D.fontSize,'pointer-events':'none'},g);tx.textContent=i;addrs.push({c:c,t:tx});}
+ if(D.inferred[0][i])c.setAttribute('stroke-dasharray','3 2');
+ var tx=el('text',{'text-anchor':'middle','dominant-baseline':'central',fill:'var(--ink)','font-size':D.fontSize,'pointer-events':'none'},g);tx.textContent=i;addrs.push({g:g,c:c,t:tx});}
 var MK=D.markers;
 function markerPts(shape,x,y){return MK[shape].map(function(d){return (x+d[0]).toFixed(1)+','+(y+d[1]).toFixed(1);}).join(' ');}
 /* frame at a fractional time: positions and color channels are interpolated linearly */
-function lerpRows(a,b,k){return a.map(function(row,i){return row.map(function(v,j){return v+(b[i][j]-v)*k;});});}
+function lerpRows(a,b,k){return a.map(function(row,i){return row&&b[i]?row.map(function(v,j){return v+(b[i][j]-v)*k;}):(k<0.5?row:b[i]);});}
 function at(list){var i0=Math.min(T-1,Math.max(0,Math.floor(t))),i1=Math.min(T-1,i0+1),k=t-i0;return k>0&&i1>i0?lerpRows(list[i0],list[i1],k):list[i0];}
 function render(){var P=at(D.frames),C=D.colors?at(D.colors):null;
  objs.forEach(function(ob){var G=geom(ob.o,P);G.lines.forEach(function(l,k){ob.lines[k].setAttribute('points',pts(l));});
@@ -82,7 +83,11 @@ function render(){var P=at(D.frames),C=D.colors?at(D.colors):null;
   var m=px(G.marker);ob.mk.setAttribute('points',markerPts(ob.shape,m[0],m[1]));});
  for(var i=0;i<N;i++){var q=px(P[i]);addrs[i].c.setAttribute('cx',q[0].toFixed(1));addrs[i].c.setAttribute('cy',q[1].toFixed(1));
   addrs[i].t.setAttribute('x',q[0].toFixed(1));addrs[i].t.setAttribute('y',q[1].toFixed(1));
-  if(C)addrs[i].c.setAttribute('fill',addrColor(C[i]));}
+  if(C)addrs[i].c.setAttribute('fill',C[i]?addrColor(C[i]):'var(--surface)');
+  var fr=Math.min(T-1,Math.max(0,Math.round(t))),notes=[];
+  if(D.inferred[fr][i])notes.push(D.inferredTip);if(D.colors&&!D.colors[fr][i])notes.push(D.noColorTip);
+  addrs[i].c.setAttribute('stroke-dasharray',D.inferred[fr][i]?'3 2':'');
+  addrs[i].g.setAttribute('data-tip',D.addrTips[i]+(notes.length?'<br><i>'+notes.join(', ')+'</i>':''));}
  var lab=root.querySelector('.tl .fr');if(lab)lab.textContent='t = '+(Math.round(t*10)/10)+' / '+(T-1);}
 /* color scale in the legend, computed from the active theme's CSS variables */
 var legend=root.querySelector('.lg .sc');if(legend&&D.colors){var C=D.colors[0][0].length,anchor=legend.childNodes[1];

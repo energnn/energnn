@@ -104,7 +104,14 @@ def _draw_addresses(ax: Axes, data: PlotData, frame: int, style: _Style) -> None
     face: Any = style.theme.surface
     if data.colors is not None:
         face = rgb_to_hex(channels_to_rgb(data.colors[frame], style.theme))
-    _scatter(ax, pos, s=style.node_size, c=face, edgecolors=style.theme.ink, linewidths=1.2, zorder=3, label="addresses")
+        if data.missing_colors is not None:  # a missing color leaves the address hollow
+            face = [style.theme.surface if missing else color for color, missing in zip(face, data.missing_colors[frame])]
+    # inferred positions (NaN in the given coordinates) get a dashed outline
+    linestyles = ["dashed" if inferred else "solid" for inferred in data.inferred[frame]]
+    _scatter(
+        ax, pos, s=style.node_size, c=face, edgecolors=style.theme.ink, linewidths=1.2, linestyles=linestyles, zorder=3,
+        label="addresses",
+    )  # fmt: skip
     if style.address_labels:
         for i in range(data.n_addr):
             _text(ax, pos[i], str(i), ha="center", va="center", fontsize=7, color=style.theme.ink, zorder=4)
@@ -135,10 +142,10 @@ def _render_frame(ax: Axes, data: PlotData, frame: int, style: _Style) -> None:
     _draw_connections(ax, data, geoms, style)
     _draw_addresses(ax, data, frame, style)
     _draw_markers(ax, data, geoms, style)
-    _legend(ax, style)
+    _legend(ax, data, style)
 
 
-def _legend(ax: Axes, style: _Style) -> None:
+def _legend(ax: Axes, data: PlotData, style: _Style) -> None:
     """Class markers from the scatter artists; a hollow circle for the addresses whatever their fill."""
     from matplotlib.lines import Line2D
 
@@ -146,9 +153,18 @@ def _legend(ax: Axes, style: _Style) -> None:
         [], [], linestyle="none", marker="o", markersize=7, markerfacecolor=style.theme.surface,
         markeredgecolor=style.theme.ink, markeredgewidth=1.2, label="addresses",
     )  # fmt: skip
+    handles: list[Any] = [addresses]
+    if data.inferred.any():
+        from matplotlib.patches import Patch
+
+        handles.append(
+            Patch(
+                facecolor=style.theme.surface, edgecolor=style.theme.ink, linestyle="--", label="address (position inferred)"
+            )
+        )
     classes = [artist for artist in ax.collections if artist.get_label() != "addresses"]
     ax.legend(
-        handles=[addresses, *classes],
+        handles=[*handles, *classes],
         loc="upper left",
         bbox_to_anchor=(1.0, 1.0),
         frameon=False,
@@ -263,12 +279,14 @@ def plot_graph(
     :param positions: Optional address coordinates of shape ``(n_addresses, 2)`` or
         ``(n_addresses, 3)`` (e.g. latent coordinates from a coupler); replaces the
         force-directed layout. A leading axis gives a series of frames, see ``frame``.
-        Padded graphs may pass the padded length, fictitious rows are dropped.
+        Padded graphs may pass the padded length, fictitious rows are dropped. NaN rows are
+        reconstructed from the graph (each missing address at the mean of its neighbors) and
+        drawn with a dashed outline.
     :param address_colors: Optional per-address values of shape ``(n_addresses, C)`` with
         ``C`` in {1, 2, 3}: 1 channel is mapped through the sequential colormap (with a
         colorbar), 2 channels through the bivariate colormap (with its legend), 3 channels
         are RGB. Values are normalized per channel over all frames. A leading axis gives a
-        series of frames.
+        series of frames. A NaN leaves the address uncolored.
     :param edge_colors: If False, hyper-edges are drawn in the neutral gray instead of one
         color per class (marker shapes still tell classes apart).
     :param frame: Index of the frame to draw when ``positions`` or ``address_colors`` have

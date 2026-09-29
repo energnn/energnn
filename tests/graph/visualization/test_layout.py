@@ -287,3 +287,73 @@ def test_parallel_hubs_with_given_positions_are_spread(multi_graph):
 def test_spring_layout_links_hubs_to_distinct_addresses_only(degenerate_hubs_graph):
     data = extract_plot_data(degenerate_hubs_graph, iterations=50, seed=0)
     assert data.margin >= (STUB_LENGTH + 0.62) * address_radius(3)  # degenerate hubs reach like stubs
+
+
+# ---------------------------------------------------------------------------
+# Missing coordinates and colors
+# ---------------------------------------------------------------------------
+
+
+def _chain(n: int):
+    """A path graph 0-1-...-(n-1) over n addresses."""
+    from energnn.graph.graph import Graph
+    from energnn.graph.hyper_edge_set import HyperEdgeSet
+
+    hes = {"line": HyperEdgeSet.from_dict(port_dict={"from": np.arange(n - 1), "to": np.arange(1, n)}, feature_dict=None)}
+    return Graph.from_dict(hyper_edge_set_dict=hes, n_addresses=n)
+
+
+def test_missing_position_between_two_known_neighbors_is_their_midpoint():
+    positions = np.array([[0.0, 0.0], [np.nan, np.nan], [2.0, 4.0]])
+    data = extract_plot_data(_chain(3), iterations=10, seed=0, positions=positions)
+    np.testing.assert_allclose(data.pos[0, 1], (data.pos[0, 0] + data.pos[0, 2]) / 2, atol=1e-9)
+    assert data.inferred.tolist() == [[False, True, False]]
+
+
+def test_missing_run_is_spread_evenly_along_the_chain():
+    positions = np.full((6, 2), np.nan)
+    positions[0], positions[5] = [0.0, 0.0], [10.0, 0.0]
+    data = extract_plot_data(_chain(6), iterations=10, seed=0, positions=positions)
+    xs = data.pos[0, :6, 0]
+    np.testing.assert_allclose(np.diff(xs), np.diff(xs)[0], atol=1e-9)  # evenly spaced
+    assert np.all(np.diff(xs) > 0)
+    np.testing.assert_allclose(data.pos[0, :6, 1], 0.0, atol=1e-9)
+
+
+def test_missing_positions_in_3d_and_over_frames():
+    frames = np.full((3, 3, 3), np.nan)
+    for t in range(3):
+        frames[t, 0], frames[t, 2] = [0.0, 0.0, 0.0], [2.0, 2.0 * t, 2.0]
+    data = extract_plot_data(_chain(3), iterations=10, seed=0, positions=frames)
+    assert data.ndim == 3 and data.n_frames == 3
+    for t in range(3):
+        np.testing.assert_allclose(data.pos[t, 1], (data.pos[t, 0] + data.pos[t, 2]) / 2, atol=1e-9)
+
+
+def test_component_without_any_known_position_gets_a_layout_beside_the_known_cloud():
+    from energnn.graph.graph import Graph
+    from energnn.graph.hyper_edge_set import HyperEdgeSet
+
+    # two components: 0-1 known, 2-3 entirely unknown
+    hes = {"line": HyperEdgeSet.from_dict(port_dict={"from": np.array([0, 2]), "to": np.array([1, 3])}, feature_dict=None)}
+    graph = Graph.from_dict(hyper_edge_set_dict=hes, n_addresses=4)
+    positions = np.array([[0.0, 0.0], [1.0, 0.0], [np.nan, np.nan], [np.nan, np.nan]])
+    data = extract_plot_data(graph, iterations=10, seed=0, positions=positions)
+    assert np.isfinite(data.pos).all()
+    assert data.inferred.tolist() == [[False, False, True, True]]
+    assert data.pos[0, 2:4, 0].mean() > data.pos[0, 0:2, 0].max()  # placed to the right of the known addresses
+    assert np.linalg.norm(data.pos[0, 2] - data.pos[0, 3]) > 1e-3  # and not on top of each other
+
+
+def test_all_positions_missing_is_an_error(mixed_order_graph):
+    with pytest.raises(ValueError, match="all missing"):
+        extract_plot_data(mixed_order_graph, iterations=10, seed=0, positions=np.full((4, 2), np.nan))
+
+
+def test_missing_color_is_flagged_not_averaged(mixed_order_graph):
+    colors = np.array([[0.0], [np.nan], [2.0], [4.0]])
+    data = extract_plot_data(mixed_order_graph, iterations=10, seed=0, address_colors=colors)
+    assert data.missing_colors is not None and data.missing_colors.tolist() == [[False, True, False, False]]
+    np.testing.assert_allclose(data.color_range, [[0.0], [4.0]])  # the NaN does not stretch the range
+    with pytest.raises(ValueError, match="all missing"):
+        extract_plot_data(mixed_order_graph, iterations=10, seed=0, address_colors=np.full((4, 1), np.nan))
