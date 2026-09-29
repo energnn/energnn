@@ -254,6 +254,19 @@ class Graph(dict):
         p.text("..." if cycle else str(self))
 
     # ------------------------------------------------------------------
+    # Attribute access
+    # ------------------------------------------------------------------
+
+    def __getattr__(self, name: str) -> HyperEdgeSet:
+        """Access a hyper-edge set by class name: ``graph.bus`` is ``graph.hyper_edge_sets["bus"]``."""
+        if name.startswith("_"):
+            raise AttributeError(name)
+        hyper_edge_sets = self.get(HYPER_EDGE_SETS)
+        if hyper_edge_sets and name in hyper_edge_sets:
+            return hyper_edge_sets[name]
+        raise AttributeError(f"{type(self).__name__} has neither an attribute nor a hyper-edge class named '{name}'.")
+
+    # ------------------------------------------------------------------
     # Batch detection
     # ------------------------------------------------------------------
 
