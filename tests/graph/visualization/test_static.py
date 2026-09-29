@@ -244,7 +244,7 @@ def test_hyper_edge_colors_color_markers_and_lines_per_object():
     lines = _collection(ax, "line")
     line_faces = lines.get_facecolor()
     assert tuple(line_faces[0]) == _rgba(THEMES["light"].sequential[-1])  # flow 10 is the high end
-    assert tuple(line_faces[1]) == _rgba(THEMES["light"].palette[1])  # NaN flow: the class color
+    assert tuple(line_faces[1]) == _rgba(THEMES["light"].neutral)  # NaN flow: the (now neutral) class color
     labels = [a.get_ylabel() for a in ax.figure.axes]
     assert "hyper-edges" in labels and "addresses" not in labels
     both = plot_graph(_located_graph(), address_colors=np.arange(3.0)[:, None], hyper_edge_colors={"bus": ["load"]})
@@ -252,9 +252,12 @@ def test_hyper_edge_colors_color_markers_and_lines_per_object():
     assert "hyper-edges" in labels and "addresses" in labels
 
 
-def test_legend_keeps_class_colors_for_colored_classes():
+def test_hyper_edge_colors_turn_the_other_classes_neutral():
     ax = plot_graph(_located_graph(), hyper_edge_colors={"bus": ["load"]}, theme="light")
+    neutral = _rgba(THEMES["light"].neutral)
+    assert tuple(_collection(ax, "line").get_facecolor()[0]) == neutral  # the uncolored class loses its class color
+    assert all(line.get_color() == THEMES["light"].neutral for line in ax.lines)
+    assert len(np.unique(_collection(ax, "bus").get_facecolor(), axis=0)) == 3  # the colored class keeps its colormap
     legend = ax.get_legend()
     assert [t.get_text() for t in legend.get_texts()] == ["addresses", "bus", "line"]
-    bus_handle = legend.legend_handles[1]
-    assert _rgba(bus_handle.get_markerfacecolor()) == _rgba(THEMES["light"].palette[0])
+    assert all(_rgba(h.get_markerfacecolor()) == neutral for h in legend.legend_handles[1:])

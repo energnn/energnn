@@ -294,7 +294,8 @@ def plot_graph_interactive(
         above, with their own color scale shared by every listed class. A NaN keeps the class
         color.
     :param edge_colors: If False, hyper-edges are drawn in the neutral gray instead of one
-        color per class (marker shapes still tell classes apart).
+        color per class (marker shapes still tell classes apart). This is also what happens as
+        soon as ``hyper_edge_colors`` is given, so that only the feature colors carry a meaning.
     :param iterations: Number of layout relaxation steps (unused when positions are given).
     :param seed: Seed for the layout's random initial positions.
     :param size: Width and height of the drawing, in pixels.
@@ -318,6 +319,8 @@ def plot_graph_interactive(
         address_colors=address_colors,
         hyper_edge_colors=hyper_edge_colors,
     )
+    # once a class is colored by its features, the others are drawn in neutral so the colormap stands alone
+    edge_colors = edge_colors and not data.object_colors
     payload = _payload(data, size, edge_colors, theme)
     uid = f"energnn-plot-{next(_plot_ids)}"
 

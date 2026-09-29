@@ -315,7 +315,8 @@ def plot_graph(
         above, with their own color scale shared by every listed class. A NaN keeps the class
         color.
     :param edge_colors: If False, hyper-edges are drawn in the neutral gray instead of one
-        color per class (marker shapes still tell classes apart).
+        color per class (marker shapes still tell classes apart). This is also what happens as
+        soon as ``hyper_edge_colors`` is given, so that only the feature colors carry a meaning.
     :param iterations: Number of layout relaxation steps (unused when positions are given).
     :param seed: Seed for the layout's random initial positions.
     :param node_size: Address marker area; inferred from the number of addresses when None.
@@ -346,7 +347,8 @@ def plot_graph(
     if node_size is None:
         node_size = float(np.clip(4000.0 / max(data.n_addr, 1), 12.0, 130.0))
     line_width = float(np.clip(1.4 * np.sqrt(node_size / 130.0), 0.7, 1.4))
-    style = _Style(resolved, node_size, line_width, address_labels, port_labels, edge_colors)
+    # once a class is colored by its features, the others are drawn in neutral so the colormap stands alone
+    style = _Style(resolved, node_size, line_width, address_labels, port_labels, edge_colors and not data.object_colors)
 
     ax = _axes_for(ax, data, style.theme.surface)
     geoms = object_geometries(data)

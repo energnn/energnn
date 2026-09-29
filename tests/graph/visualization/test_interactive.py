@@ -182,5 +182,7 @@ def test_interactive_hyper_edge_positions_and_colors():
     assert [o["hub"] for o in classes["bus"]["objects"]] == [3, 4, 5]
     assert [o["color"] for o in classes["line"]["objects"]] == [[0.5], None]  # NaN flow: class color; lone value: mid
     assert all(o["color"] is None for o in classes["bus"]["objects"])
+    assert classes["bus"]["color"] is None and classes["line"]["color"] is None  # every class drawn in neutral
+    assert 'fill="var(--neutral)"' in plot._repr_html_()  # legend markers too
     assert '<span class="sc" data-ch="1">hyper-edges: 10<!--scale-->10</span>' in plot._repr_html_()
     assert "addresses:" not in plot._repr_html_()
