@@ -10,6 +10,7 @@ from .graph import (
     check_hyper_edge_set_dict_type,
     collate_graphs,
     concatenate_graphs,
+    merge_graphs,
     separate_graphs,
 )
 from .hyper_edge_set import (
@@ -21,10 +22,11 @@ from .hyper_edge_set import (
     collate_hyper_edge_sets,
     concatenate_hyper_edge_sets,
     dict2array,
+    merge_hyper_edge_sets,
     separate_hyper_edge_sets,
 )
 from .jax.utils import jnp_to_np, np_to_jnp
-from .shape import GraphShape, collate_shapes, max_shape, separate_shapes, sum_shapes
+from .shape import GraphShape, collate_shapes, max_shape, merge_shapes, separate_shapes, sum_shapes
 from .structure import GraphStructure, HyperEdgeSetStructure
 from .utils import to_numpy
 
@@ -43,6 +45,8 @@ __all__ = [
     "Graph",
     "collate_graphs",
     "concatenate_graphs",
+    "merge_graphs",
+    "merge_hyper_edge_sets",
     "separate_graphs",
     "check_hyper_edge_set_dict_type",
     "GraphShape",
@@ -50,6 +54,7 @@ __all__ = [
     "GraphStructure",
     "HyperEdgeSetStructure",
     "max_shape",
+    "merge_shapes",
     "separate_shapes",
     "sum_shapes",
     "to_numpy",

@@ -269,3 +269,26 @@ def sum_shapes(graph_shape_list: list[GraphShape]) -> GraphShape:
             raise ValueError("Invalid input in graph_list, expected GraphShape.")
         result = GraphShape.sum(result, shape)
     return result
+
+
+def merge_shapes(left: GraphShape, right: GraphShape) -> GraphShape:
+    """
+    Return the shape of two graphs describing the same objects merged together, see :func:`merge_graphs`.
+
+    The per-class counts are the union of both shapes, ``left`` first. A shape without addresses takes
+    the address count of the other one; when both declare addresses, the counts must be identical.
+
+    :param left: Shape whose backend and class order come first.
+    :param right: Shape describing the same objects.
+    :return: GraphShape with the union of the per-class counts.
+    :raises ValueError: If both shapes declare addresses with different counts.
+    """
+    hyper_edge_sets = dict(left.hyper_edge_sets)
+    for name, count in right.hyper_edge_sets.items():
+        hyper_edge_sets.setdefault(name, count)
+    left_addresses, right_addresses = np.asarray(left.addresses), np.asarray(right.addresses)
+    left_declared, right_declared = bool(np.any(left_addresses > 0)), bool(np.any(right_addresses > 0))
+    if left_declared and right_declared and not np.array_equal(left_addresses, right_addresses):
+        raise ValueError(f"Cannot merge shapes declaring different address counts: {left_addresses} vs {right_addresses}.")
+    addresses = right.addresses if right_declared and not left_declared else left.addresses
+    return GraphShape(backend=left._backend, hyper_edge_sets=hyper_edge_sets, addresses=addresses)

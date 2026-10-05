@@ -7,7 +7,7 @@
 import numpy as np
 import pytest
 
-from energnn.graph.shape import GraphShape, collate_shapes, max_shape, separate_shapes, sum_shapes
+from energnn.graph.shape import GraphShape, collate_shapes, max_shape, merge_shapes, separate_shapes, sum_shapes
 from tests.graph.utils import get_fixed_edge
 
 
@@ -125,3 +125,19 @@ def test_to_backend_conversion(backend):
     converted = gs.to_backend(other)
     assert converted._backend == other
     assert int(converted.addresses) == int(gs.addresses)
+
+
+def test_merge_shapes_unions_classes_and_takes_the_declared_addresses(backend):
+    xp = backend.xp
+    ctx = GraphShape(backend=backend, hyper_edge_sets={"bus": xp.array(3), "line": xp.array(2)}, addresses=xp.array(3))
+    dec = GraphShape(backend=backend, hyper_edge_sets={"bus": xp.array(3)}, addresses=xp.array(0))
+    for merged in (merge_shapes(ctx, dec), merge_shapes(dec, ctx)):
+        assert {k: int(v) for k, v in merged.hyper_edge_sets.items()} == {"bus": 3, "line": 2}
+        assert int(merged.addresses) == 3
+    assert list(merge_shapes(dec, ctx).hyper_edge_sets) == ["bus", "line"]
+    other = GraphShape(backend=backend, hyper_edge_sets={"sub": xp.array(1)}, addresses=xp.array(5))
+    with pytest.raises(ValueError, match="address counts"):
+        merge_shapes(ctx, other)
+    batch = collate_shapes([ctx, ctx])
+    merged = merge_shapes(batch, collate_shapes([dec, dec]))
+    assert np.asarray(merged.addresses).tolist() == [3, 3] and merged.is_batch
