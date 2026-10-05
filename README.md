@@ -36,7 +36,7 @@ If you want to install the extra GPU dependencies, use:
 pip install energnn[gpu]
 ```
 
-The static graph plots of `energnn.graph.visualization` need matplotlib, provided by the `viz` extra:
+The graph plots of `energnn.graph.visualization` need plotly, provided by the `viz` extra:
 
 ```shell
 pip install energnn[viz]
