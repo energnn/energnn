@@ -816,12 +816,17 @@ dependencies = [
     { name = "optax" },
     { name = "orbax" },
     { name = "pandas" },
+    { name = "scipy" },
     { name = "tqdm" },
 ]
 
 [package.optional-dependencies]
 gpu = [
     { name = "jax", extra = ["cuda12"] },
+]
+viz = [
+    { name = "nbformat" },
+    { name = "plotly" },
 ]
 
 [package.dev-dependencies]
@@ -833,6 +838,7 @@ dev = [
     { name = "flake8-pyproject" },
     { name = "mypy" },
     { name = "pandas-stubs" },
+    { name = "plotly" },
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "types-tqdm" },
@@ -842,6 +848,7 @@ docs = [
     { name = "ipykernel" },
     { name = "ipywidgets" },
     { name = "nbsphinx" },
+    { name = "plotly" },
     { name = "sphinx" },
     { name = "sphinx-copybutton" },
 ]
@@ -860,12 +867,15 @@ requires-dist = [
     { name = "jax", specifier = ">=0.9" },
     { name = "jax", extras = ["cuda12"], marker = "extra == 'gpu'" },
     { name = "mlflow" },
+    { name = "nbformat", marker = "extra == 'viz'", specifier = ">=4.2" },
     { name = "optax", specifier = ">=0.2.6" },
     { name = "orbax", specifier = ">=0.1.9" },
     { name = "pandas", specifier = ">=2.2.2" },
+    { name = "plotly", marker = "extra == 'viz'", specifier = ">=6" },
+    { name = "scipy", specifier = ">=1.13" },
     { name = "tqdm", specifier = "==4.67.0" },
 ]
-provides-extras = ["gpu"]
+provides-extras = ["gpu", "viz"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -876,6 +886,7 @@ dev = [
     { name = "flake8-pyproject", specifier = "==1.2.3" },
     { name = "mypy", specifier = "==1.13.0" },
     { name = "pandas-stubs", specifier = ">=2.2.2" },
+    { name = "plotly", specifier = ">=6" },
     { name = "pytest", specifier = ">=8.0.0" },
     { name = "pytest-cov", specifier = ">=2.19.2" },
     { name = "types-tqdm", specifier = ">=4" },
@@ -885,6 +896,7 @@ docs = [
     { name = "ipykernel" },
     { name = "ipywidgets" },
     { name = "nbsphinx" },
+    { name = "plotly", specifier = ">=6" },
     { name = "sphinx", specifier = "==8.1.3" },
     { name = "sphinx-copybutton" },
 ]
@@ -2167,6 +2179,15 @@ wheels = [
 ]
 
 [[package]]
+name = "narwhals"
+version = "2.27.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/f3/2e/325e6682e3ccdef9b7c681adfe0273e0b6bf5a90c759ecddbad06e619b55/narwhals-2.27.0.tar.gz", hash = "sha256:27a1b68b94c36bbe60ecc63fb9b37674a85a98bee3f45d179cbdc0a872bc9b8d", size = 708131, upload-time = "2026-10-05T11:15:06.121Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/16/67/1f0b582e73ce46511f2799cbdcdbdf9ca98f344f2aad42ff5ff5dde0d8fe/narwhals-2.27.0-py3-none-any.whl", hash = "sha256:9d5661f93a10cfb2b2cc2b3e6e866541dea1b05706a3bcd22f633d70cfae3067", size = 483037, upload-time = "2026-10-05T11:15:04.351Z" },
+]
+
+[[package]]
 name = "nbclient"
 version = "0.10.4"
 source = { registry = "https://pypi.org/simple" }
@@ -2831,6 +2852,19 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/61/33/9611380c2bdb1225fdef633e2a9610622310fed35ab11dac9620972ee088/platformdirs-4.5.0.tar.gz", hash = "sha256:70ddccdd7c99fc5942e9fc25636a8b34d04c24b335100223152c2803e4063312", size = 21632, upload-time = "2025-10-08T17:44:48.791Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/73/cb/ac7874b3e5d58441674fb70742e6c374b28b0c7cb988d37d991cde47166c/platformdirs-4.5.0-py3-none-any.whl", hash = "sha256:e578a81bb873cbb89a41fcc904c7ef523cc18284b7e3b3ccf06aca1403b7ebd3", size = 18651, upload-time = "2025-10-08T17:44:47.223Z" },
+]
+
+[[package]]
+name = "plotly"
+version = "7.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "narwhals" },
+    { name = "packaging" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/49/c3/72b369f5ed7701b04ab0ea3dcf83e9bbce71c0b3bc6f07f87568550d09ea/plotly-7.1.0.tar.gz", hash = "sha256:f860166a4a3d78c69cb1f4a15f28a5c8283eade98a282a698f3bb853a449ace5", size = 6689315, upload-time = "2026-09-15T19:21:21.75Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e5/7d/905a3a3d51087515719058c94cfbda2ff0fc14417c20d557ae3e82d8b250/plotly-7.1.0-py3-none-any.whl", hash = "sha256:dbb7fa18afce40d0a8e80d1bf162eceb3faa0ce5a77fe741ad09a74cf78f53f3", size = 9692368, upload-time = "2026-09-15T19:21:18.331Z" },
 ]
 
 [[package]]

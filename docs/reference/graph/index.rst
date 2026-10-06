@@ -55,6 +55,7 @@ Graph
     Graph.from_pickle
     Graph.is_batch
     Graph.is_single
+    Graph.n_addresses
     Graph.feature_flat_array
     Graph.pad
     Graph.unpad
@@ -144,3 +145,32 @@ describing the same objects (more ports and features, e.g. a decision attached t
     to_numpy
     np_to_jnp
     jnp_to_np
+
+
+Visualization
+=============
+
+.. currentmodule:: energnn.graph.visualization
+
+The :mod:`energnn.graph.visualization` module draws a single :class:`~energnn.graph.Graph` as an interactive
+`plotly <https://plotly.com/python/>`_ figure with tooltips, zoom and pan, displayed inline by notebooks. It
+requires the ``viz`` extra: ``pip install energnn[viz]``.
+
+:func:`plot_graph` places the addresses from an array (``address_positions``, for instance latent coordinates
+from a coupler) or the hyper-edges from their own features (``hyper_edge_positions``, e.g.
+``{"bus": ["x", "y"]}``, the addresses then following the hyper-edges that point to them), and colors the addresses
+from an array (``address_colors``) or the hyper-edges from one of their features (``hyper_edge_colors``, e.g.
+``{"line": "flow"}``). Hyper-edge classes are told apart by color and marker shape; ``hyper_edge_colors=False``
+keeps the shapes only.
+
+A notebook displays the figure when it ends a cell, in the notebook's own theme, light or dark (``theme`` forces
+one). The figure is drawn in the page by plotly.js, which the page loads from plotly's CDN: displaying it
+needs an internet access, and a notebook that trusts its outputs.
+
+.. autosummary::
+   :toctree: _autosummary
+   :nosignatures:
+
+    plot_graph
+    GraphFigure
+    spring_layout

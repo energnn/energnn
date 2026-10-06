@@ -36,6 +36,12 @@ If you want to install the extra GPU dependencies, use:
 pip install energnn[gpu]
 ```
 
+The graph plots of `energnn.graph.visualization` need plotly, provided by the `viz` extra:
+
+```shell
+pip install energnn[viz]
+```
+
 ## Quick Start
 
 This example shows how to train a small GNN to solve a linear system (DC Power Flow) modeled as a graph.
