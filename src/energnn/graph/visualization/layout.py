@@ -13,6 +13,8 @@ seconds, by grouping the nodes that are far from each other (see :func:`_repulsi
 
 from __future__ import annotations
 
+import functools
+
 import numpy as np
 from scipy.spatial import cKDTree
 
@@ -25,10 +27,9 @@ _MIN_DISTANCE = 0.1
 _GRAVITY = 1.0
 #: Up to this many nodes the repulsion is computed pair by pair; beyond, the far nodes are grouped by cells.
 _EXACT_UP_TO = 200
-#: Average number of nodes per cell of the finest grid, which sets its depth.
-_NODES_PER_CELL = 1.0
-#: Where the far cells of a cell can be, in cells along x and y: up to 3 cells away, its 8 neighbors excluded.
-_FAR_OFFSETS = [(dx, dy) for dx in range(-3, 4) for dy in range(-3, 4) if max(abs(dx), abs(dy)) > 1]
+#: The cells that push a cell at one level of the grids, relative to it: 2 or 3 cells away along x or y. The
+#: nearer cells are handled at a finer level, or node by node at the finest one (see :func:`_repulsion`).
+_FAR_CELLS = np.array([(dx, dy) for dx in range(-3, 4) for dy in range(-3, 4) if max(abs(dx), abs(dy)) > 1])
 
 
 def spring_layout(n_nodes: int, edges: np.ndarray, *, iterations: int = 150, seed: int = 0) -> np.ndarray:
@@ -60,12 +61,12 @@ def spring_layout(n_nodes: int, edges: np.ndarray, *, iterations: int = 150, see
     # two nodes attract each other once, however many edges join them, and a node does not attract itself
     links = np.sort(np.asarray(edges, dtype=int).reshape(-1, 2), axis=1)
     a, b = np.unique(links[links[:, 0] != links[:, 1]], axis=0).T
-    depth = 0 if n_nodes <= _EXACT_UP_TO else int(np.ceil(np.log2(np.sqrt(n_nodes / _NODES_PER_CELL))))
+    depth = 0 if n_nodes <= _EXACT_UP_TO else int(np.log2(np.sqrt(n_nodes)))  # 1 to 4 nodes per cell of the finest grid
     for _ in range(iterations):
         displacement = k * k * _repulsion(pos, depth, _MIN_DISTANCE * k)  # repulsion for all pairs: k² / dist
         delta = pos[a] - pos[b]
         pull = delta * np.linalg.norm(delta, axis=-1, keepdims=True) / k  # attraction for neighbors: dist² / k
-        displacement += _sum_per_node(b, pull, n_nodes) - _sum_per_node(a, pull, n_nodes)
+        displacement += _scatter_add(b, pull, n_nodes) - _scatter_add(a, pull, n_nodes)
         displacement -= _GRAVITY * (pos - pos.mean(axis=0))
         length = np.maximum(np.linalg.norm(displacement, axis=-1, keepdims=True), 1e-9)
         pos += displacement / length * np.minimum(length, temperature)  # move along the force, capped
@@ -75,15 +76,28 @@ def spring_layout(n_nodes: int, edges: np.ndarray, *, iterations: int = 150, see
     return pos / scale if scale > 0 else pos
 
 
-def _sum_per_node(index: np.ndarray, vectors: np.ndarray, n: int) -> np.ndarray:
-    """Add up 2-d ``vectors`` per node: row ``i`` of the result is the sum of the vectors whose ``index`` is ``i``.
+def _scatter_add(index: np.ndarray, vectors: np.ndarray, n: int) -> np.ndarray:
+    """Scatter-add 2-d ``vectors`` into ``n`` rows: row ``i`` of the result is the sum of the vectors whose ``index``
+    is ``i``. It is what ``np.add.at(out, index, vectors)`` does, several times faster.
 
-    :param index: The node of each vector, shape ``(m,)``.
+    :param index: The row of each vector, shape ``(m,)``.
     :param vectors: Shape ``(m, 2)``.
-    :param n: Number of nodes.
+    :param n: Number of rows.
     :return: Shape ``(n, 2)``.
     """
     return np.stack([np.bincount(index, vectors[:, axis], minlength=n) for axis in (0, 1)], axis=-1)
+
+
+@functools.lru_cache(maxsize=16)
+def _pushed(g: int) -> list[np.ndarray]:
+    """For each offset ``d`` of :data:`_FAR_CELLS`, the cells ``c`` of the ``g x g`` grid that the cell ``c + d``
+    pushes at this level of :func:`_repulsion`: those whose parent is the parent of ``c + d`` or a neighbor of it.
+
+    :return: One boolean mask of shape ``(g, g)`` per offset.
+    """
+    grid = np.indices((g, g))  # (2, g, g): the row and the column of every cell
+    # halving a cell gives its parent; a cell outside the grid may pass, it has no mass and pushes nothing
+    return [(np.abs((grid + d[:, None, None]) // 2 - grid // 2) <= 1).all(axis=0) for d in _FAR_CELLS]
 
 
 def _repulsion(pos: np.ndarray, depth: int, min_distance: float) -> np.ndarray:
@@ -99,10 +113,10 @@ def _repulsion(pos: np.ndarray, depth: int, min_distance: float) -> np.ndarray:
     - two nodes in the same cell or in adjacent cells of the finest grid are *near*: they repel each other
       one by one, exactly;
     - any other pair of nodes is handled once, at the coarsest level where their cells are not adjacent,
-      by a force between the two cells: every node of one cell is pushed by the other cell as a whole. At
-      each level, the cells to consider for a given cell are therefore the children of its parent's
-      neighbors that are not its own neighbors (at most 27 cells): the cells further away were already
-      handled at a coarser level, through the parents.
+      by a push between the two cells: every node of one cell is pushed by the other cell as a whole. At
+      each level, the cells that push a given cell are therefore those 2 or 3 cells away from it whose
+      parent is its own parent or a neighbor of it (:func:`_pushed`): the cells further away were handled
+      at a coarser level, through the parents.
 
     :param pos: The node positions, shape ``(n, 2)``.
     :param depth: The finest grid has ``2**depth`` cells per side; 0 means no grid, every pair is near.
@@ -119,38 +133,24 @@ def _repulsion(pos: np.ndarray, depth: int, min_distance: float) -> np.ndarray:
     for level in range(2, depth + 1):
         g = 2**level
         cell = cells >> (depth - level)  # cell of each node in the g x g grid: halving an index gives the parent
-        flat = cell[:, 0] * g + cell[:, 1]
-        mass = np.bincount(flat, minlength=g * g)  # number of nodes per cell
-        center = (_sum_per_node(flat, pos, g * g) / np.maximum(mass, 1)[:, None]).reshape(g, g, 2)  # center of mass
-        mass = mass.reshape(g, g)
-        push = np.zeros((g, g, 2))  # the force on one node of each cell
-        for dx, dy in _FAR_OFFSETS:
-            (to_x, from_x), (to_y, from_y) = _far_slices(g, dx), _far_slices(g, dy)
-            delta = center[to_x, to_y] - center[from_x, from_y]
-            dist2 = np.maximum(delta[..., 0] ** 2 + delta[..., 1] ** 2, min_distance**2)
-            push[to_x, to_y] += delta * (mass[from_x, from_y] / dist2)[..., None]  # an empty cell has no mass
-        force += push[cell[:, 0], cell[:, 1]]
+        index = cell[:, 0] * g + cell[:, 1]  # the cells numbered from 0 to g² - 1
+        mass = np.bincount(index, minlength=g * g).astype(float)  # number of nodes per cell
+        center = (_scatter_add(index, pos, g * g) / np.maximum(mass, 1.0)[:, None]).reshape(g, g, 2)  # center of mass
+        # the grids are padded with 3 empty cells on each side, so that the cell c + d of every cell c is the
+        # slice [3 + d, 3 + d + g] for every offset d: an empty cell has no mass and pushes nothing
+        padded_center, padded_mass = np.pad(center, ((3, 3), (3, 3), (0, 0))), np.pad(mass.reshape(g, g), 3)
+        push = np.zeros((g, g, 2))  # the push on one node of each cell
+        for (dx, dy), pushed in zip(_FAR_CELLS, _pushed(g)):
+            other = (slice(3 + dx, 3 + dx + g), slice(3 + dy, 3 + dy + g))
+            delta = center - padded_center[other]
+            dist2 = np.maximum((delta**2).sum(axis=-1), min_distance**2)
+            push += delta * (pushed * padded_mass[other] / dist2)[..., None]
+        force += push.reshape(-1, 2)[index]
     # near nodes, pair by pair: the k-d tree lists the pairs at most two cells apart along each axis (every pair
-    # when there is no grid), among which the pairs of adjacent cells are kept
+    # when there is no grid), among which the pairs of the same or adjacent cells are kept
     pairs = cKDTree(pos).query_pairs(2.0 * side / finest, p=np.inf, output_type="ndarray")
     i, j = pairs[(np.abs(cells[pairs[:, 0]] - cells[pairs[:, 1]]) <= 1).all(axis=1)].T
     delta = pos[i] - pos[j]
-    dist2 = np.maximum(delta[..., 0] ** 2 + delta[..., 1] ** 2, min_distance**2)
+    dist2 = np.maximum((delta**2).sum(axis=-1), min_distance**2)
     push = delta / dist2[:, None]
-    return force + _sum_per_node(i, push, n) - _sum_per_node(j, push, n)
-
-
-def _far_slices(g: int, d: int) -> tuple[slice, slice]:
-    """Along one axis of a ``g``-cell grid: the cells that have a far cell ``d`` cells further, and those far cells.
-
-    Used by :func:`_repulsion`, where a cell ``c`` and the cell ``c + d`` interact when their parents
-    (``c // 2`` and ``(c + d) // 2``) are the same or adjacent. That holds for any ``c`` when ``|d| <= 2``,
-    only for the even ``c`` when ``d = 3`` and only for the odd ``c`` when ``d = -3``.
-
-    :return: The slice of the cells ``c`` and the slice of the cells ``c + d``, both inside the grid.
-    """
-    if d == 3:
-        return slice(0, g - 3, 2), slice(3, g, 2)
-    if d == -3:
-        return slice(3, g, 2), slice(0, g - 3, 2)
-    return slice(max(0, -d), g - max(0, d)), slice(max(0, d), g - max(0, -d))
+    return force + _scatter_add(i, push, n) - _scatter_add(j, push, n)

@@ -23,7 +23,6 @@ from energnn.graph.visualization.plot import (  # noqa: E402
     THEMES,
     _markers,
     _positions,
-    _read,
     _swatches,
 )
 
@@ -47,8 +46,8 @@ def _xy(trace):
 
 def _placed(graph, address_positions=None, hyper_edge_positions=None):
     """The addresses and the markers of a graph, as ``plot_graph`` places them."""
-    mask, classes = _read(graph)
-    addresses, placed = _positions(classes, mask, address_positions, hyper_edge_positions or {}, 10, 0)
+    classes = {name: hes for name, hes in sorted(graph.hyper_edge_sets.items()) if hes.port_dict}
+    addresses, placed = _positions(classes, graph.n_addresses, address_positions, hyper_edge_positions or {}, 10, 0)
     return addresses, _markers(classes, addresses, placed, RADIUS)
 
 
@@ -82,11 +81,11 @@ def test_skips_fictitious_and_rejects_batches(mixed_order_graph, padded_shape):
         plot_graph(collate_graphs([mixed_order_graph, mixed_order_graph]))
     reference = plot_graph(mixed_order_graph, address_positions=SQUARE)
     mixed_order_graph.pad(padded_shape)
-    for positions in (SQUARE, np.concatenate([SQUARE, np.full((3, 2), 100.0)])):  # real or padded length
-        padded = plot_graph(mixed_order_graph, address_positions=positions)
-        assert len(padded.data) == len(reference.data)
-        for a, b in zip(padded.data, reference.data):
-            np.testing.assert_allclose(_xy(a), _xy(b))
+    padded = plot_graph(mixed_order_graph, address_positions=SQUARE)
+    assert mixed_order_graph.n_addresses == 7  # the graph itself is left padded
+    assert len(padded.data) == len(reference.data)
+    for a, b in zip(padded.data, reference.data):
+        np.testing.assert_allclose(_xy(a), _xy(b))
 
 
 def test_classes_without_port_or_object_are_not_drawn(portless_graph):
@@ -103,7 +102,7 @@ def test_themes_and_class_colors(mixed_order_graph):
         assert _trace(figure, "line", "lines")[0].line.color == theme.palette[1]
         assert _trace(figure, "addresses").marker.color == theme.surface
     assert plot_graph(mixed_order_graph).layout.paper_bgcolor == THEMES["light"].surface  # "auto" is built light
-    plain = plot_graph(mixed_order_graph, edge_colors=False)
+    plain = plot_graph(mixed_order_graph, hyper_edge_colors=False)
     assert {_trace(plain, cls).marker.color for cls in ("gen", "line", "trafo3w")} == {THEMES["light"].neutral}
     with pytest.raises(ValueError, match="theme"):
         plot_graph(mixed_order_graph, theme="solarized")
@@ -191,7 +190,7 @@ def test_hyper_edge_positions_place_the_markers(located_graph):
 
 
 def test_hyper_edge_positions_place_the_addresses(located_graph):
-    with pytest.raises(ValueError, match=r"addresses \[3\] are pointed to by no placed object"):
+    with pytest.raises(ValueError, match=r"addresses \[3\] are pointed to by no placed hyper-edge"):
         plot_graph(located_graph, hyper_edge_positions={"bus": ["x", "y"]})
     hes = {name: located_graph.hyper_edge_sets[name] for name in ("bus", "line")}
     addresses, markers = _placed(
@@ -205,16 +204,16 @@ def test_hyper_edge_positions_place_the_addresses(located_graph):
 
 
 @pytest.mark.parametrize(
-    "spec, message",
+    "spec, error",
     [
-        ({"nope": ["x", "y"]}, "no hyper-edge class 'nope'"),
-        ({"theta": ["value", "value"]}, "no hyper-edge class 'theta'"),  # a class without port is not drawn
-        ({"bus": ["x"]}, "2 feature names"),
-        ({"bus": ["x", "nope"]}, "no feature 'nope'"),
+        ({"nope": ["x", "y"]}, KeyError),
+        ({"theta": ["value", "value"]}, KeyError),  # a class without port is not drawn
+        ({"bus": ["x"]}, ValueError),
+        ({"bus": ["x", "nope"]}, KeyError),
     ],
 )
-def test_hyper_edge_positions_errors(located_graph, spec, message):
-    with pytest.raises(ValueError, match=message):
+def test_hyper_edge_positions_errors(located_graph, spec, error):
+    with pytest.raises(error):
         plot_graph(located_graph, hyper_edge_positions=spec)
 
 
@@ -262,13 +261,8 @@ def test_classes_not_colored_by_a_value_turn_neutral(located_graph):
     assert _trace(figure, "bus").marker.color == THEMES["light"].neutral
     assert [t.marker.colorbar.title.text for t in figure.data if t.marker.showscale] == ["line.flow", "addresses"]
     assert len({t.marker.colorbar.x for t in figure.data if t.marker.showscale}) == 2  # side by side
-    errors = [
-        ({"nope": "x"}, "no hyper-edge class 'nope'"),
-        ({"bus": "nope"}, "no feature 'nope'"),
-        ({"bus": ["load"]}, "no feature"),
-    ]
-    for spec, message in errors:
-        with pytest.raises(ValueError, match=message):
+    for spec in ({"nope": "x"}, {"bus": "nope"}, {"theta": "value"}):
+        with pytest.raises(KeyError):
             plot_graph(located_graph, hyper_edge_colors=spec)
     located_graph.line.flow = np.array([np.nan, np.nan])
     with pytest.raises(ValueError, match="all missing"):

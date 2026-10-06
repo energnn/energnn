@@ -12,7 +12,7 @@ by notebooks. It needs the ``viz`` extra: ``pip install energnn[viz]``.
 
 Things are placed by ``address_positions`` (an array, one row per address) or ``hyper_edge_positions``
 (``{class: [x_feature, y_feature]}``), and colored by ``address_colors`` (an array, one value per address) or
-``hyper_edge_colors`` (``{class: feature}``).
+``hyper_edge_colors`` (``{class: feature}``, or ``False`` for no color at all).
 
 The module is made of :mod:`.plot`, which builds the figure, and :mod:`.layout`, the force-directed layout
 that places the addresses when no coordinate is given.

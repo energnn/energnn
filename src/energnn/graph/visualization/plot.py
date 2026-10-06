@@ -6,29 +6,23 @@
 
 """Interactive rendering of a Graph as a plotly figure. Requires the ``viz`` extra (``pip install energnn[viz]``).
 
-**Vocabulary** (see also the Basics page of the documentation): an *address* is an integer node of the graph;
-a *hyper-edge* (or *object*) belongs to a *class* (``"bus"``, ``"line"``, ...), points to addresses through
-its *ports* (``"from"``, ``"to"``, ...) and carries numerical *features*.
+**How a graph is drawn.** The addresses are numbered circles. Every hyper-edge is a marker, whose shape and
+color tell its class, with one straight line (a *spoke*) to the address of each of its ports. The marker sits
+at the barycenter of these addresses: a line between two buses is thus a segment with its marker in the middle,
+a three-winding transformer a star. Two cases would hide a marker, and are handled by :func:`_markers`:
 
-**How a graph is drawn.** The addresses are numbered circles. Every object is a marker, whose shape and color
-tell its class, with one straight line (a *spoke*) to the address of each of its ports. The marker sits at the
-barycenter of these addresses: a line between two buses is thus a segment with its marker in the middle, a
-three-winding transformer a star. Two cases would hide a marker, and are handled by :func:`_markers`:
+- hyper-edges pointing to a single address (a bus, a generator) are spread around it, a short distance away;
+- hyper-edges pointing to the same addresses (parallel lines) are fanned out on either side of their barycenter.
 
-- objects pointing to a single address (a bus, a generator) are spread around it, a short distance away;
-- objects pointing to the same addresses (parallel lines) are fanned out on either side of their barycenter.
-
-**How it works.** :func:`plot_graph` goes through four steps, on arrays holding one row per object:
-
-1. :func:`_read` extracts the real (non-fictitious) objects of each class from the Graph;
-2. :func:`_positions` places the addresses in the ``[-1, 1]`` box, from the user's coordinates or from a
-   force-directed layout (:mod:`.layout`), then :func:`_markers` places the objects;
-3. :func:`_shades` turns the values to display into colors;
-4. the figure is assembled from plotly *traces*, a trace being a set of points or lines sharing a style: for
-   each class, one trace for its markers and one for its spokes, then one trace for the addresses.
+**How it works.** :func:`plot_graph` works on a copy of the Graph without its padding (:meth:`Graph.unpad`),
+in which the classes that draw nothing (without port or without hyper-edge) are ignored. Then :func:`_positions`
+places the addresses in the ``[-1, 1]`` box, from the user's coordinates or from a force-directed layout
+(:mod:`.layout`), :func:`_markers` places the hyper-edges, :func:`_shades` turns the values to display into
+colors, and the figure is assembled from plotly *traces*, a trace being a set of points or lines sharing a
+style: for each class, one trace for its markers and one for its spokes, then one trace for the addresses.
 
 Big graphs use traces of the ``scattergl`` type, drawn by the graphics card (WebGL), which keeps zoom and pan
-fluid with hundreds of thousands of objects, provided that the browser has access to a graphics card. Small
+fluid with hundreds of thousands of hyper-edges, provided that the browser has access to a graphics card. Small
 graphs use the ``scatter`` type, drawn as SVG like the rest of a web page: a page cannot hold more than a few
 WebGL figures at once, and a notebook is a single page. Zoom, pan, tooltips, the legend and the export to HTML
 are plotly's.
@@ -42,7 +36,6 @@ script can do that, since the Python side cannot see the theme of the notebook.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 import numpy as np
@@ -59,6 +52,7 @@ except ImportError as exc:  # pragma: no cover
 
 if TYPE_CHECKING:
     from energnn.graph.graph import Graph
+    from energnn.graph.hyper_edge_set import HyperEdgeSet
 
 
 class Theme(NamedTuple):
@@ -98,9 +92,9 @@ SYMBOLS = (
 )
 
 # --- sizes: lengths are in layout units (the addresses fill the [-1, 1] box), marker sizes in pixels ---------
-#: Distance from an address to the markers of the objects pointing only to it, in address radii.
+#: Distance from an address to the markers of the hyper-edges pointing only to it, in address radii.
 STUB_LENGTH = 2.6
-#: Largest distance between two neighbors among objects fanned out, in layout units.
+#: Largest distance between two neighbors among hyper-edges fanned out, in layout units.
 FAN_HEIGHT = 0.09
 #: Radius of an address, in pixels on a 640-pixel figure, whatever the size of the graph and the zoom.
 ADDRESS_RADIUS = 13.0
@@ -111,7 +105,7 @@ DIGIT_HALF_WIDTH, LABEL_MARGIN = 0.28, 0.21
 MARKER_RATIO = 0.62
 #: Number of shades of the colormap that the values are colored with.
 N_SHADES = 16
-#: Up to this many things to draw (addresses and objects), the figure is drawn as SVG; beyond, with WebGL.
+#: Up to this many things to draw (addresses and hyper-edges), the figure is drawn as SVG; beyond, with WebGL.
 SVG_UP_TO = 1000
 #: Display options, that plotly takes apart from the figure: the mouse wheel zooms, no plotly logo in the toolbar.
 _CONFIG = {"scrollZoom": True, "displaylogo": False}
@@ -128,7 +122,7 @@ _CONFIG = {"scrollZoom": True, "displaylogo": False}
 #:    it is not the theme the figure was built in, ``swap`` replaces every color of the figure by its
 #:    counterpart in the other theme, the two lists of colors being given side by side by :func:`_swatches`;
 #: 4. ``draw`` also undoes a CSS zoom set around the figure, which plotly.js does not support: its tooltips
-#:    would show up for another object than the one under the mouse. PyCharm sets such a zoom when the IDE
+#:    would show up for another hyper-edge than the one under the mouse. PyCharm sets such a zoom when the IDE
 #:    is zoomed.
 #:
 #: A notebook may insert the same HTML several times (PyCharm does it twice for every output, and JupyterLab
@@ -238,110 +232,47 @@ class GraphFigure(go.Figure):
         return html
 
 
-@dataclass
-class _Class:
-    """The real objects of one hyper-edge class, one row per object.
-
-    :param port_names: Its port names, sorted.
-    :param ports: The addresses of the objects, shape ``(n_objects, n_ports)``, columns in ``port_names`` order.
-    :param features: The features of the objects, by feature name, each of shape ``(n_objects,)``.
-    """
-
-    port_names: list[str]
-    ports: np.ndarray
-    features: dict[str, np.ndarray]
-
-
-def _read(graph: Graph) -> tuple[np.ndarray, dict[str, _Class]]:
-    """Extract what is drawn from a single Graph.
-
-    A Graph is padded with fictitious objects and addresses so that graphs of different sizes can be batched;
-    they are dropped here. So are the classes that have no port or no object, which draw nothing.
-
-    :return: The mask of the real addresses over the (possibly padded) address registry, and the classes by
-        name, sorted, which fixes the class order used for colors and marker shapes.
-    :raises ValueError: If the graph is batched.
-    """
-    if not graph.is_single:
-        raise ValueError("Only single graphs can be drawn; use separate_graphs() on a batch first.")
-    g = graph.to_numpy_backend()
-    classes = {}
-    for name in sorted(g.hyper_edge_sets):
-        hes = g.hyper_edge_sets[name]
-        real = np.asarray(hes.non_fictitious) > 0  # one flag per object row, False for the padding
-        if not hes.port_dict or not real.any():
-            continue
-        port_names = sorted(hes.port_dict)
-        ports = np.stack([np.asarray(hes.port_dict[k])[real] for k in port_names], axis=-1).astype(int)
-        # features are stored as one array with one column per feature; feature_names maps a name to its column
-        columns = sorted((hes.feature_names or {}).items())
-        features = {k: np.asarray(hes.feature_array)[real][:, int(i)].astype(float) for k, i in columns}
-        classes[name] = _Class(port_names, ports, features)
-    return np.asarray(g.non_fictitious_addresses) > 0, classes
-
-
-def _feature(classes: dict[str, _Class], cls: str, feature: str, what: str) -> np.ndarray:
-    """The values of one feature of one class, shape ``(n_objects,)``; ``what`` names the parameter in the errors."""
-    if cls not in classes:
-        raise ValueError(f"{what}: no hyper-edge class '{cls}' to draw; the graph has {list(classes)}.")
-    if not isinstance(feature, str) or feature not in classes[cls].features:
-        raise ValueError(f"{what}['{cls}']: no feature '{feature}'; the class has {list(classes[cls].features)}.")
-    return classes[cls].features[feature]
-
-
-def _per_address(values: Any, name: str, mask: np.ndarray, width: tuple[int, ...]) -> np.ndarray:
-    """Validate a per-address user array of shape ``(n, *width)`` and drop its fictitious rows.
-
-    The user may give one row per real address, or one row per address of the padded registry.
-    """
-    array = np.asarray(values, dtype=float)
-    if array.shape[1:] != width or len(array) not in (len(mask), int(mask.sum())):
-        raise ValueError(
-            f"{name} must have shape {(int(mask.sum()), *width)} (or {len(mask)} padded rows); got {array.shape}."
-        )
-    return array[mask] if len(array) == len(mask) else array
-
-
 def _positions(
-    classes: dict[str, _Class],
-    mask: np.ndarray,
+    classes: dict[str, HyperEdgeSet],
+    n: int,
     address_positions: Any,
-    spec: dict[str, list[str]],
+    hyper_edge_positions: dict[str, list[str]],
     iterations: int,
     seed: int,
 ) -> tuple[np.ndarray, dict[str, np.ndarray]]:
-    """Place the addresses in the ``[-1, 1]`` box.
+    """Place the ``n`` addresses in the ``[-1, 1]`` box.
 
-    The coordinates come, in order of precedence, from ``address_positions``; from the objects placed by
-    ``spec`` (``hyper_edge_positions``), each address going to the mean position of the placed objects that
-    point to it; otherwise from a force-directed layout. User coordinates are fitted into the box with one
-    translation and one scale, so that the drawing keeps their geometry.
+    The coordinates come, in order of precedence, from ``address_positions``; from the hyper-edges placed by
+    ``hyper_edge_positions``, each address going to the mean position of the placed hyper-edges that point to
+    it; otherwise from a force-directed layout. User coordinates are fitted into the box with one translation
+    and one scale, so that the drawing keeps their geometry.
 
-    :return: The address positions, shape ``(n_addresses, 2)``, and for each class of ``spec`` the positions
-        of its objects, shape ``(n_objects, 2)``, with NaN rows for the objects whose features are NaN.
-    :raises ValueError: On a wrong shape or NaN in ``address_positions``, an unknown class or feature in
-        ``spec``, or when the placed objects leave an address without position.
+    :param classes: The hyper-edge sets drawn, by class name.
+    :return: The address positions, shape ``(n, 2)``, and for each class of ``hyper_edge_positions`` the
+        positions of its hyper-edges, shape ``(n_obj, 2)``, with NaN rows for the hyper-edges whose features
+        are NaN.
+    :raises ValueError: On a wrong shape or NaN in ``address_positions``, or when the placed hyper-edges leave
+        an address without position.
     """
-    n = int(mask.sum())
-    placed = {}
-    for cls, names in spec.items():
-        if len(names) != 2:
-            raise ValueError(f"hyper_edge_positions['{cls}'] must list 2 feature names (x, y); got {list(names)}.")
-        placed[cls] = np.stack([_feature(classes, cls, name, "hyper_edge_positions") for name in names], axis=-1)
+    placed = {
+        cls: np.stack([(classes[cls].feature_dict or {})[name] for name in (x, y)], axis=-1).astype(float)
+        for cls, (x, y) in hyper_edge_positions.items()
+    }
     if address_positions is not None:
-        addresses = _per_address(address_positions, "address_positions", mask, (2,))
-        if np.isnan(addresses).any():
-            raise ValueError("address_positions holds NaN; every real address needs a position.")
+        addresses = np.asarray(address_positions, dtype=float)
+        if addresses.shape != (n, 2) or np.isnan(addresses).any():
+            raise ValueError(f"address_positions must have shape {(n, 2)} and no NaN; got shape {addresses.shape}.")
     elif placed:
         total, hits = np.zeros((n, 2)), np.zeros(n)
         for cls, xy in placed.items():
             known = np.isfinite(xy).all(axis=1)
-            np.add.at(total, classes[cls].ports[known], xy[known, None])  # each object adds its position to its addresses
-            np.add.at(hits, classes[cls].ports[known], 1)
+            ports = classes[cls].port_array[known]
+            np.add.at(total, ports, xy[known, None])  # each hyper-edge adds its position to its addresses
+            np.add.at(hits, ports, 1)
         if not hits.all():
             raise ValueError(
-                f"addresses {np.flatnonzero(hits == 0).tolist()} are pointed to by no placed object, so they have no "
-                "position; give address_positions, or place a class whose ports cover every address."
+                f"addresses {np.flatnonzero(hits == 0).tolist()} are pointed to by no placed hyper-edge, so they have "
+                "no position; give address_positions, or place a class whose ports cover every address."
             )
         addresses = total / hits[:, None]
     else:
@@ -352,47 +283,47 @@ def _positions(
     return (addresses - center) / scale, {cls: (xy - center) / scale for cls, xy in placed.items()}
 
 
-def _spring(classes: dict[str, _Class], n: int, iterations: int, seed: int) -> np.ndarray:
-    """Place the addresses with :func:`.layout.spring_layout`.
+def _spring(classes: dict[str, HyperEdgeSet], n: int, iterations: int, seed: int) -> np.ndarray:
+    """Place the ``n`` addresses with :func:`.layout.spring_layout`.
 
-    The simulated graph has one node per address. An object with two ports links its two addresses. An object
-    with more ports gets a node of its own, linked to each of its addresses, which pulls them together; this
-    node is only there for the simulation, the marker is placed afterwards like any other.
+    The simulated graph has one node per address. A hyper-edge with two ports links its two addresses. A
+    hyper-edge with more ports gets a node of its own, linked to each of its addresses, which pulls them
+    together; this node is only there for the simulation, the marker is placed afterwards like any other.
     """
     edges, n_nodes = [np.zeros((0, 2), dtype=int)], n
-    for c in classes.values():
-        if c.ports.shape[1] == 2:
-            edges.append(c.ports)
-        elif c.ports.shape[1] > 2:
-            nodes = n_nodes + np.arange(len(c.ports))
+    for hes in classes.values():
+        ports = hes.port_array
+        if ports.shape[1] == 2:
+            edges.append(ports)
+        elif ports.shape[1] > 2:
+            nodes = n_nodes + np.arange(len(ports))
             n_nodes += len(nodes)
-            edges.append(np.stack([np.repeat(nodes, c.ports.shape[1]), c.ports.ravel()], axis=-1))
+            edges.append(np.stack([np.repeat(nodes, ports.shape[1]), ports.ravel()], axis=-1))
     return spring_layout(n_nodes, np.concatenate(edges), iterations=iterations, seed=seed)[:n]
 
 
 def _markers(
-    classes: dict[str, _Class], addresses: np.ndarray, placed: dict[str, np.ndarray], radius: float
+    classes: dict[str, HyperEdgeSet], addresses: np.ndarray, placed: dict[str, np.ndarray], radius: float
 ) -> dict[str, np.ndarray]:
-    """Place the marker of every object: at its given position if any, otherwise at the barycenter of its addresses.
+    """Place the marker of every hyper-edge: at its given position if any, otherwise at the barycenter of its addresses.
 
-    Objects pointing to the same addresses (whatever their classes) would have the same barycenter. They are
-    ranked, and moved apart according to their rank:
+    Hyper-edges pointing to the same addresses (whatever their classes) would have the same barycenter. They
+    are ranked, and moved apart according to their rank:
 
     - around the address, ``STUB_LENGTH`` radii away from it, when they point to a single address;
     - otherwise along the perpendicular to the line joining their two extreme addresses, by at most
       ``FAN_HEIGHT`` between two neighbors, and less when these addresses are close to each other.
 
-    An object placed by its features on its only address (a bus that gives its position to its address) would
-    be hidden by it, and is moved away like the others.
+    A hyper-edge placed by its features on its only address (a bus that gives its position to its address)
+    would be hidden by it, and is moved away like the others.
 
     :param radius: The address radius that distances are counted in, in layout units.
-    :return: For each class, the marker positions, shape ``(n_objects, 2)``.
+    :return: For each class, the marker positions, shape ``(n_obj, 2)``.
     """
-    # the addresses of each object, sorted and padded with -1 to the same width for all classes: its group key
-    width = max(c.ports.shape[1] for c in classes.values())
-    keys = np.concatenate(
-        [np.pad(np.sort(c.ports), ((0, 0), (0, width - c.ports.shape[1])), constant_values=-1) for c in classes.values()]
-    )
+    ports = [hes.port_array for hes in classes.values()]
+    # the addresses of each hyper-edge, sorted and padded with -1 to the same width for all classes: its group key
+    width = max(p.shape[1] for p in ports)
+    keys = np.concatenate([np.pad(np.sort(p), ((0, 0), (0, width - p.shape[1])), constant_values=-1) for p in ports])
     single = keys[:, 0] == keys.max(axis=1)
     keys[single, 1:] = -1  # a single address, however many ports point to it
     _, group, count = np.unique(keys, axis=0, return_inverse=True, return_counts=True)
@@ -409,14 +340,14 @@ def _markers(
     length = np.maximum(np.linalg.norm(chord, axis=1, keepdims=True), 1e-9)
     normal = np.stack([-chord[:, 1], chord[:, 0]], axis=-1) / length
     fan = (rank - (count - 1) / 2.0)[:, None] * np.minimum(0.3 * length, FAN_HEIGHT) * normal
-    barycenter = np.concatenate([addresses[c.ports].mean(axis=1) for c in classes.values()])
+    barycenter = np.concatenate([addresses[p].mean(axis=1) for p in ports])
     markers = np.where(single[:, None], around, barycenter + fan)
 
-    sizes = np.cumsum([len(c.ports) for c in classes.values()])[:-1]
+    sizes = np.cumsum([len(p) for p in ports])[:-1]
     out = dict(zip(classes, np.split(markers, sizes)))
-    for (cls, xy), alone in zip(out.items(), np.split(single, sizes)):
+    for (cls, xy), alone, p in zip(out.items(), np.split(single, sizes), ports):
         if cls in placed:
-            hidden = alone & (np.linalg.norm(placed[cls] - addresses[classes[cls].ports[:, 0]], axis=1) < radius)
+            hidden = alone & (np.linalg.norm(placed[cls] - addresses[p[:, 0]], axis=1) < radius)
             given = np.isfinite(placed[cls]).all(axis=1) & ~hidden
             xy[given] = placed[cls][given]
     return out
@@ -459,8 +390,7 @@ def plot_graph(
     address_positions: Any = None,
     hyper_edge_positions: dict[str, list[str]] | None = None,
     address_colors: Any = None,
-    hyper_edge_colors: dict[str, str] | None = None,
-    edge_colors: bool = True,
+    hyper_edge_colors: dict[str, str] | bool | None = None,
     iterations: int = 150,
     seed: int = 0,
     size: int = 640,
@@ -478,18 +408,19 @@ def plot_graph(
     to save it as a standalone page.
 
     :param graph: A single Graph; batched graphs must first go through :func:`energnn.graph.separate_graphs`.
-    :param address_positions: Optional address coordinates of shape ``(n_addresses, 2)``; replaces the
-        force-directed layout. Padded graphs may pass the padded length, fictitious rows are dropped.
+        Its padding (fictitious hyper-edges and addresses) is not drawn.
+    :param address_positions: Optional address coordinates of shape ``(n_addresses, 2)``, ``n_addresses``
+        being the number of real addresses; replaces the force-directed layout.
     :param hyper_edge_positions: Optional ``{class: [x_feature, y_feature]}``: the markers of that class are
         drawn at the coordinates held by those features. Without ``address_positions``, each address sits at
-        the mean position of the placed objects pointing to it, and every address must be pointed to by one.
+        the mean position of the placed hyper-edges pointing to it, and every address must be pointed to by one.
     :param address_colors: Optional values of shape ``(n_addresses,)``, shown as the color of the addresses.
         A NaN leaves the address uncolored.
-    :param hyper_edge_colors: Optional ``{class: feature}``: the markers and lines of those classes are
-        colored by that feature, on a color scale shared by every listed class. Every other class is then
-        drawn in neutral gray, so that only these colors carry a meaning. A NaN keeps that neutral color.
-    :param edge_colors: If False, hyper-edges are drawn in the neutral gray instead of one color per class
-        (marker shapes still tell classes apart).
+    :param hyper_edge_colors: By default, one color per class. ``False`` draws every class in the neutral gray
+        (marker shapes still tell classes apart). A dict ``{class: feature}`` colors the markers and spokes of
+        those classes by that feature, on a color scale shared by every listed class; every other class is
+        then drawn in the neutral gray, so that only these colors carry a meaning. A NaN keeps that neutral
+        color.
     :param iterations: Number of layout relaxation steps (unused when positions are given).
     :param seed: Seed for the layout's random initial positions.
     :param size: Width and height of the figure, in pixels.
@@ -497,50 +428,58 @@ def plot_graph(
         its own theme, light or dark, and follows its changes.
     :return: The figure.
     :raises ValueError: If the graph is not single, if ``theme`` is invalid, if an array has a wrong shape,
-        or if ``hyper_edge_positions`` or ``hyper_edge_colors`` names an unknown class or feature.
+        or if a value to display is NaN everywhere.
+    :raises KeyError: If ``hyper_edge_positions`` or ``hyper_edge_colors`` names a class that is not drawn
+        or a feature that it does not have.
     """
     if theme not in (*THEMES, "auto"):
         raise ValueError(f"theme must be one of {[*THEMES, 'auto']}; got '{theme}'.")
-    style, hyper_edge_colors = THEMES["light" if theme == "auto" else theme], hyper_edge_colors or {}
-    mask, classes = _read(graph)
-    n = int(mask.sum())
+    if not graph.is_single:
+        raise ValueError("Only single graphs can be drawn; use separate_graphs() on a batch first.")
+    style = THEMES["light" if theme == "auto" else theme]
+    g = graph.to_numpy_backend()
+    g.unpad()
+    n = g.n_addresses
+    classes = {name: hes for name, hes in sorted(g.hyper_edge_sets.items()) if hes.port_dict and hes.n_obj}
     # Symbols have the same size in pixels whatever the graph, and plotly keeps it under zoom: a big graph is
     # an overview at first, and reads like a small one once zoomed in. The distances between symbols follow
     # the spacing of the addresses instead: they are those of an address radius that shrinks beyond 133
     # addresses. In layout units, 290 pixels of a 640-pixel figure go from the center of the box to its side.
     radius_px = ADDRESS_RADIUS * size / 640.0
-    addresses, placed = _positions(classes, mask, address_positions, hyper_edge_positions or {}, iterations, seed)
+    addresses, placed = _positions(classes, n, address_positions, hyper_edge_positions or {}, iterations, seed)
     spacing_radius = min(ADDRESS_RADIUS, 150.0 / np.sqrt(max(n, 1))) / 290.0
     markers = _markers(classes, addresses, placed, spacing_radius) if classes else {}
     # single precision is plenty for a drawing, and halves what is sent to the browser
     addresses, markers = addresses.astype(np.float32), {cls: xy.astype(np.float32) for cls, xy in markers.items()}
 
-    kind = "scatter" if n + sum(len(c.ports) for c in classes.values()) <= SVG_UP_TO else "scattergl"
+    kind = "scatter" if n + sum(hes.n_obj for hes in classes.values()) <= SVG_UP_TO else "scattergl"
     traces = []
-    values = {cls: _feature(classes, cls, feature, "hyper_edge_colors") for cls, feature in hyper_edge_colors.items()}
+    by_feature = hyper_edge_colors if isinstance(hyper_edge_colors, dict) else {}
+    values = {cls: (classes[cls].feature_dict or {})[feature].astype(float) for cls, feature in by_feature.items()}
     if values:
         low, high = _range(np.concatenate(list(values.values())), "hyper_edge_colors")
-        title = ", ".join(f"{cls}.{feature}" for cls, feature in hyper_edge_colors.items())
+        title = ", ".join(f"{cls}.{feature}" for cls, feature in by_feature.items())
         traces.append(_colorbar(title, low, high, style, column=0))
-    for k, (cls, c) in enumerate(classes.items()):
-        n_objects, n_ports = c.ports.shape
-        own = style.palette[k % len(style.palette)] if edge_colors and not values else style.neutral
-        shade, shades, fill = np.zeros(n_objects, dtype=int), [own], dict(color=own)
+    for k, (cls, hes) in enumerate(classes.items()):
+        ports, features = hes.port_array, hes.feature_dict or {}
+        n_ports = ports.shape[1]
+        own = style.neutral if values or hyper_edge_colors is False else style.palette[k % len(style.palette)]
+        shade, shades, fill = np.zeros(hes.n_obj, dtype=int), [own], dict(color=own)
         if cls in values:
             shade, shades, fill = _shades(values[cls], low, high, style, own)
-        # one spoke per port: the marker, the address, and a NaN that ends the line -> (n_objects, n_ports, 3, 2)
-        spokes = np.full((n_objects, n_ports, 3, 2), np.nan, dtype=np.float32)
-        spokes[:, :, 0], spokes[:, :, 1] = markers[cls][:, None], addresses[c.ports]
+        # one spoke per port: the marker, the address, and a NaN that ends the line -> (n_obj, n_ports, 3, 2)
+        spokes = np.full((hes.n_obj, n_ports, 3, 2), np.nan, dtype=np.float32)
+        spokes[:, :, 0], spokes[:, :, 1] = markers[cls][:, None], addresses[ports]
         for i in np.unique(shade):  # plotly gives one color to all the lines of a trace: one trace per shade
             x, y = spokes[shade == i].reshape(-1, 2).T
             line = dict(color=shades[i], width=1.2)
             traces.append(
                 dict(type=kind, x=x, y=y, mode="lines", line=line, legendgroup=cls, showlegend=False, hoverinfo="skip")
             )
-        # the tooltip is a template that plotly fills with the row of the hovered object in customdata
+        # the tooltip is a template that plotly fills with the row of the hovered hyper-edge in customdata
         tip = [f"<b>{cls} #%{{customdata[0]}}</b>"]
-        tip += [f"{name} → %{{customdata[{1 + i}]}}" for i, name in enumerate(c.port_names)]
-        tip += [f"{name} = %{{customdata[{1 + n_ports + i}]:.5~g}}" for i, name in enumerate(c.features)]
+        tip += [f"{name} → %{{customdata[{1 + i}]}}" for i, name in enumerate(hes.port_names or {})]
+        tip += [f"{name} = %{{customdata[{1 + n_ports + i}]:.5~g}}" for i, name in enumerate(features)]
         symbol = SYMBOLS[k % len(SYMBOLS)]
         x, y = markers[cls].T
         traces.append(
@@ -552,7 +491,7 @@ def plot_graph(
                 marker=dict(
                     symbol=symbol, size=2.0 * MARKER_RATIO * radius_px, line=dict(color=style.surface, width=1), **fill
                 ),
-                customdata=np.column_stack([np.arange(n_objects), c.ports, *c.features.values()]).astype(np.float32),
+                customdata=np.column_stack([np.arange(hes.n_obj), ports, *features.values()]).astype(np.float32),
                 hovertemplate="<br>".join(tip) + "<extra></extra>",
                 name=cls,
                 legendgroup=cls,
@@ -561,7 +500,9 @@ def plot_graph(
 
     address_values, fill, value_tip = None, dict(color=style.surface), ""
     if address_colors is not None:
-        address_values = _per_address(address_colors, "address_colors", mask, ())
+        address_values = np.asarray(address_colors, dtype=float)
+        if address_values.shape != (n,):
+            raise ValueError(f"address_colors must have shape {(n,)}; got {address_values.shape}.")
         low, high = _range(address_values, "address_colors")
         fill, value_tip = _shades(address_values, low, high, style, style.surface)[2], "<br>value = %{customdata:.5~g}"
         traces.append(_colorbar("addresses", low, high, style, column=int(bool(values))))
@@ -592,7 +533,7 @@ def plot_graph(
         legend=dict(orientation="h", yanchor="top", y=0.0, x=0.0, itemsizing="constant"),  # below: the toolbar is above
         dragmode="pan",
         hovermode="closest",
-        hoverdistance=2,  # in pixels around the markers: the tooltip is the one of the object under the mouse
+        hoverdistance=2,  # in pixels around the markers: the tooltip is the one of the hyper-edge under the mouse
         xaxis=dict(visible=False),
         yaxis=dict(visible=False, scaleanchor="x"),  # same scale on both axes
     )

@@ -305,6 +305,11 @@ class Graph(dict):
             return False
         return True
 
+    @property
+    def n_addresses(self) -> int:
+        """Number of addresses, padding included: the length of the address mask."""
+        return int(self.non_fictitious_addresses.shape[-1])
+
     # ------------------------------------------------------------------
     # Feature flat array
     # ------------------------------------------------------------------
