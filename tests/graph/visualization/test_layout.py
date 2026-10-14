@@ -53,6 +53,17 @@ def test_spring_layout_scales_to_thousands_of_nodes():
     assert pos.shape == (n, 2) and np.isfinite(pos).all() and np.abs(pos).max() <= 1.0 + 1e-6
 
 
+def test_spring_layout_keeps_the_fixed_nodes_and_places_the_free_ones_among_them():
+    # nodes 0 and 1 are fixed at the ends of the box; 2, 3 and 4 form a chain between them; 5 is free and isolated
+    fixed = np.array([[-1.0, 0.0], [1.0, 0.0], *([[np.nan, np.nan]] * 4)])
+    chain = np.array([[0, 2], [2, 3], [3, 4], [4, 1]])
+    pos = spring_layout(6, chain, fixed=fixed)
+    np.testing.assert_array_equal(pos[:2], fixed[:2])
+    assert np.isfinite(pos).all()
+    assert np.all(np.diff(pos[[0, 2, 3, 4, 1], 0]) > 0)  # the chain goes from node 0 to node 1
+    assert np.abs(pos[2:5, 1]).max() < 0.5 and np.abs(pos[5]).max() < 1.5  # near the segment; gravity holds node 5
+
+
 def test_spring_layout_keeps_what_is_not_connected_together():
     n = 400  # a ring, and 200 nodes that nothing holds
     ring = np.stack([np.arange(n), (np.arange(n) + 1) % n], axis=1)

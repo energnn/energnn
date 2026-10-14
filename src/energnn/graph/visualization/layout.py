@@ -32,7 +32,9 @@ _EXACT_UP_TO = 200
 _FAR_CELLS = np.array([(dx, dy) for dx in range(-3, 4) for dy in range(-3, 4) if max(abs(dx), abs(dy)) > 1])
 
 
-def spring_layout(n_nodes: int, edges: np.ndarray, *, iterations: int = 150, seed: int = 0) -> np.ndarray:
+def spring_layout(
+    n_nodes: int, edges: np.ndarray, *, iterations: int = 150, seed: int = 0, fixed: np.ndarray | None = None
+) -> np.ndarray:
     """
     Compute a Fruchterman-Reingold force-directed layout.
 
@@ -42,6 +44,11 @@ def spring_layout(n_nodes: int, edges: np.ndarray, *, iterations: int = 150, see
     large moves first to untangle, small ones at the end to settle. The result is centered and scaled into
     the ``[-1, 1]`` box.
 
+    Some nodes may be *fixed* at given positions: they push and pull the others without moving, which places
+    the free nodes among them (a node joined to fixed nodes ends up between them). The result is then left in
+    the frame of the given positions, which should roughly fill the ``[-1, 1]`` box for the forces to be
+    balanced.
+
     The cost of an iteration grows like the number of nodes and edges, not like the number of node pairs:
     beyond a few hundred nodes, the repulsion of the far nodes is computed by groups (see :func:`_repulsion`).
 
@@ -49,10 +56,16 @@ def spring_layout(n_nodes: int, edges: np.ndarray, *, iterations: int = 150, see
     :param edges: Integer array of shape ``(n_edges, 2)`` listing node pairs.
     :param iterations: Number of relaxation steps.
     :param seed: Seed for the random initial positions.
-    :return: Positions array of shape ``(n_nodes, 2)`` scaled to ``[-1, 1]``.
+    :param fixed: Optional positions of shape ``(n_nodes, 2)``: the nodes whose row has no NaN stay there.
+    :return: Positions array of shape ``(n_nodes, 2)``, scaled to ``[-1, 1]`` when no node is fixed.
     """
     rng = np.random.default_rng(seed)
     pos = rng.uniform(-1.0, 1.0, size=(n_nodes, 2))
+    known = np.zeros(n_nodes, dtype=bool)
+    if fixed is not None:
+        fixed = np.asarray(fixed, dtype=float)
+        known = np.isfinite(fixed).all(axis=1)
+        pos[known] = fixed[known]
     if n_nodes <= 1:
         return pos
     k = 1.0 / np.sqrt(n_nodes)  # the ideal distance between neighbors: nodes share the unit area
@@ -69,8 +82,11 @@ def spring_layout(n_nodes: int, edges: np.ndarray, *, iterations: int = 150, see
         displacement += _scatter_add(b, pull, n_nodes) - _scatter_add(a, pull, n_nodes)
         displacement -= _GRAVITY * (pos - pos.mean(axis=0))
         length = np.maximum(np.linalg.norm(displacement, axis=-1, keepdims=True), 1e-9)
+        displacement[known] = 0.0
         pos += displacement / length * np.minimum(length, temperature)  # move along the force, capped
         temperature -= cooling
+    if known.any():
+        return pos
     pos -= pos.mean(axis=0)
     scale = np.abs(pos).max()
     return pos / scale if scale > 0 else pos

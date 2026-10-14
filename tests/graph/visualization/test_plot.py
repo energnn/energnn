@@ -131,6 +131,19 @@ def test_address_positions_errors(mixed_order_graph, bad):
         plot_graph(mixed_order_graph, address_positions=bad)
 
 
+def test_addresses_without_coordinate_are_placed_among_the_others(mixed_order_graph):
+    # addresses 0, 1, 2 are given, far apart; address 3 is only joined to address 2 by a line, and to 0 by a generator
+    given = np.array([[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [np.nan, np.nan]])
+    addresses, markers = _placed(mixed_order_graph, address_positions=given)
+    known = addresses[:3]
+    scale = known[1, 0] - known[0, 0]
+    np.testing.assert_allclose(known - known[0], given[:3] / 10.0 * scale, atol=1e-9)  # the given geometry is kept
+    assert np.isfinite(addresses[3]).all() and np.abs(addresses).max() <= 1.0 + 1e-9
+    assert np.linalg.norm(addresses[3] - known[2]) < np.linalg.norm(addresses[3] - known[1])  # near its neighbor
+    np.testing.assert_allclose(markers["line"][2], (addresses[2] + addresses[3]) / 2.0, atol=1e-9)
+    np.testing.assert_allclose(_placed(mixed_order_graph, address_positions=given)[0], addresses)  # same seed, same drawing
+
+
 def test_objects_on_the_same_addresses_are_moved_apart(multi_graph):
     addresses, markers = _placed(multi_graph, address_positions=TRIANGLE)
     # 3 parallel lines between addresses 0 and 1: the middle one on the barycenter, the others on either side of it
@@ -217,17 +230,18 @@ def test_hyper_edge_positions_place_the_markers(located_graph):
 
 
 def test_hyper_edge_positions_place_the_addresses(located_graph):
-    with pytest.raises(ValueError, match=r"addresses \[3\] are pointed to by no placed hyper-edge"):
-        plot_graph(located_graph, hyper_edge_positions={"bus": ["x", "y"]})
-    hes = {name: located_graph.hyper_edge_sets[name] for name in ("bus", "line")}
-    addresses, markers = _placed(
-        Graph.from_dict(hyper_edge_set_dict=hes, n_addresses=3), hyper_edge_positions={"bus": ["x", "y"]}
-    )
+    addresses, markers = _placed(located_graph, hyper_edge_positions={"bus": ["x", "y"]})
     scale = (addresses[1, 0] - addresses[0, 0]) / 4.0
     assert scale > 0
-    np.testing.assert_allclose(addresses - addresses[0], scale * np.array([[0.0, 0.0], [4.0, 0.0], [0.0, 3.0]]), atol=1e-9)
+    np.testing.assert_allclose(addresses[:3] - addresses[0], scale * np.array([[0.0, 0.0], [4.0, 0.0], [0.0, 3.0]]), atol=1e-9)
     # a bus sits on the address it places, which would hide it: it is moved away like any object with a single address
-    np.testing.assert_allclose(np.linalg.norm(markers["bus"] - addresses, axis=1), STUB_LENGTH * RADIUS)
+    np.testing.assert_allclose(np.linalg.norm(markers["bus"] - addresses[:3], axis=1), STUB_LENGTH * RADIUS)
+    # address 3, pointed to by nothing, is placed by the layout: somewhere in the box, on no other address
+    assert np.isfinite(addresses[3]).all() and np.abs(addresses).max() <= 1.0 + 1e-9
+    assert np.linalg.norm(addresses[:3] - addresses[3], axis=1).min() > 0.1
+    located_graph.bus.x = np.full(3, np.nan)
+    with pytest.raises(ValueError, match="hyper_edge_positions places no address"):
+        plot_graph(located_graph, hyper_edge_positions={"bus": ["x", "y"]})
 
 
 @pytest.mark.parametrize(
