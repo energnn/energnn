@@ -161,7 +161,8 @@ from a coupler) or the hyper-edges from their own features (``hyper_edge_positio
 ``{"bus": ["x", "y"]}``, the addresses then following the hyper-edges that point to them), and colors the addresses
 from an array (``address_colors``) or the hyper-edges from one of their features (``hyper_edge_colors``, e.g.
 ``{"line": "flow"}``). Hyper-edge classes are told apart by color and marker shape; ``hyper_edge_colors=False``
-keeps the shapes only.
+keeps the shapes only. The addresses are numbered, unless ``address_labels`` gives them names (one string per
+address, written in the circles and in the tooltips).
 
 A notebook displays the figure when it ends a cell, in the notebook's own theme, light or dark (``theme`` forces
 one). The figure is drawn in the page by plotly.js, which the page loads from plotly's CDN: displaying it

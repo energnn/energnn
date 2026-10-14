@@ -6,10 +6,11 @@
 
 """Interactive rendering of a Graph as a plotly figure. Requires the ``viz`` extra (``pip install energnn[viz]``).
 
-**How a graph is drawn.** The addresses are numbered circles. Every hyper-edge is a marker, whose shape and
-color tell its class, with one straight line (a *spoke*) to the address of each of its ports. The marker sits
-at the barycenter of these addresses: a line between two buses is thus a segment with its marker in the middle,
-a three-winding transformer a star. Two cases would hide a marker, and are handled by :func:`_markers`:
+**How a graph is drawn.** The addresses are circles, holding their number or a label given by the user. Every
+hyper-edge is a marker, whose shape and color tell its class, with one straight line (a *spoke*) to the address
+of each of its ports. The marker sits at the barycenter of these addresses: a line between two buses is thus a
+segment with its marker in the middle, a three-winding transformer a star. Two cases would hide a marker, and
+are handled by :func:`_markers`:
 
 - hyper-edges pointing to a single address (a bus, a generator) are spread around it, a short distance away;
 - hyper-edges pointing to the same addresses (parallel lines) are fanned out on either side of their barycenter.
@@ -36,6 +37,7 @@ script can do that, since the Python side cannot see the theme of the notebook.
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 import numpy as np
@@ -98,9 +100,10 @@ STUB_LENGTH = 2.6
 FAN_HEIGHT = 0.09
 #: Radius of an address, in pixels on a 640-pixel figure, whatever the size of the graph and the zoom.
 ADDRESS_RADIUS = 13.0
-#: Half the width of a digit of an address number, and the margin around the number, in font sizes: the
-#: numbers are written as large as the longest of them fits in an address circle, 3 digits at full size.
-DIGIT_HALF_WIDTH, LABEL_MARGIN = 0.28, 0.21
+#: Half the width of a character of an address label (a digit, or about that for a letter), and the margin
+#: around the label, in font sizes: the labels are written as large as the longest of them fits in an address
+#: circle, 3 characters at full size.
+CHAR_HALF_WIDTH, LABEL_MARGIN = 0.28, 0.21
 #: Radius of a class marker, as a fraction of the address radius.
 MARKER_RATIO = 0.62
 #: Number of shades of the colormap that the values are colored with.
@@ -384,11 +387,21 @@ def _colorbar(title: str, low: float, high: float, theme: Theme, column: int) ->
     return dict(type="scatter", x=[None], y=[None], mode="markers", marker=marker, showlegend=False, hoverinfo="skip")
 
 
+def _port_lines(port_names: Sequence[str], ports: np.ndarray, labels: np.ndarray) -> np.ndarray:
+    """The port lines of the tooltip of every hyper-edge, ``"name → label"`` joined by line breaks: shape ``(n_obj,)``."""
+    lines = [np.char.add(f"{name} → ", labels[ports[:, i]]) for i, name in enumerate(port_names)]
+    text = lines[0]
+    for line in lines[1:]:
+        text = np.char.add(np.char.add(text, "<br>"), line)
+    return text
+
+
 def plot_graph(
     graph: Graph,
     *,
     address_positions: Any = None,
     hyper_edge_positions: dict[str, list[str]] | None = None,
+    address_labels: Sequence[str] | None = None,
     address_colors: Any = None,
     hyper_edge_colors: dict[str, str] | bool | None = None,
     iterations: int = 150,
@@ -399,9 +412,10 @@ def plot_graph(
     """
     Draw a single Graph as an interactive plotly figure.
 
-    Addresses are numbered circles; each hyper-edge is a marker joined to its addresses, with one color and
-    one marker shape per class. Hovering an address or a marker shows its ports and feature values. The mouse
-    wheel zooms, dragging pans, double-click resets the view; clicking a class in the legend hides it.
+    Addresses are numbered circles (or labeled ones, with ``address_labels``); each hyper-edge is a marker
+    joined to its addresses, with one color and one marker shape per class. Hovering an address or a marker
+    shows its ports and feature values. The mouse wheel zooms, dragging pans, double-click resets the view;
+    clicking a class in the legend hides it.
 
     A notebook displays the figure when it is the last line of a cell. It is a
     :class:`plotly.graph_objects.Figure`, so everything plotly offers applies to it, such as ``write_html``
@@ -414,6 +428,10 @@ def plot_graph(
     :param hyper_edge_positions: Optional ``{class: [x_feature, y_feature]}``: the markers of that class are
         drawn at the coordinates held by those features. Without ``address_positions``, each address sits at
         the mean position of the placed hyper-edges pointing to it, and every address must be pointed to by one.
+    :param address_labels: Optional ``n_addresses`` strings (bus names, for instance), written in the address
+        circles instead of the address numbers, and naming the addresses in the tooltips, where the number of
+        an address stays readable. The labels are written as large as the longest of them fits in a circle:
+        keep them short, a long label is written small and overflows its circle.
     :param address_colors: Optional values of shape ``(n_addresses,)``, shown as the color of the addresses.
         A NaN leaves the address uncolored.
     :param hyper_edge_colors: By default, one color per class. ``False`` draws every class in the neutral gray
@@ -428,7 +446,7 @@ def plot_graph(
         its own theme, light or dark, and follows its changes.
     :return: The figure.
     :raises ValueError: If the graph is not single, if ``theme`` is invalid, if an array has a wrong shape,
-        or if a value to display is NaN everywhere.
+        if there is not one label per address, or if a value to display is NaN everywhere.
     :raises KeyError: If ``hyper_edge_positions`` or ``hyper_edge_colors`` names a class that is not drawn
         or a feature that it does not have.
     """
@@ -440,6 +458,9 @@ def plot_graph(
     g = graph.to_numpy_backend()
     g.unpad()
     n = g.n_addresses
+    labels = None if address_labels is None else np.array([str(label) for label in address_labels])
+    if labels is not None and labels.shape != (n,):
+        raise ValueError(f"address_labels must hold {n} strings, one per address; got {labels.shape[0]}.")
     classes = {name: hes for name, hes in sorted(g.hyper_edge_sets.items()) if hes.port_dict and hes.n_obj}
     # Symbols have the same size in pixels whatever the graph, and plotly keeps it under zoom: a big graph is
     # an overview at first, and reads like a small one once zoomed in. The distances between symbols follow
@@ -476,9 +497,14 @@ def plot_graph(
             traces.append(
                 dict(type=kind, x=x, y=y, mode="lines", line=line, legendgroup=cls, showlegend=False, hoverinfo="skip")
             )
-        # the tooltip is a template that plotly fills with the row of the hovered hyper-edge in customdata
+        # the tooltip is a template that plotly fills with the row of the hovered hyper-edge in customdata; the
+        # labels of its addresses, being strings, go through the text of the hyper-edge instead (not drawn)
+        port_names: list[str] = list(hes.port_names or [])  # in column order of port_array
         tip = [f"<b>{cls} #%{{customdata[0]}}</b>"]
-        tip += [f"{name} → %{{customdata[{1 + i}]}}" for i, name in enumerate(hes.port_names or {})]
+        if labels is None:
+            tip += [f"{name} → %{{customdata[{1 + i}]}}" for i, name in enumerate(port_names)]
+        else:
+            tip += ["%{text}"]
         tip += [f"{name} = %{{customdata[{1 + n_ports + i}]:.5~g}}" for i, name in enumerate(features)]
         symbol = SYMBOLS[k % len(SYMBOLS)]
         x, y = markers[cls].T
@@ -492,22 +518,28 @@ def plot_graph(
                     symbol=symbol, size=2.0 * MARKER_RATIO * radius_px, line=dict(color=style.surface, width=1), **fill
                 ),
                 customdata=np.column_stack([np.arange(hes.n_obj), ports, *features.values()]).astype(np.float32),
+                text=None if labels is None else _port_lines(port_names, ports, labels),
                 hovertemplate="<br>".join(tip) + "<extra></extra>",
                 name=cls,
                 legendgroup=cls,
             )
         )
 
-    address_values, fill, value_tip = None, dict(color=style.surface), ""
+    # the tooltip of an address: its label and number, then its value if any, the two last from customdata
+    text, tip, columns, fill = np.arange(n).astype(str), ["<b>address %{text}</b>"], [], dict(color=style.surface)
+    if labels is not None:
+        text, tip, columns = labels, ["<b>%{text}</b>", "address %{customdata[0]}"], [np.arange(n)]
     if address_colors is not None:
         address_values = np.asarray(address_colors, dtype=float)
         if address_values.shape != (n,):
             raise ValueError(f"address_colors must have shape {(n,)}; got {address_values.shape}.")
         low, high = _range(address_values, "address_colors")
-        fill, value_tip = _shades(address_values, low, high, style, style.surface)[2], "<br>value = %{customdata:.5~g}"
+        fill = _shades(address_values, low, high, style, style.surface)[2]
+        tip.append(f"value = %{{customdata[{len(columns)}]:.5~g}}")
+        columns.append(address_values)
         traces.append(_colorbar("addresses", low, high, style, column=int(bool(values))))
     x, y = addresses.T
-    font_size = radius_px / max(LABEL_MARGIN + DIGIT_HALF_WIDTH * len(str(n - 1)), 1.05)
+    font_size = radius_px / max(LABEL_MARGIN + CHAR_HALF_WIDTH * max((len(label) for label in text), default=1), 1.05)
     traces.append(
         dict(
             type=kind,
@@ -515,10 +547,10 @@ def plot_graph(
             y=y,
             mode="markers+text",
             marker=dict(size=2.0 * radius_px, line=dict(color=style.ink, width=1.2), **fill),
-            text=np.arange(n).astype(str),  # strings: plotly fails to draw numbers here
+            text=text,  # strings: plotly fails to draw numbers here
             textfont=dict(size=max(font_size, 7.0), color=style.ink),
-            customdata=address_values,
-            hovertemplate="<b>address %{text}</b>" + value_tip + "<extra></extra>",
+            customdata=np.column_stack(columns) if columns else None,
+            hovertemplate="<br>".join(tip) + "<extra></extra>",
             name="addresses",
         )
     )

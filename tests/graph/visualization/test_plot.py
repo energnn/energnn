@@ -179,6 +179,33 @@ def test_address_numbers_shrink_to_fit_in_their_circle(n, font_size):
     assert addresses.textfont.size == pytest.approx(font_size, abs=0.05)
 
 
+def test_address_labels_replace_the_numbers(mixed_order_graph):
+    names = ["North", "South", "East", "West"]
+    figure = plot_graph(mixed_order_graph, address_labels=names, address_colors=np.arange(4.0))
+    addresses = _trace(figure, "addresses")
+    assert list(addresses.text) == names
+    # the tooltip of an address keeps its number, next to its value
+    assert (
+        addresses.hovertemplate == "<b>%{text}</b><br>address %{customdata[0]}<br>value = %{customdata[1]:.5~g}<extra></extra>"
+    )
+    np.testing.assert_allclose(addresses.customdata, np.column_stack([np.arange(4), np.arange(4.0)]))
+    # the tooltip of a hyper-edge names its addresses: the port lines are written out, per hyper-edge
+    trafo, gen = _trace(figure, "trafo3w"), _trace(figure, "gen")
+    assert trafo.hovertemplate == "<b>trafo3w #%{customdata[0]}</b><br>%{text}<br>ratio = %{customdata[4]:.5~g}<extra></extra>"
+    assert list(trafo.text) == ["hv → North<br>lv → East<br>mv → South"]
+    assert list(gen.text) == ["bus → North", "bus → West"]
+    np.testing.assert_allclose(trafo.customdata, [[0, 0, 2, 1, 1.02]])  # the numbers stay in customdata
+    assert _trace(plot_graph(mixed_order_graph), "trafo3w").text is None
+    # the labels are written as large as the longest fits in its circle, like the numbers
+    assert addresses.textfont.size == pytest.approx(ADDRESS_RADIUS / (0.21 + 0.28 * 5), abs=0.05)
+    assert _trace(plot_graph(mixed_order_graph, address_labels=list("abcd")), "addresses").textfont.size == pytest.approx(
+        ADDRESS_RADIUS / 1.05, abs=0.05
+    )
+    assert list(_trace(plot_graph(mixed_order_graph, address_labels=range(4)), "addresses").text) == ["0", "1", "2", "3"]
+    with pytest.raises(ValueError, match="address_labels"):
+        plot_graph(mixed_order_graph, address_labels=names[:3])
+
+
 def test_hyper_edge_positions_place_the_markers(located_graph):
     square = np.array([[0.0, 0.0], [4.0, 0.0], [0.0, 3.0], [4.0, 3.0]])
     addresses, markers = _placed(located_graph, address_positions=square, hyper_edge_positions={"line": ["flow", "flow"]})
@@ -226,8 +253,8 @@ def test_address_colors(mixed_order_graph):
     assert (
         addresses.marker.colorscale[-1] == (1.0, THEMES["light"].surface) and len(addresses.marker.colorscale) == N_SHADES + 1
     )
-    np.testing.assert_allclose(addresses.customdata, [0.0, 1.0, 2.0, np.nan])
-    assert "value = %{customdata:.5~g}" in addresses.hovertemplate
+    np.testing.assert_allclose(addresses.customdata, [[0.0], [1.0], [2.0], [np.nan]])
+    assert addresses.hovertemplate == "<b>address %{text}</b><br>value = %{customdata[0]:.5~g}<extra></extra>"
     colorbar = next(t for t in figure.data if t.marker.showscale)
     assert (colorbar.marker.cmin, colorbar.marker.cmax) == (0.0, 2.0) and colorbar.marker.colorbar.title.text == "addresses"
     constant = plot_graph(mixed_order_graph, address_colors=np.ones(4))
