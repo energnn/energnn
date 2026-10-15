@@ -19,7 +19,6 @@ dependencies = [
     "diffrax>=0.7.0",
     "equinox>=0.13.0",
     "pandas>=2.2.2",
-    "scipy>=1.13",
     "hydra-core==1.3.2",
     "tqdm==4.67.0",
     "cloudpickle<3",
@@ -71,7 +70,7 @@ max-line-length = 127
 extend-ignore = ["E203", "E701"]
 
 [[tool.mypy.overrides]]
-module = "flatdict,optax,orbax,orbax.checkpoint,plotly.*,scipy.*"
+module = "flatdict,optax,orbax,orbax.checkpoint,plotly.*"
 ignore_missing_imports = true
 
 [tool.pytest]

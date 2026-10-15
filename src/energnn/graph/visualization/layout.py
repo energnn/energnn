@@ -7,16 +7,19 @@
 """Force-directed layout of a graph: where to put the nodes when no coordinate is given.
 
 :func:`spring_layout` is a classic physics simulation where every node repels every other one and connected
-nodes attract each other, which untangles the graph. It handles graphs of thousands of nodes in a few
-seconds, by grouping the nodes that are far from each other (see :func:`_repulsion`).
+nodes attract each other, which untangles the graph. The simulation runs in JAX, on the GPU when there is one,
+and handles graphs of thousands of nodes in a few seconds on a CPU, by grouping the nodes that are far from
+each other (see :func:`_repulsion`).
 """
 
 from __future__ import annotations
 
 import functools
 
+import jax
+import jax.numpy as jnp
 import numpy as np
-from scipy.spatial import cKDTree
+from jax import lax
 
 #: Nodes closer than this fraction of the ideal distance repel each other as if they were that far apart, which
 #: avoids infinite forces between nodes that landed on each other.
@@ -30,6 +33,9 @@ _EXACT_UP_TO = 200
 #: The cells that push a cell at one level of the grids, relative to it: 2 or 3 cells away along x or y. The
 #: nearer cells are handled at a finer level, or node by node at the finest one (see :func:`_repulsion`).
 _FAR_CELLS = np.array([(dx, dy) for dx in range(-3, 4) for dy in range(-3, 4) if max(abs(dx), abs(dy)) > 1])
+#: How many near nodes a node looks at in one pass over each row of three cells around it (see
+#: :func:`_repulsion`): the finest grid has 1 to 4 nodes per cell, so one pass is usually enough.
+_WINDOW = 48
 
 
 def spring_layout(
@@ -51,6 +57,8 @@ def spring_layout(
 
     The cost of an iteration grows like the number of nodes and edges, not like the number of node pairs:
     beyond a few hundred nodes, the repulsion of the far nodes is computed by groups (see :func:`_repulsion`).
+    The iterations run as one compiled JAX program (:func:`_relax`), compiled once per size of graph, the
+    sizes being rounded up to powers of two.
 
     :param n_nodes: Number of nodes to place.
     :param edges: Integer array of shape ``(n_edges, 2)`` listing node pairs.
@@ -61,7 +69,7 @@ def spring_layout(
     """
     rng = np.random.default_rng(seed)
     pos = rng.uniform(-1.0, 1.0, size=(n_nodes, 2))
-    k = 1.0 / np.sqrt(n_nodes)  # the ideal distance between neighbors: nodes share the unit area
+    k = 1.0 / np.sqrt(max(n_nodes, 1))  # the ideal distance between neighbors: nodes share the unit area
     # two nodes attract each other once, however many edges join them, and a node does not attract itself
     links = np.sort(np.asarray(edges, dtype=int).reshape(-1, 2), axis=1)
     a, b = np.unique(links[links[:, 0] != links[:, 1]], axis=0).T
@@ -85,21 +93,26 @@ def spring_layout(
             mean = _scatter_add(free, pos[neighbor], n_nodes)[wave] / hits[wave, None]
             pos[wave] = mean + rng.normal(scale=0.1 * k, size=mean.shape)  # a little apart from each other
             placed[wave] = True
-    if n_nodes <= 1:
+    if n_nodes <= 1 or iterations <= 0:
         return pos
-    temperature = 0.1
-    cooling = temperature / (iterations + 1)
     depth = 0 if n_nodes <= _EXACT_UP_TO else int(np.log2(np.sqrt(n_nodes)))  # 1 to 4 nodes per cell of the finest grid
-    for _ in range(iterations):
-        displacement = k * k * _repulsion(pos, depth, _MIN_DISTANCE * k)  # repulsion for all pairs: k² / dist
-        delta = pos[a] - pos[b]
-        pull = delta * np.linalg.norm(delta, axis=-1, keepdims=True) / k  # attraction for neighbors: dist² / k
-        displacement += _scatter_add(b, pull, n_nodes) - _scatter_add(a, pull, n_nodes)
-        displacement -= _GRAVITY * (pos - pos.mean(axis=0))
-        length = np.maximum(np.linalg.norm(displacement, axis=-1, keepdims=True), 1e-9)
-        displacement[known] = 0.0
-        pos += displacement / length * np.minimum(length, temperature)  # move along the force, capped
-        temperature -= cooling
+    # the arrays are padded to powers of two, so that a new size of graph seldom compiles the program again: the
+    # padding nodes are fixed, weightless and out of every cell, and the padding edges join node 0 to itself
+    size, n_edges = 1 << max(n_nodes - 1, 1).bit_length(), 1 << max(len(a) - 1, 0).bit_length()
+    padded = np.zeros((size, 2))
+    padded[:n_nodes] = pos
+    real = np.arange(size) < n_nodes
+    pos = _relax(
+        jnp.asarray(padded, dtype=jnp.float32),
+        jnp.asarray(np.pad(a, (0, n_edges - len(a)))),
+        jnp.asarray(np.pad(b, (0, n_edges - len(b)))),
+        jnp.asarray(np.pad(known, (0, size - n_nodes), constant_values=True)),
+        jnp.asarray(real),
+        jnp.asarray(iterations),
+        jnp.asarray(k, dtype=jnp.float32),
+        depth=depth,
+    )
+    pos = np.asarray(pos[:n_nodes], dtype=float)
     if known.any():
         return pos
     pos -= pos.mean(axis=0)
@@ -119,19 +132,63 @@ def _scatter_add(index: np.ndarray, vectors: np.ndarray, n: int) -> np.ndarray:
     return np.stack([np.bincount(index, vectors[:, axis], minlength=n) for axis in (0, 1)], axis=-1)
 
 
+@functools.partial(jax.jit, static_argnames="depth")
+def _relax(
+    pos: jax.Array,
+    a: jax.Array,
+    b: jax.Array,
+    known: jax.Array,
+    real: jax.Array,
+    iterations: jax.Array,
+    k: jax.Array,
+    *,
+    depth: int,
+) -> jax.Array:
+    """Run the iterations of :func:`spring_layout` on padded arrays.
+
+    :param pos: The start positions, shape ``(size, 2)``.
+    :param a: With ``b``, the pairs of nodes that attract each other, shape ``(n_edges,)`` each.
+    :param known: Mask of the nodes that do not move, shape ``(size,)``.
+    :param real: Mask of the nodes that are not padding, shape ``(size,)``.
+    :param iterations: Number of relaxation steps.
+    :param k: The ideal distance between neighbors.
+    :param depth: The finest grid of the repulsion has ``2**depth`` cells per side; 0 means no grid.
+    :return: The positions after the iterations, shape ``(size, 2)``.
+    """
+    n = len(pos)
+    n_real = real.sum()
+    temperature = 0.1
+    cooling = temperature / (iterations + 1)
+
+    def step(i: jax.Array, pos: jax.Array) -> jax.Array:
+        displacement = k * k * _repulsion(pos, real, _MIN_DISTANCE * k, depth=depth)  # for all pairs: k² / dist
+        delta = pos[a] - pos[b]
+        pull = delta * jnp.linalg.norm(delta, axis=-1, keepdims=True) / k  # attraction for neighbors: dist² / k
+        displacement += jax.ops.segment_sum(pull, b, n) - jax.ops.segment_sum(pull, a, n)
+        center = jnp.sum(pos * real[:, None], axis=0) / n_real
+        displacement -= _GRAVITY * (pos - center)
+        length = jnp.maximum(jnp.linalg.norm(displacement, axis=-1, keepdims=True), 1e-9)
+        displacement = jnp.where(known[:, None], 0.0, displacement)
+        move = jnp.minimum(length, temperature - i * cooling)  # along the force, capped by the temperature
+        return pos + displacement / length * move
+
+    return lax.fori_loop(0, iterations, step, pos)
+
+
 @functools.lru_cache(maxsize=16)
-def _pushed(g: int) -> list[np.ndarray]:
+def _pushed(g: int) -> np.ndarray:
     """For each offset ``d`` of :data:`_FAR_CELLS`, the cells ``c`` of the ``g x g`` grid that the cell ``c + d``
     pushes at this level of :func:`_repulsion`: those whose parent is the parent of ``c + d`` or a neighbor of it.
 
-    :return: One boolean mask of shape ``(g, g)`` per offset.
+    :return: Boolean masks of shape ``(len(_FAR_CELLS), g, g)``.
     """
     grid = np.indices((g, g))  # (2, g, g): the row and the column of every cell
     # halving a cell gives its parent; a cell outside the grid may pass, it has no mass and pushes nothing
-    return [(np.abs((grid + d[:, None, None]) // 2 - grid // 2) <= 1).all(axis=0) for d in _FAR_CELLS]
+    return np.stack([(np.abs((grid + d[:, None, None]) // 2 - grid // 2) <= 1).all(axis=0) for d in _FAR_CELLS])
 
 
-def _repulsion(pos: np.ndarray, depth: int, min_distance: float) -> np.ndarray:
+@functools.partial(jax.jit, static_argnames="depth")
+def _repulsion(pos: jax.Array, real: jax.Array, min_distance: jax.Array, *, depth: int) -> jax.Array:
     """The repulsion of the spring layout: for each node, the sum over every other node of ``delta / dist²``,
     ``delta`` being the vector from the other node to this one (so the push decreases like ``1 / dist``).
 
@@ -149,39 +206,62 @@ def _repulsion(pos: np.ndarray, depth: int, min_distance: float) -> np.ndarray:
       parent is its own parent or a neighbor of it (:func:`_pushed`): the cells further away were handled
       at a coarser level, through the parents.
 
+    The near nodes are found without a tree, which a compiled program could not build: the nodes are sorted
+    by cell, so that the nodes of a row of three adjacent cells follow each other, and every node looks at
+    the nodes of each of its three rows, :data:`_WINDOW` at a time; it takes as many passes as the most
+    crowded row needs, usually one.
+
     :param pos: The node positions, shape ``(n, 2)``.
-    :param depth: The finest grid has ``2**depth`` cells per side; 0 means no grid, every pair is near.
+    :param real: Mask of the nodes that count, shape ``(n,)``: the others have no mass and push nothing.
     :param min_distance: Two nodes, or two cells, closer than this are taken to be this far apart.
+    :param depth: The finest grid has ``2**depth`` cells per side; 0 means no grid, every pair is near.
     :return: The repulsion of each node, shape ``(n, 2)``, to be multiplied by ``k²``.
     """
     n = len(pos)
-    low = pos.min(axis=0)
-    side = float((pos.max(axis=0) - low).max()) or 1.0  # side of the bounding square
     finest = 2**depth
-    cells = np.minimum(((pos - low) / side * finest).astype(int), finest - 1)  # (n, 2): cell of each node, finest grid
-    force = np.zeros((n, 2))
+    low = jnp.min(jnp.where(real[:, None], pos, jnp.inf), axis=0)
+    side = jnp.maximum(jnp.max(jnp.where(real[:, None], pos, -jnp.inf) - low), 1e-9)  # side of the bounding square
+    cells = jnp.clip(((pos - low) / side * finest).astype(jnp.int32), 0, finest - 1)  # (n, 2): cell at the finest grid
+    force = jnp.zeros_like(pos)
     # far nodes, cell to cell, from the coarsest grid (4 x 4: in a 2 x 2 grid every cell is adjacent) to the finest
     for level in range(2, depth + 1):
         g = 2**level
         cell = cells >> (depth - level)  # cell of each node in the g x g grid: halving an index gives the parent
-        index = cell[:, 0] * g + cell[:, 1]  # the cells numbered from 0 to g² - 1
-        mass = np.bincount(index, minlength=g * g).astype(float)  # number of nodes per cell
-        center = (_scatter_add(index, pos, g * g) / np.maximum(mass, 1.0)[:, None]).reshape(g, g, 2)  # center of mass
+        index = jnp.where(real, cell[:, 0] * g + cell[:, 1], g * g)  # cells numbered from 0; the padding beyond
+        mass = jax.ops.segment_sum(real.astype(pos.dtype), index, g * g + 1)[:-1]  # number of nodes per cell
+        center = jax.ops.segment_sum(pos, index, g * g + 1)[:-1] / jnp.maximum(mass, 1.0)[:, None]  # center of mass
+        center, mass = center.reshape(g, g, 2), mass.reshape(g, g)
         # the grids are padded with 3 empty cells on each side, so that the cell c + d of every cell c is the
         # slice [3 + d, 3 + d + g] for every offset d: an empty cell has no mass and pushes nothing
-        padded_center, padded_mass = np.pad(center, ((3, 3), (3, 3), (0, 0))), np.pad(mass.reshape(g, g), 3)
-        push = np.zeros((g, g, 2))  # the push on one node of each cell
-        for (dx, dy), pushed in zip(_FAR_CELLS, _pushed(g)):
-            other = (slice(3 + dx, 3 + dx + g), slice(3 + dy, 3 + dy + g))
-            delta = center - padded_center[other]
-            dist2 = np.maximum((delta**2).sum(axis=-1), min_distance**2)
-            push += delta * (pushed * padded_mass[other] / dist2)[..., None]
-        force += push.reshape(-1, 2)[index]
-    # near nodes, pair by pair: the k-d tree lists the pairs at most two cells apart along each axis (every pair
-    # when there is no grid), among which the pairs of the same or adjacent cells are kept
-    pairs = cKDTree(pos).query_pairs(2.0 * side / finest, p=np.inf, output_type="ndarray")
-    i, j = pairs[(np.abs(cells[pairs[:, 0]] - cells[pairs[:, 1]]) <= 1).all(axis=1)].T
-    delta = pos[i] - pos[j]
-    dist2 = np.maximum((delta**2).sum(axis=-1), min_distance**2)
-    push = delta / dist2[:, None]
-    return force + _scatter_add(i, push, n) - _scatter_add(j, push, n)
+        padded_center, padded_mass = jnp.pad(center, ((3, 3), (3, 3), (0, 0))), jnp.pad(mass, 3)
+        offsets = jnp.asarray(_FAR_CELLS + 3)
+        other_center = jax.vmap(lambda d: lax.dynamic_slice(padded_center, (d[0], d[1], 0), (g, g, 2)))(offsets)
+        other_mass = jax.vmap(lambda d: lax.dynamic_slice(padded_mass, (d[0], d[1]), (g, g)))(offsets)
+        delta = center[None] - other_center  # (offsets, g, g, 2)
+        dist2 = jnp.maximum((delta**2).sum(axis=-1), min_distance**2)
+        push = (delta * (jnp.asarray(_pushed(g)) * other_mass / dist2)[..., None]).sum(axis=0)  # on one node per cell
+        force += push.reshape(-1, 2)[jnp.minimum(index, g * g - 1)]
+    # near nodes, one by one: sorted by cell, the nodes of three adjacent cells of a row follow each other
+    index = jnp.where(real, cells[:, 0] * finest + cells[:, 1], finest * finest)
+    order = jnp.argsort(index)
+    rank = jnp.zeros(n, dtype=jnp.int32).at[order].set(jnp.arange(n, dtype=jnp.int32))  # place of each node in order
+    numbers = jnp.arange(finest * finest)
+    starts = jnp.searchsorted(index[order], numbers)  # first place of each cell in the order...
+    ends = jnp.searchsorted(index[order], numbers, side="right")  # ... and the place after its last one
+    rows = cells[:, :1] + jnp.array([-1, 0, 1])  # (n, 3): the row of each cell, and the rows on either side
+    in_grid = (rows >= 0) & (rows < finest)
+    rows = jnp.clip(rows, 0, finest - 1)
+    first = starts[rows * finest + jnp.maximum(cells[:, 1:] - 1, 0)]  # (n, 3): the places of the three cells of a row
+    last = ends[rows * finest + jnp.minimum(cells[:, 1:] + 1, finest - 1)]
+    window = n if depth == 0 else _WINDOW
+    last = jnp.where(in_grid, last, first)  # a row out of the grid holds nothing
+
+    def look(chunk: jax.Array, force: jax.Array) -> jax.Array:
+        places = first[..., None] + chunk * window + jnp.arange(window)  # (n, 3, window)
+        seen = (places < last[..., None]) & (places != rank[:, None, None])  # not the node itself
+        delta = pos[:, None, None] - pos[order[jnp.minimum(places, n - 1)]]
+        dist2 = jnp.maximum((delta**2).sum(axis=-1), min_distance**2)
+        return force + (delta * (seen / dist2)[..., None]).sum(axis=(1, 2))
+
+    # one pass over the window of every node, and more when a row holds more nodes than the window
+    return lax.fori_loop(0, (jnp.max(last - first) - 1) // window + 1, look, force)

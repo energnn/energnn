@@ -816,7 +816,6 @@ dependencies = [
     { name = "optax" },
     { name = "orbax" },
     { name = "pandas" },
-    { name = "scipy" },
     { name = "tqdm" },
 ]
 
@@ -872,7 +871,6 @@ requires-dist = [
     { name = "orbax", specifier = ">=0.1.9" },
     { name = "pandas", specifier = ">=2.2.2" },
     { name = "plotly", marker = "extra == 'viz'", specifier = ">=6" },
-    { name = "scipy", specifier = ">=1.13" },
     { name = "tqdm", specifier = "==4.67.0" },
 ]
 provides-extras = ["gpu", "viz"]
