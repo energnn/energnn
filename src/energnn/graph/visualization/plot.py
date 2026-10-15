@@ -358,8 +358,9 @@ def plot_graph(
         drawing keeps the geometry of both: a hyper-edge drawn on its only address hides it.
     :param address_labels: Optional ``n_addresses`` strings (bus names, for instance), written in the address
         circles instead of the address numbers, and naming the addresses in the tooltips, where the number of
-        an address stays readable. A ``None`` keeps the number of that address. The labels are written as large as the longest of them fits in a circle:
-        keep them short, a long label is written small and overflows its circle.
+        an address stays readable. A ``None`` keeps the number of that address. The labels are written as large
+        as the longest of them fits in a circle: keep them short, a long label is written small and overflows
+        its circle.
     :param address_colors: Optional values of shape ``(n_addresses,)``, shown as the color of the addresses.
         A NaN leaves the address uncolored.
     :param hyper_edge_colors: By default, one color per class. ``False`` draws every class in the neutral gray
