@@ -45,9 +45,9 @@ def spring_layout(
     the ``[-1, 1]`` box.
 
     Some nodes may be *fixed* at given positions: they push and pull the others without moving, which places
-    the free nodes among them (a node joined to fixed nodes starts, and ends up, between them). The result is
-    then left in the frame of the given positions, which should roughly fill the ``[-1, 1]`` box for the forces
-    to be balanced.
+    the free nodes among them. The free nodes start from the fixed ones, each at the mean position of its
+    neighbors placed before it, which is about where it ends up. The result is then left in the frame of the
+    given positions, which should roughly fill the ``[-1, 1]`` box for the forces to be balanced.
 
     The cost of an iteration grows like the number of nodes and edges, not like the number of node pairs:
     beyond a few hundred nodes, the repulsion of the far nodes is computed by groups (see :func:`_repulsion`).
@@ -70,12 +70,21 @@ def spring_layout(
         fixed = np.asarray(fixed, dtype=float)
         known = np.isfinite(fixed).all(axis=1)
         pos[known] = fixed[known]
-        # a free node joined to fixed nodes starts near their mean position, about where it will settle
-        free = np.concatenate([a[~known[a] & known[b]], b[~known[b] & known[a]]])
-        neighbor = np.concatenate([b[~known[a] & known[b]], a[~known[b] & known[a]]])
-        hits = np.bincount(free, minlength=n_nodes)[:, None]
-        mean = _scatter_add(free, pos[neighbor], n_nodes) / np.maximum(hits, 1)
-        pos = np.where(hits > 0, mean + rng.normal(scale=0.1 * k, size=pos.shape), pos)
+        # the free nodes start about where they will settle, wave after wave: the nodes joined to fixed ones at
+        # the mean position of those, then the nodes joined to the ones just placed, and so on; the nodes that
+        # no path joins to a fixed one keep their random position
+        placed = known.copy()
+        while True:
+            at_front, from_back = ~placed[a] & placed[b], ~placed[b] & placed[a]
+            free = np.concatenate([a[at_front], b[from_back]])
+            if free.size == 0:
+                break
+            neighbor = np.concatenate([b[at_front], a[from_back]])
+            hits = np.bincount(free, minlength=n_nodes)
+            wave = hits > 0
+            mean = _scatter_add(free, pos[neighbor], n_nodes)[wave] / hits[wave, None]
+            pos[wave] = mean + rng.normal(scale=0.1 * k, size=mean.shape)  # a little apart from each other
+            placed[wave] = True
     if n_nodes <= 1:
         return pos
     temperature = 0.1

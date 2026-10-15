@@ -70,3 +70,16 @@ def test_spring_layout_keeps_what_is_not_connected_together():
     pos = spring_layout(n + 200, ring)
     # were the isolated nodes pushed away without end, the ring would only fill a small part of the box
     assert np.ptp(pos[:n], axis=0).min() > 1.0
+
+
+def test_spring_layout_starts_the_free_nodes_from_the_fixed_ones():
+    # a chain 0-1-2-3-4 with node 0 fixed, and node 5 joined to nothing; no iteration: the start positions
+    chain = np.array([[0, 1], [1, 2], [2, 3], [3, 4]])
+    fixed = np.full((6, 2), np.nan)
+    fixed[0] = [0.8, -0.3]
+    pos = spring_layout(6, chain, iterations=0, fixed=fixed)
+    np.testing.assert_allclose(pos[0], fixed[0])
+    # wave after wave, each node starts near the one before it, a little apart from it
+    steps = np.linalg.norm(np.diff(pos[:5], axis=0), axis=1)
+    assert (steps > 0.0).all() and (steps < 0.2).all()
+    assert np.linalg.norm(pos[5] - pos[0]) > 0.2  # the random start of a node that no path joins to a fixed one
