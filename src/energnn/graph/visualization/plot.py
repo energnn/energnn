@@ -327,7 +327,7 @@ def plot_graph(
     *,
     address_positions: Any = None,
     hyper_edge_positions: dict[str, list[str]] | None = None,
-    address_labels: Sequence[str] | None = None,
+    address_labels: Sequence[str | None] | None = None,
     address_colors: Any = None,
     hyper_edge_colors: dict[str, str] | bool | None = None,
     iterations: int = 150,
@@ -358,7 +358,7 @@ def plot_graph(
         drawing keeps the geometry of both: a hyper-edge drawn on its only address hides it.
     :param address_labels: Optional ``n_addresses`` strings (bus names, for instance), written in the address
         circles instead of the address numbers, and naming the addresses in the tooltips, where the number of
-        an address stays readable. The labels are written as large as the longest of them fits in a circle:
+        an address stays readable. A ``None`` keeps the number of that address. The labels are written as large as the longest of them fits in a circle:
         keep them short, a long label is written small and overflows its circle.
     :param address_colors: Optional values of shape ``(n_addresses,)``, shown as the color of the addresses.
         A NaN leaves the address uncolored.
@@ -386,7 +386,9 @@ def plot_graph(
     g = graph.to_numpy_backend()
     g.unpad()
     n = g.n_addresses
-    labels = None if address_labels is None else np.array([str(label) for label in address_labels])
+    labels = (
+        None if address_labels is None else np.array([str(i if lbl is None else lbl) for i, lbl in enumerate(address_labels)])
+    )
     if labels is not None and labels.shape != (n,):
         raise ValueError(f"address_labels must hold {n} strings, one per address; got {labels.shape[0]}.")
     classes = {name: hes for name, hes in sorted(g.hyper_edge_sets.items()) if hes.port_dict and hes.n_obj}

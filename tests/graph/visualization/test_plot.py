@@ -218,6 +218,9 @@ def test_address_labels_replace_the_numbers(mixed_order_graph):
         ADDRESS_RADIUS / 1.05, abs=0.05
     )
     assert list(_trace(plot_graph(mixed_order_graph, address_labels=range(4)), "addresses").text) == ["0", "1", "2", "3"]
+    with_holes = plot_graph(mixed_order_graph, address_labels=["North", None, "East", None])  # None keeps the number
+    assert list(_trace(with_holes, "addresses").text) == ["North", "1", "East", "3"]
+    assert list(_trace(with_holes, "gen").text) == ["bus → North", "bus → 3"]
     with pytest.raises(ValueError, match="address_labels"):
         plot_graph(mixed_order_graph, address_labels=names[:3])
 
