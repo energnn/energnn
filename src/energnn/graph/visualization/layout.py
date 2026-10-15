@@ -45,9 +45,9 @@ def spring_layout(
     the ``[-1, 1]`` box.
 
     Some nodes may be *fixed* at given positions: they push and pull the others without moving, which places
-    the free nodes among them (a node joined to fixed nodes ends up between them). The result is then left in
-    the frame of the given positions, which should roughly fill the ``[-1, 1]`` box for the forces to be
-    balanced.
+    the free nodes among them (a node joined to fixed nodes starts, and ends up, between them). The result is
+    then left in the frame of the given positions, which should roughly fill the ``[-1, 1]`` box for the forces
+    to be balanced.
 
     The cost of an iteration grows like the number of nodes and edges, not like the number of node pairs:
     beyond a few hundred nodes, the repulsion of the far nodes is computed by groups (see :func:`_repulsion`).
@@ -61,19 +61,25 @@ def spring_layout(
     """
     rng = np.random.default_rng(seed)
     pos = rng.uniform(-1.0, 1.0, size=(n_nodes, 2))
+    k = 1.0 / np.sqrt(n_nodes)  # the ideal distance between neighbors: nodes share the unit area
+    # two nodes attract each other once, however many edges join them, and a node does not attract itself
+    links = np.sort(np.asarray(edges, dtype=int).reshape(-1, 2), axis=1)
+    a, b = np.unique(links[links[:, 0] != links[:, 1]], axis=0).T
     known = np.zeros(n_nodes, dtype=bool)
     if fixed is not None:
         fixed = np.asarray(fixed, dtype=float)
         known = np.isfinite(fixed).all(axis=1)
         pos[known] = fixed[known]
+        # a free node joined to fixed nodes starts near their mean position, about where it will settle
+        free = np.concatenate([a[~known[a] & known[b]], b[~known[b] & known[a]]])
+        neighbor = np.concatenate([b[~known[a] & known[b]], a[~known[b] & known[a]]])
+        hits = np.bincount(free, minlength=n_nodes)[:, None]
+        mean = _scatter_add(free, pos[neighbor], n_nodes) / np.maximum(hits, 1)
+        pos = np.where(hits > 0, mean + rng.normal(scale=0.1 * k, size=pos.shape), pos)
     if n_nodes <= 1:
         return pos
-    k = 1.0 / np.sqrt(n_nodes)  # the ideal distance between neighbors: nodes share the unit area
     temperature = 0.1
     cooling = temperature / (iterations + 1)
-    # two nodes attract each other once, however many edges join them, and a node does not attract itself
-    links = np.sort(np.asarray(edges, dtype=int).reshape(-1, 2), axis=1)
-    a, b = np.unique(links[links[:, 0] != links[:, 1]], axis=0).T
     depth = 0 if n_nodes <= _EXACT_UP_TO else int(np.log2(np.sqrt(n_nodes)))  # 1 to 4 nodes per cell of the finest grid
     for _ in range(iterations):
         displacement = k * k * _repulsion(pos, depth, _MIN_DISTANCE * k)  # repulsion for all pairs: k² / dist

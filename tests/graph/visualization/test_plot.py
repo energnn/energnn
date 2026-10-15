@@ -19,10 +19,8 @@ from energnn.graph.visualization.plot import (  # noqa: E402
     ADDRESS_RADIUS,
     MARKER_RATIO,
     N_SHADES,
-    STUB_LENGTH,
     THEMES,
-    _markers,
-    _positions,
+    _layout,
     _swatches,
 )
 
@@ -30,7 +28,6 @@ from .conftest import SQUARE  # noqa: E402
 
 UNIT_SQUARE = np.array([[-1.0, -1.0], [1.0, -1.0], [1.0, 1.0], [-1.0, 1.0]])
 TRIANGLE = np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]])
-RADIUS = 0.04
 
 
 def _trace(figure, name, mode="markers"):
@@ -47,8 +44,12 @@ def _xy(trace):
 def _placed(graph, address_positions=None, hyper_edge_positions=None):
     """The addresses and the markers of a graph, as ``plot_graph`` places them."""
     classes = {name: hes for name, hes in sorted(graph.hyper_edge_sets.items()) if hes.port_dict}
-    addresses, placed = _positions(classes, graph.n_addresses, address_positions, hyper_edge_positions or {}, 10, 0)
-    return addresses, _markers(classes, addresses, placed, RADIUS)
+    return _layout(classes, graph.n_addresses, address_positions, hyper_edge_positions or {}, 150, 0)
+
+
+def _nearest(points, addresses):
+    """The index of the nearest address of each point."""
+    return np.linalg.norm(points[:, None] - addresses[None], axis=-1).argmin(axis=1)
 
 
 def test_figure_content(mixed_order_graph):
@@ -119,10 +120,15 @@ def test_spring_layout_is_used_without_positions(mixed_order_graph):
 def test_given_positions_are_fitted_to_the_box(mixed_order_graph):
     addresses, markers = _placed(mixed_order_graph, address_positions=SQUARE)
     np.testing.assert_allclose(addresses, UNIT_SQUARE, atol=1e-9)
-    np.testing.assert_allclose(markers["line"], (UNIT_SQUARE[[0, 1, 2]] + UNIT_SQUARE[[1, 2, 3]]) / 2.0, atol=1e-9)
-    np.testing.assert_allclose(markers["trafo3w"], UNIT_SQUARE[[0, 1, 2]].mean(axis=0, keepdims=True), atol=1e-9)
-    # an object with a single address is a short distance away from it
-    np.testing.assert_allclose(np.linalg.norm(markers["gen"] - UNIT_SQUARE[[0, 3]], axis=1), STUB_LENGTH * RADIUS)
+    # the hyper-edges are placed by the layout among the fixed addresses: a line between its two addresses...
+    for line, (a, b) in zip(markers["line"], [(0, 1), (1, 2), (2, 3)]):
+        assert sorted(np.linalg.norm(line - UNIT_SQUARE, axis=1).argsort()[:2]) == [a, b]
+    assert np.linalg.norm(markers["trafo3w"] - UNIT_SQUARE[3], axis=1) > np.linalg.norm(
+        markers["trafo3w"] - UNIT_SQUARE[1], axis=1
+    )
+    # ... and an object with a single address a short distance away from it
+    stubs = np.linalg.norm(markers["gen"] - UNIT_SQUARE[[0, 3]], axis=1)
+    assert (stubs > 0.05).all() and (stubs < 1.0).all()
 
 
 @pytest.mark.parametrize("bad", [np.zeros((3, 2)), np.zeros((4, 3)), np.zeros(4), np.full((4, 2), np.nan)])
@@ -138,23 +144,21 @@ def test_addresses_without_coordinate_are_placed_among_the_others(mixed_order_gr
     known = addresses[:3]
     scale = known[1, 0] - known[0, 0]
     np.testing.assert_allclose(known - known[0], given[:3] / 10.0 * scale, atol=1e-9)  # the given geometry is kept
-    assert np.isfinite(addresses[3]).all() and np.abs(addresses).max() <= 1.0 + 1e-9
+    assert np.isfinite(addresses[3]).all()
     assert np.linalg.norm(addresses[3] - known[2]) < np.linalg.norm(addresses[3] - known[1])  # near its neighbor
-    np.testing.assert_allclose(markers["line"][2], (addresses[2] + addresses[3]) / 2.0, atol=1e-9)
+    assert sorted(np.linalg.norm(markers["line"][2] - addresses, axis=1).argsort()[:2]) == [2, 3]  # between its addresses
     np.testing.assert_allclose(_placed(mixed_order_graph, address_positions=given)[0], addresses)  # same seed, same drawing
 
 
 def test_objects_on_the_same_addresses_are_moved_apart(multi_graph):
     addresses, markers = _placed(multi_graph, address_positions=TRIANGLE)
-    # 3 parallel lines between addresses 0 and 1: the middle one on the barycenter, the others on either side of it
-    lines, middle = markers["line"][:3], (addresses[0] + addresses[1]) / 2.0
-    np.testing.assert_allclose(lines[1], middle, atol=1e-9)
-    np.testing.assert_allclose(lines[0] + lines[2], 2.0 * middle, atol=1e-9)
-    assert abs((lines[2] - lines[0]) @ (addresses[1] - addresses[0])) < 1e-9 and np.linalg.norm(lines[2] - lines[0]) > 0.1
+    # 3 parallel lines between addresses 0 and 1: all between them, but apart from each other
+    lines = markers["line"][:3]
+    assert (np.linalg.norm(lines - addresses[2], axis=1) > np.linalg.norm(lines - addresses[1], axis=1)).all()
+    assert all(np.linalg.norm(lines[i] - lines[j]) > 0.05 for i in range(3) for j in range(i))
     # the self-loop on address 2 is drawn like an object with a single address
-    assert np.linalg.norm(markers["line"][3] - addresses[2]) == pytest.approx(STUB_LENGTH * RADIUS)
-    # 2 parallel transformers: on either side of their common barycenter
-    np.testing.assert_allclose(markers["trafo3w"].mean(axis=0), addresses.mean(axis=0), atol=1e-9)
+    assert 0.05 < np.linalg.norm(markers["line"][3] - addresses[2]) < 1.0 and _nearest(markers["line"][3:], addresses) == 2
+    # 2 parallel transformers: apart from each other
     assert np.linalg.norm(markers["trafo3w"][1] - markers["trafo3w"][0]) > 0.05
 
 
@@ -165,23 +169,22 @@ def test_objects_on_a_single_address_are_spread_around_it():
     }
     graph = Graph.from_dict(hyper_edge_set_dict=hes, n_addresses=2)
     addresses, markers = _placed(graph, address_positions=np.array([[0.0, 0.0], [1.0, 0.0]]))
-    around = np.concatenate([markers["gen"][:2], markers["shunt"]]) - addresses[0]  # 3 objects of 2 classes on address 0
-    np.testing.assert_allclose(np.linalg.norm(around, axis=1), STUB_LENGTH * RADIUS)
-    np.testing.assert_allclose(around.sum(axis=0), 0.0, atol=1e-9)  # evenly spread: a third of a turn apart
-    assert np.linalg.norm(markers["gen"][2] - addresses[1]) == pytest.approx(STUB_LENGTH * RADIUS)
+    around = np.concatenate([markers["gen"][:2], markers["shunt"]])  # 3 objects of 2 classes on address 0
+    assert list(_nearest(around, addresses)) == [0, 0, 0] and _nearest(markers["gen"][2:], addresses) == 1
+    stubs = np.linalg.norm(around - addresses[0], axis=1)
+    assert (stubs > 0.05).all() and (stubs < 1.0).all()  # nearer than the other address, 2 away
+    assert all(np.linalg.norm(around[i] - around[j]) > 0.05 for i in range(3) for j in range(i))
 
 
-@pytest.mark.parametrize("n, spacing_radius", [(4, ADDRESS_RADIUS), (2500, 150.0 / 50.0)])
-def test_symbols_keep_their_size_and_distances_follow_the_spacing(n, spacing_radius):
+@pytest.mark.parametrize("n", [4, 2500])
+def test_symbols_keep_their_size_whatever_the_graph(n):
     bus = HyperEdgeSet.from_dict(port_dict={"id": np.arange(n)}, feature_dict={"v": np.ones(n)})
     graph = Graph.from_dict(hyper_edge_set_dict={"bus": bus}, n_addresses=n)
-    figure = plot_graph(graph, address_positions=np.random.default_rng(0).uniform(size=(n, 2)), size=320)
+    positions = np.random.default_rng(0).uniform(size=(n, 2))
+    figure = plot_graph(graph, address_positions=positions, iterations=10, size=320)
     # in pixels, whatever the number of addresses: half the sizes of the default 640-pixel figure
     assert _trace(figure, "addresses").marker.size == pytest.approx(ADDRESS_RADIUS)
     assert _trace(figure, "bus").marker.size == pytest.approx(MARKER_RATIO * ADDRESS_RADIUS)
-    # in layout units, shrinking beyond 133 addresses
-    stubs = np.linalg.norm(_xy(_trace(figure, "bus")) - _xy(_trace(figure, "addresses")), axis=1)
-    np.testing.assert_allclose(stubs, STUB_LENGTH * spacing_radius / 290.0, rtol=1e-3)
 
 
 @pytest.mark.parametrize("n, font_size", [(1000, 12.4), (1001, 9.8), (10001, 8.1)])
@@ -225,22 +228,30 @@ def test_hyper_edge_positions_place_the_markers(located_graph):
     scale = addresses[1, 0] - addresses[0, 0]
     # the first line goes where its features say, in the frame of the addresses; the second one has NaN features
     np.testing.assert_allclose(markers["line"][0] - addresses[0], scale / 4.0 * np.array([10.0, 10.0]), atol=1e-9)
-    np.testing.assert_allclose(markers["line"][1], (addresses[1] + addresses[2]) / 2.0, atol=1e-9)
-    assert np.abs(np.concatenate([addresses, markers["line"]])).max() == pytest.approx(1.0)
+    middle = (addresses[1] + addresses[2]) / 2.0  # the center of the square: as near every address
+    assert np.linalg.norm(markers["line"][1] - middle) < np.linalg.norm(markers["line"][1] - addresses, axis=1).min()
+    assert np.abs(np.concatenate([addresses, markers["line"][:1]])).max() == pytest.approx(1.0)
+    # with every coordinate given, nothing moves
+    located_graph.line.flow = np.array([10.0, 5.0])
+    both = {"line": ["flow", "flow"], "bus": ["x", "y"]}
+    addresses, markers = _placed(located_graph, address_positions=square, hyper_edge_positions=both)
+    scale = addresses[1, 0] - addresses[0, 0]
+    np.testing.assert_allclose(markers["bus"], addresses[:3], atol=1e-9)
+    np.testing.assert_allclose(markers["line"], addresses[0] + np.array([[10.0, 10.0], [5.0, 5.0]]) * scale / 4.0, atol=1e-9)
 
 
 def test_hyper_edge_positions_place_the_addresses(located_graph):
     addresses, markers = _placed(located_graph, hyper_edge_positions={"bus": ["x", "y"]})
-    scale = (addresses[1, 0] - addresses[0, 0]) / 4.0
+    buses = markers["bus"]
+    scale = (buses[1, 0] - buses[0, 0]) / 4.0
     assert scale > 0
-    np.testing.assert_allclose(addresses[:3] - addresses[0], scale * np.array([[0.0, 0.0], [4.0, 0.0], [0.0, 3.0]]), atol=1e-9)
-    # a bus sits on the address it places, which would hide it: it is moved away like any object with a single address
-    np.testing.assert_allclose(np.linalg.norm(markers["bus"] - addresses[:3], axis=1), STUB_LENGTH * RADIUS)
-    # address 3, pointed to by nothing, is placed by the layout: somewhere in the box, on no other address
-    assert np.isfinite(addresses[3]).all() and np.abs(addresses).max() <= 1.0 + 1e-9
-    assert np.linalg.norm(addresses[:3] - addresses[3], axis=1).min() > 0.1
+    np.testing.assert_allclose(buses - buses[0], scale * np.array([[0.0, 0.0], [4.0, 0.0], [0.0, 3.0]]), atol=1e-9)
+    # each address is placed next to its bus, not on it; address 3, pointed to by nothing, somewhere else in the box
+    assert list(_nearest(addresses[:3], buses)) == [0, 1, 2]
+    assert (np.linalg.norm(addresses[:3] - buses, axis=1) > 0.05).all()
+    assert np.isfinite(addresses[3]).all() and np.linalg.norm(addresses[:3] - addresses[3], axis=1).min() > 0.1
     located_graph.bus.x = np.full(3, np.nan)
-    with pytest.raises(ValueError, match="hyper_edge_positions places no address"):
+    with pytest.raises(ValueError, match="hyper_edge_positions place nothing"):
         plot_graph(located_graph, hyper_edge_positions={"bus": ["x", "y"]})
 
 

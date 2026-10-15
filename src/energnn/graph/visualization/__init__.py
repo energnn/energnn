@@ -16,7 +16,7 @@ Things are placed by ``address_positions`` (an array, one row per address) or ``
 or the strings of ``address_labels`` (one per address).
 
 The module is made of :mod:`.plot`, which builds the figure, and :mod:`.layout`, the force-directed layout
-that places the addresses when no coordinate is given.
+that places the addresses and the hyper-edges, among the ones given a coordinate if any.
 """
 
 from .layout import spring_layout
