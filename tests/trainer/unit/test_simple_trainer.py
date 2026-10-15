@@ -11,6 +11,7 @@ from unittest.mock import MagicMock
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 import optax
 import pytest
 from flax import nnx
@@ -20,7 +21,7 @@ from energnn.model import GNN, IdentityEncoder
 from energnn.problem import ProblemBatch
 from energnn.problem.example import LinearSystemProblemLoader
 from energnn.trainer import Trainer
-from energnn.trainer.trainer import _cast_cotangent_to_primal_dtype
+from energnn.trainer.trainer import _cast_cotangent_to_primal_dtype, _gradient_norms
 
 
 class IdentityNormalizer(nnx.Module):
@@ -108,7 +109,7 @@ def test_training_step_basic():
     assert isinstance(infos, dict)
     assert any(k.startswith("1_context") for k in infos.keys())
     assert any(k.startswith("3_gradient") for k in infos.keys())
-    assert any(k.startswith("4_update") for k in infos.keys())
+    assert {"4_update/grad_norm_1", "4_update/grad_norm_2", "4_update/grad_norm_inf"} <= set(infos)
     assert "stats/run_time_s" in infos
     assert infos["stats/run_time_s"] >= 0
 
@@ -124,6 +125,50 @@ def test_training_step_basic():
             break
 
     assert changed, "Parameters did not change after training step"
+
+
+def test_training_step_gradient_norms():
+    """The tracked norms are the global l1, l2 and linf norms of the parameter gradient, in float32."""
+    loader = LinearSystemProblemLoader(dataset_size=4, batch_size=4)
+    model = create_tiny_model(loader.context_structure)
+    trainer = Trainer(model=model, gradient_transformation=optax.sgd(1e-3))
+    batch = next(iter(loader))
+
+    # Recompute the gradient of the pre-update parameters by hand, through the same vjp as the trainer.
+    jax_context, _ = batch.get_context(step_with_metrics=True, step=0)
+    graphdef, params, rest = nnx.split(model, nnx.Param, ...)
+    decision, rest_updated, vjp_fn = Trainer._forward_vjp(graphdef, params, rest, jax_context, True)
+    cotangent, _ = batch.get_gradient(decision=decision, step_with_metrics=True, step=0)
+    cotangent = _cast_cotangent_to_primal_dtype(cotangent, decision)
+    grads, _ = vjp_fn((cotangent, jax.tree.map(jnp.zeros_like, rest_updated)))
+    flat = jnp.concatenate([jnp.ravel(leaf).astype(jnp.float32) for leaf in jax.tree.leaves(grads)])
+    assert flat.size > 0
+
+    infos = trainer.training_step(batch, step_with_metrics=True)
+
+    for key, order in [("grad_norm_1", 1), ("grad_norm_2", 2), ("grad_norm_inf", jnp.inf)]:
+        value = infos[f"4_update/{key}"]
+        assert value.shape == () and value.dtype == np.float32
+        assert np.isfinite(value) and value > 0
+        np.testing.assert_allclose(value, jnp.linalg.norm(flat, ord=order), rtol=1e-5)
+    assert infos["4_update/grad_norm_inf"] <= infos["4_update/grad_norm_2"] <= infos["4_update/grad_norm_1"]
+
+
+def test_training_step_without_metrics_skips_gradient_norms():
+    loader = LinearSystemProblemLoader(dataset_size=4, batch_size=4)
+    model = create_tiny_model(loader.context_structure)
+    trainer = Trainer(model=model, gradient_transformation=optax.sgd(1e-3))
+    batch = next(iter(loader))
+
+    infos = trainer.training_step(batch, step_with_metrics=False)
+
+    assert not [k for k in infos if k.startswith("4_update/")]
+
+
+def test_gradient_norms_empty_pytree():
+    norms = _gradient_norms({})
+    assert set(norms) == {"grad_norm_1", "grad_norm_2", "grad_norm_inf"}
+    assert all(float(v) == 0.0 for v in norms.values())
 
 
 def test_eval_step():

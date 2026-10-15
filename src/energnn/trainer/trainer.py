@@ -51,6 +51,21 @@ def _cast_cotangent_to_primal_dtype(cotangent_pytree, primal_pytree):
     return jax.tree.map(_cast_leaf, cotangent_pytree, primal_pytree)
 
 
+def _gradient_norms(gradient_pytree) -> dict[str, jax.Array]:
+    r"""Global :math:`\ell_1`, :math:`\ell_2` and :math:`\ell_\infty` norms of a gradient pytree.
+
+    All leaves are treated as a single flat vector and accumulated in float32, so the result does not depend
+    on how the parameters are split into arrays nor on their (possibly low-precision) dtype.
+    """
+    zero = jnp.zeros((), dtype=jnp.float32)
+    abs_leaves = [jnp.abs(jnp.asarray(leaf, dtype=jnp.float32)) for leaf in jax.tree.leaves(gradient_pytree)]
+    return {
+        "grad_norm_1": sum((jnp.sum(leaf) for leaf in abs_leaves), start=zero),
+        "grad_norm_2": jnp.sqrt(sum((jnp.sum(jnp.square(leaf)) for leaf in abs_leaves), start=zero)),
+        "grad_norm_inf": jnp.max(jnp.stack([zero] + [jnp.max(leaf) for leaf in abs_leaves])),
+    }
+
+
 def _progress_bar(iterable, **kwargs) -> tqdm:
     """A ``tqdm`` bar written to stdout.
 
@@ -119,7 +134,7 @@ class Trainer:
         # The vjp residuals are not donated: XLA can only alias a donated input to an output of
         # the same shape, and most residuals (context arrays, masks) match none, which triggers a
         # "Some donated buffers were not usable" warning at compile time for no measurable gain.
-        self._jit_backward_update = nnx.jit(self._backward_update)
+        self._jit_backward_update = nnx.jit(self._backward_update, static_argnames=("step_with_metrics",))
         self._jit_eval_forward = nnx.jit(self._eval_forward)
 
     @staticmethod
@@ -140,17 +155,31 @@ class Trainer:
         return jax_decision, rest_updated, vjp_fn
 
     @staticmethod
-    def _backward_update(optimizer: nnx.Optimizer, model: GNN, vjp_fn, jax_cotangent, jax_decision, rest_updated):
-        """Backward pass, optimizer update and non-param state update in a single compiled call.
+    def _backward_update(
+        optimizer: nnx.Optimizer,
+        model: GNN,
+        vjp_fn,
+        jax_cotangent,
+        jax_decision,
+        rest_updated,
+        step_with_metrics: bool,
+    ) -> dict[str, jax.Array]:
+        r"""Backward pass, optimizer update and non-param state update in a single compiled call.
 
         Calling ``vjp_fn`` here instead of eagerly lets XLA compile and fuse the whole backward.
         The zero cotangent on ``rest_updated`` is a compile-time constant, and the cotangent
         w.r.t. the non-param state is discarded: XLA prunes the corresponding computations.
+
+        On steps with metrics, returns the global :math:`\ell_1`, :math:`\ell_2` and :math:`\ell_\infty`
+        norms of the backpropagated parameter gradient (before the optimizer transformation);
+        otherwise returns an empty dict so that the norms are not even computed.
         """
         cotangent = _cast_cotangent_to_primal_dtype(jax_cotangent, jax_decision)
         (grads_params, _) = vjp_fn((cotangent, jax.tree.map(jnp.zeros_like, rest_updated)))
+        metrics = _gradient_norms(grads_params) if step_with_metrics else {}
         optimizer.update(model, grads_params)
         nnx.update(model, rest_updated)
+        return metrics
 
     def _log_stage(self, name: str, value, t_start: float) -> None:
         """In profile mode, wait for `value` and log the elapsed time of a training-step stage."""
@@ -398,13 +427,16 @@ class Trainer:
         return mean_score, metrics
 
     def training_step(self, problem_batch: ProblemBatch, step_with_metrics: bool) -> dict:
-        """
+        r"""
         Performs a training step to update model parameters.
 
         :param problem_batch: A batch of problems for training.
         :param step_with_metrics: Whether this step collects metrics. Components only return metrics on such steps,
             and only if they were built with `return_metrics=True`.
         :return: A flat dictionary of metrics about the training step (empty entries when not collected).
+            On steps with metrics, it always contains the global :math:`\ell_1`, :math:`\ell_2` and
+            :math:`\ell_\infty` norms of the backpropagated parameter gradient, under the keys
+            ``4_update/grad_norm_1``, ``4_update/grad_norm_2`` and ``4_update/grad_norm_inf``.
         """
         t_step_start = time.perf_counter()
         with TaskLogger(logger, f"Training step {self.train_step}"):
@@ -430,10 +462,16 @@ class Trainer:
             self._log_stage("get_gradient", jax_gradient, t_start)
 
             t_start = time.perf_counter()
-            self._jit_backward_update(self.optimizer, self.model, vjp_fn, jax_gradient, jax_decision, rest_updated)
+            metrics["4_update"] = self._jit_backward_update(
+                self.optimizer,
+                self.model,
+                vjp_fn,
+                jax_gradient,
+                jax_decision,
+                rest_updated,
+                step_with_metrics=step_with_metrics,
+            )
             self._log_stage("backward_update", nnx.state(self.model), t_start)
-
-            metrics["4_update"] = {}
 
         # Flatten and numpify metrics
         flattened_metrics = flatdict.FlatDict(metrics, delimiter="/")
