@@ -218,6 +218,11 @@ when built with :code:`return_metrics=True`, which keeps the default training lo
     trainer = Trainer(model=model, gradient_transformation=optax.adam(1e-3))
     trainer.train(train_loader=loader, n_epochs=10, tracker=my_tracker, log_period=10)
 
+Independently of these flags, every logged training step reports the global :math:`\ell_1`, :math:`\ell_2` and
+:math:`\ell_\infty` norms of the gradient backpropagated to the model parameters (before the optimizer
+transformation), under :code:`train/4_update/grad_norm_1`, :code:`train/4_update/grad_norm_2` and
+:code:`train/4_update/grad_norm_inf`. They are computed inside the compiled backward pass, only on logged steps.
+
 -----------------------------
 
 Next Steps
