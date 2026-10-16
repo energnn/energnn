@@ -229,3 +229,9 @@ def test_hyper_edge_sets_are_reachable_by_attribute(backend):
     assert graph.etype is graph.hyper_edge_sets["etype"]
     with pytest.raises(AttributeError, match="neither an attribute nor a hyper-edge class"):
         graph.no_such_class
+
+
+def test_n_addresses_counts_the_padding(backend):
+    graph = make_graph_with_n_addresses(n_addresses=4, n_obj=2, backend=backend)
+    assert graph.n_addresses == 4
+    assert collate_graphs([graph, graph]).n_addresses == 4
