@@ -80,3 +80,34 @@ class GNN(nnx.Module):
             self.encoder, self.coupler, self.decoder, normalized_graph, step_with_metrics
         )
         return output, metrics_norm | metrics_core
+
+    def compute_latent_coordinates(self, *, graph: Graph) -> jax.Array:
+        """Performs only the normalization, encoding and coupling steps, and returns the latent coordinates.
+
+        :param graph: The input graph to be processed.
+        :return: The latent coordinates of addresses.
+        """
+        normalized_graph, _ = self.normalizer(graph=graph, step_with_metrics=False)
+        encoded_graph, _ = self.encoder(graph=normalized_graph, step_with_metrics=False)
+        latent_coordinates, _ = self.coupler(graph=encoded_graph, step_with_metrics=False)
+        return latent_coordinates
+
+    def compute_latent_coordinates_batch(self, *, graph: Graph) -> jax.Array:
+        """Performs only the normalization, encoding and coupling steps, and returns the latent coordinates on a batched graph.
+
+        :param graph: The input graph batch to be processed.
+        :return: The latent coordinates of batched addresses.
+        """
+
+        def apply_core(encoder, coupler, graph_):
+            encoded_graph, _ = encoder(graph=graph_, step_with_metrics=False)
+            latent_coordinates_, _ = coupler(graph=encoded_graph, step_with_metrics=False)
+            return latent_coordinates_
+
+        normalized_graph, metrics_norm = self.normalizer(graph=graph, step_with_metrics=False)
+        latent_coordinates = jax.vmap(apply_core, in_axes=[None, None, 0], out_axes=0)(
+            self.encoder,
+            self.coupler,
+            normalized_graph,
+        )
+        return latent_coordinates
