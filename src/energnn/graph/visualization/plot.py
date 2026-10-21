@@ -322,6 +322,128 @@ def _port_lines(port_names: Sequence[str], ports: np.ndarray, labels: np.ndarray
     return text
 
 
+def _hyper_edge_traces(
+    classes: dict[str, HyperEdgeSet],
+    style: Theme,
+    values: dict[str, np.ndarray],
+    low: float,
+    high: float,
+    markers: dict[str, np.ndarray],
+    addresses: np.ndarray,
+    kind: str,
+    labels: np.ndarray | None,
+    radius_px: float,
+    hyper_edge_colors: dict[str, str] | bool | None,
+) -> list[dict[str, Any]]:
+    traces = []
+    for k, (cls, hes) in enumerate(classes.items()):
+        ports, features = hes.port_array, hes.feature_dict or {}
+        n_ports = ports.shape[1]
+        own = style.neutral if values or hyper_edge_colors is False else style.palette[k % len(style.palette)]
+        shade, shades, fill = np.zeros(hes.n_obj, dtype=int), [own], dict(color=own)
+        if cls in values:
+            shade, shades, fill = _shades(values[cls], low, high, style, own)
+        # one spoke per port: the marker, the address, and a NaN that ends the line -> (n_obj, n_ports, 3, 2)
+        spokes = np.full((hes.n_obj, n_ports, 3, 2), np.nan, dtype=np.float32)
+        spokes[:, :, 0], spokes[:, :, 1] = markers[cls][:, None], addresses[ports]
+        for i in np.unique(shade):  # plotly gives one color to all the lines of a trace: one trace per shade
+            x, y = spokes[shade == i].reshape(-1, 2).T
+            line = dict(color=shades[i], width=1.2)
+            traces.append(
+                dict(type=kind, x=x, y=y, mode="lines", line=line, legendgroup=cls, showlegend=False, hoverinfo="skip")
+            )
+        # the tooltip is a template that plotly fills with the row of the hovered hyper-edge in customdata; the
+        # labels of its addresses, being strings, go through the text of the hyper-edge instead (not drawn)
+        port_names: list[str] = list(hes.port_names or [])  # in column order of port_array
+        tip = [f"<b>{cls} #%{{customdata[0]}}</b>"]
+        if labels is None:
+            tip += [f"{name} → %{{customdata[{1 + i}]}}" for i, name in enumerate(port_names)]
+        else:
+            tip += ["%{text}"]
+        tip += [f"{name} = %{{customdata[{1 + n_ports + i}]:.5~g}}" for i, name in enumerate(features)]
+        symbol = SYMBOLS[k % len(SYMBOLS)]
+        x, y = markers[cls].T
+        traces.append(
+            dict(
+                type=kind,
+                x=x,
+                y=y,
+                mode="markers",
+                marker=dict(
+                    symbol=symbol, size=2.0 * MARKER_RATIO * radius_px, line=dict(color=style.surface, width=1), **fill
+                ),
+                customdata=np.column_stack([np.arange(hes.n_obj), ports, *features.values()]).astype(np.float32),
+                text=None if labels is None else _port_lines(port_names, ports, labels),
+                hovertemplate="<br>".join(tip) + "<extra></extra>",
+                name=cls,
+                legendgroup=cls,
+            )
+        )
+    return traces
+
+
+def _address_traces(
+    n: int,
+    style: Theme,
+    labels: np.ndarray | None,
+    address_colors: Any,
+    has_hyper_edge_colorbar: bool,
+    addresses: np.ndarray,
+    radius_px: float,
+    kind: str,
+) -> list[dict[str, Any]]:
+    # the tooltip of an address: its label and number, then its value if any, the two last from customdata
+    text, tip, columns, fill = np.arange(n).astype(str), ["<b>address %{text}</b>"], [], dict(color=style.surface)
+    traces = []
+    if labels is not None:
+        text, tip, columns = labels, ["<b>%{text}</b>", "address %{customdata[0]}"], [np.arange(n)]
+    if address_colors is not None:
+        address_values = np.asarray(address_colors, dtype=float)
+        if address_values.shape != (n,):
+            raise ValueError(f"address_colors must have shape {(n,)}; got {address_values.shape}.")
+        low, high = _range(address_values, "address_colors")
+        fill = _shades(address_values, low, high, style, style.surface)[2]
+        tip.append(f"value = %{{customdata[{len(columns)}]:.5~g}}")
+        columns.append(address_values)
+        traces.append(_colorbar("addresses", low, high, style, column=int(has_hyper_edge_colorbar)))
+
+    x, y = addresses.T
+    font_size = radius_px / max(LABEL_MARGIN + CHAR_HALF_WIDTH * max((len(label) for label in text), default=1), 1.05)
+    traces.append(
+        dict(
+            type=kind,
+            x=x,
+            y=y,
+            mode="markers+text",
+            marker=dict(size=2.0 * radius_px, line=dict(color=style.ink, width=1.2), **fill),
+            text=text,  # strings: plotly fails to draw numbers here
+            textfont=dict(size=max(font_size, 7.0), color=style.ink),
+            customdata=np.column_stack(columns) if columns else None,
+            hovertemplate="<br>".join(tip) + "<extra></extra>",
+            name="addresses",
+        )
+    )
+    return traces
+
+
+def _make_layout(size: int, style: Theme) -> dict[str, Any]:
+    return dict(
+        template="none",  # plotly's default styles, which are the user's settings: the figure sets its own
+        width=size,
+        height=size,
+        margin=dict(l=10, r=10, t=10, b=10),
+        paper_bgcolor=style.surface,
+        plot_bgcolor=style.surface,
+        font=dict(color=style.ink),
+        legend=dict(orientation="h", yanchor="top", y=0.0, x=0.0, itemsizing="constant"),  # below: the toolbar is above
+        dragmode="pan",
+        hovermode="closest",
+        hoverdistance=2,  # in pixels around the markers: the tooltip is the one of the hyper-edge under the mouse
+        xaxis=dict(visible=False),
+        yaxis=dict(visible=False, scaleanchor="x"),  # same scale on both axes
+    )
+
+
 def plot_graph(
     graph: Graph,
     *,
@@ -404,98 +526,18 @@ def plot_graph(
     traces = []
     by_feature = hyper_edge_colors if isinstance(hyper_edge_colors, dict) else {}
     values = {cls: (classes[cls].feature_dict or {})[feature].astype(float) for cls, feature in by_feature.items()}
+    low, high = 0.0, 0.0
     if values:
         low, high = _range(np.concatenate(list(values.values())), "hyper_edge_colors")
         title = ", ".join(f"{cls}.{feature}" for cls, feature in by_feature.items())
         traces.append(_colorbar(title, low, high, style, column=0))
-    for k, (cls, hes) in enumerate(classes.items()):
-        ports, features = hes.port_array, hes.feature_dict or {}
-        n_ports = ports.shape[1]
-        own = style.neutral if values or hyper_edge_colors is False else style.palette[k % len(style.palette)]
-        shade, shades, fill = np.zeros(hes.n_obj, dtype=int), [own], dict(color=own)
-        if cls in values:
-            shade, shades, fill = _shades(values[cls], low, high, style, own)
-        # one spoke per port: the marker, the address, and a NaN that ends the line -> (n_obj, n_ports, 3, 2)
-        spokes = np.full((hes.n_obj, n_ports, 3, 2), np.nan, dtype=np.float32)
-        spokes[:, :, 0], spokes[:, :, 1] = markers[cls][:, None], addresses[ports]
-        for i in np.unique(shade):  # plotly gives one color to all the lines of a trace: one trace per shade
-            x, y = spokes[shade == i].reshape(-1, 2).T
-            line = dict(color=shades[i], width=1.2)
-            traces.append(
-                dict(type=kind, x=x, y=y, mode="lines", line=line, legendgroup=cls, showlegend=False, hoverinfo="skip")
-            )
-        # the tooltip is a template that plotly fills with the row of the hovered hyper-edge in customdata; the
-        # labels of its addresses, being strings, go through the text of the hyper-edge instead (not drawn)
-        port_names: list[str] = list(hes.port_names or [])  # in column order of port_array
-        tip = [f"<b>{cls} #%{{customdata[0]}}</b>"]
-        if labels is None:
-            tip += [f"{name} → %{{customdata[{1 + i}]}}" for i, name in enumerate(port_names)]
-        else:
-            tip += ["%{text}"]
-        tip += [f"{name} = %{{customdata[{1 + n_ports + i}]:.5~g}}" for i, name in enumerate(features)]
-        symbol = SYMBOLS[k % len(SYMBOLS)]
-        x, y = markers[cls].T
-        traces.append(
-            dict(
-                type=kind,
-                x=x,
-                y=y,
-                mode="markers",
-                marker=dict(
-                    symbol=symbol, size=2.0 * MARKER_RATIO * radius_px, line=dict(color=style.surface, width=1), **fill
-                ),
-                customdata=np.column_stack([np.arange(hes.n_obj), ports, *features.values()]).astype(np.float32),
-                text=None if labels is None else _port_lines(port_names, ports, labels),
-                hovertemplate="<br>".join(tip) + "<extra></extra>",
-                name=cls,
-                legendgroup=cls,
-            )
-        )
 
-    # the tooltip of an address: its label and number, then its value if any, the two last from customdata
-    text, tip, columns, fill = np.arange(n).astype(str), ["<b>address %{text}</b>"], [], dict(color=style.surface)
-    if labels is not None:
-        text, tip, columns = labels, ["<b>%{text}</b>", "address %{customdata[0]}"], [np.arange(n)]
-    if address_colors is not None:
-        address_values = np.asarray(address_colors, dtype=float)
-        if address_values.shape != (n,):
-            raise ValueError(f"address_colors must have shape {(n,)}; got {address_values.shape}.")
-        low, high = _range(address_values, "address_colors")
-        fill = _shades(address_values, low, high, style, style.surface)[2]
-        tip.append(f"value = %{{customdata[{len(columns)}]:.5~g}}")
-        columns.append(address_values)
-        traces.append(_colorbar("addresses", low, high, style, column=int(bool(values))))
-    x, y = addresses.T
-    font_size = radius_px / max(LABEL_MARGIN + CHAR_HALF_WIDTH * max((len(label) for label in text), default=1), 1.05)
-    traces.append(
-        dict(
-            type=kind,
-            x=x,
-            y=y,
-            mode="markers+text",
-            marker=dict(size=2.0 * radius_px, line=dict(color=style.ink, width=1.2), **fill),
-            text=text,  # strings: plotly fails to draw numbers here
-            textfont=dict(size=max(font_size, 7.0), color=style.ink),
-            customdata=np.column_stack(columns) if columns else None,
-            hovertemplate="<br>".join(tip) + "<extra></extra>",
-            name="addresses",
-        )
+    traces += _hyper_edge_traces(
+        classes, style, values, low, high, markers, addresses, kind, labels, radius_px, hyper_edge_colors
     )
-    layout = dict(
-        template="none",  # plotly's default styles, which are the user's settings: the figure sets its own
-        width=size,
-        height=size,
-        margin=dict(l=10, r=10, t=10, b=10),
-        paper_bgcolor=style.surface,
-        plot_bgcolor=style.surface,
-        font=dict(color=style.ink),
-        legend=dict(orientation="h", yanchor="top", y=0.0, x=0.0, itemsizing="constant"),  # below: the toolbar is above
-        dragmode="pan",
-        hovermode="closest",
-        hoverdistance=2,  # in pixels around the markers: the tooltip is the one of the hyper-edge under the mouse
-        xaxis=dict(visible=False),
-        yaxis=dict(visible=False, scaleanchor="x"),  # same scale on both axes
-    )
+    traces += _address_traces(n, style, labels, address_colors, bool(values), addresses, radius_px, kind)
+
+    layout = _make_layout(size, style)
     figure = GraphFigure(dict(data=traces, layout=layout))
     figure._follows_notebook = theme == "auto"
     return figure
