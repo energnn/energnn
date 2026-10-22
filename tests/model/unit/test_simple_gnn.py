@@ -206,3 +206,75 @@ def test_forward_batch_execution():
     assert "coupling" in info
     assert "decoding" in info
     assert info["norm"] == "ok"
+
+
+def test_compute_latent_coordinates_stops_after_coupler():
+    """Normalizer, encoder and coupler are chained in order; the decoder is never invoked."""
+    normalized_graph = "normalized_graph_obj"
+    encoded_graph = "encoded_graph_obj"
+    latents = jnp.arange(6.0).reshape((3, 2))
+
+    norm = DummyNormalizer(out=normalized_graph, info={"norm": True})
+    enc = DummyEncoder(out=encoded_graph, info={"enc": True})
+    coup = DummyCoupler(out=latents, info={"coup": True})
+    dec = DummyDecoder(out=jax_context, info={"dec": True})
+    model = GNN(normalizer=norm, encoder=enc, coupler=coup, decoder=dec)
+
+    out = model.compute_latent_coordinates(graph=jax_context)
+
+    assert isinstance(out, jax.Array)
+    np.testing.assert_array_equal(np.array(out), np.array(latents))
+    assert norm.called_with["graph"] is jax_context
+    assert enc.called_with["graph"] == normalized_graph
+    assert coup.called_with["graph"] == encoded_graph
+    assert dec.called_with is None
+
+
+def test_compute_latent_coordinates_never_collects_metrics():
+    """The latent-coordinates path is metric-free: every block receives step_with_metrics=False."""
+    norm = DummyNormalizer(out="normed", info={})
+    enc = DummyEncoder(out="encoded", info={})
+    coup = DummyCoupler(out=jnp.zeros((2, 2)), info={})
+    dec = DummyDecoder(out=jax_context, info={})
+    model = GNN(normalizer=norm, encoder=enc, coupler=coup, decoder=dec)
+
+    model.compute_latent_coordinates(graph=jax_context)
+
+    assert norm.called_with["step_with_metrics"] is False
+    assert enc.called_with["step_with_metrics"] is False
+    assert coup.called_with["step_with_metrics"] is False
+
+
+def test_compute_latent_coordinates_batch_execution():
+    """Normalizer is called once on the whole batch, encoder and coupler are vmapped, decoder is not invoked."""
+    batch_size = int(jax_context_batch.non_fictitious_addresses.shape[0])
+    n_addr = int(jax_context_batch.non_fictitious_addresses.shape[1])
+    latent_dim = 3
+
+    norm = DummyNormalizer(out=jax_context_batch, info={})
+    enc = DummyEncoder(out="encoded_sample", info={})
+    latents_sample = jnp.full((n_addr, latent_dim), 2.0)
+    coup = DummyCoupler(out=latents_sample, info={})
+    dec = DummyDecoder(out=jnp.ones((5,)), info={})
+    model = GNN(normalizer=norm, encoder=enc, coupler=coup, decoder=dec)
+
+    out = model.compute_latent_coordinates_batch(graph=jax_context_batch)
+
+    assert out.shape == (batch_size, n_addr, latent_dim)
+    np.testing.assert_allclose(np.array(out), 2.0)
+    assert norm.called_with["graph"] is jax_context_batch
+    assert norm.called_with["step_with_metrics"] is False
+    assert dec.called_with is None
+
+
+@pytest.mark.parametrize("method", ["compute_latent_coordinates", "compute_latent_coordinates_batch"])
+def test_compute_latent_coordinates_exception_propagation(method):
+    """If a submodule raises, the exception must propagate (no swallowing)."""
+    norm = DummyNormalizer(out=jax_context_batch, info={})
+    enc_fail = FailingEncoder(ValueError("encoder failure"))
+    coup = DummyCoupler(out=jnp.zeros((1, 2)), info={})
+    dec = DummyDecoder(out=jax_context, info={})
+    model = GNN(normalizer=norm, encoder=enc_fail, coupler=coup, decoder=dec)
+
+    with pytest.raises(ValueError, match="encoder failure"):
+        getattr(model, method)(graph=jax_context_batch)
