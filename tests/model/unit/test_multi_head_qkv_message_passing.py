@@ -57,9 +57,11 @@ def test_forward_shape_and_finite(n_heads, use_softmax):
     assert info == {}
 
 
-def test_out_size_must_be_divisible_by_n_heads():
+@pytest.mark.parametrize("n_heads", [0, -2, 3])
+def test_invalid_n_heads_raises(n_heads):
+    # n_heads must be at least 1 and divide out_size.
     with pytest.raises(ValueError):
-        _make_qkv(n_heads=3, out_size=8, seed=0)
+        _make_qkv(n_heads=n_heads, out_size=8, seed=0)
 
 
 def test_deterministic_with_seed():
