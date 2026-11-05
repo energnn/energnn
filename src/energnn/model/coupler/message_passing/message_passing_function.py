@@ -283,18 +283,20 @@ class AttentionMessagePassingFunction(MessagePassingFunction):
             self.port_scatter_blacklist = port_scatter_blacklist
         self.eps = eps
 
-        self.mlp_tree = self._build_mlp_tree(seed=seed, rngs=rngs)
+        if rngs is None:
+            if seed is None:
+                raise ValueError("Either seed or rngs must be provided.")
+            rngs = nnx.Rngs(seed)
+        elif seed is not None:
+            raise ValueError("Seed must be None when rngs are provided.")
+        self.mlp_tree = self._build_mlp_tree(rngs=rngs)
 
     @abstractmethod
     def _mlp_out_size(self) -> int:
         """Output size of the class- and port-specific MLPs."""
         raise NotImplementedError
 
-    def _build_mlp_tree(self, seed: int | None = 0, rngs: nnx.Rngs | None = None) -> dict[str, dict[str, MLP]]:
-        if rngs is None:
-            rngs = nnx.Rngs(seed)
-        elif seed is not None:
-            raise ValueError("Seed must be None when rngs are provided.")
+    def _build_mlp_tree(self, rngs: nnx.Rngs) -> dict[str, dict[str, MLP]]:
         mlp_tree: dict[str, dict[str, MLP]] = {}
 
         fused_out_size = self._mlp_out_size()
@@ -447,7 +449,9 @@ class GATv2MessagePassingFunction(AttentionMessagePassingFunction):
             }
 
         edge_terms = {
-            key: scores_and_values(hyper_edge_set, self.mlp_tree[key]) for key, hyper_edge_set in graph.hyper_edge_sets.items()
+            key: scores_and_values(hyper_edge_set, self.mlp_tree[key])
+            for key, hyper_edge_set in graph.hyper_edge_sets.items()
+            if key in self.mlp_tree
         }
 
         output = self._softmax_aggregation(edge_terms, n_addresses)
@@ -525,6 +529,8 @@ class MultiHeadQKVMessagePassingFunction(AttentionMessagePassingFunction):
         rngs: nnx.Rngs | None = None,
     ):
         if rngs is None:
+            if seed is None:
+                raise ValueError("Either seed or rngs must be provided.")
             rngs = nnx.Rngs(seed)
         elif seed is not None:
             raise ValueError("Seed must be None when rngs are provided.")
@@ -586,7 +592,9 @@ class MultiHeadQKVMessagePassingFunction(AttentionMessagePassingFunction):
             }
 
         edge_terms = {
-            key: scores_and_values(hyper_edge_set, self.mlp_tree[key]) for key, hyper_edge_set in graph.hyper_edge_sets.items()
+            key: scores_and_values(hyper_edge_set, self.mlp_tree[key])
+            for key, hyper_edge_set in graph.hyper_edge_sets.items()
+            if key in self.mlp_tree
         }
 
         if self.use_softmax:
