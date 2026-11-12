@@ -15,7 +15,7 @@ transformer a star, a generator a short stub out of its bus.
 in which the classes that draw nothing (without port or without hyper-edge) are ignored. Then :func:`_layout`
 places the addresses and the hyper-edges in the ``[-1, 1]`` box with one force-directed layout (:mod:`.layout`),
 in which the coordinates given by the user, if any, hold their addresses or hyper-edges in place. Then
-:func:`_shades` turns the values to display into colors, and the figure is assembled from plotly *traces*, a
+:func:`_value_colors` turns the values to display into colors, and the figure is assembled from plotly *traces*, a
 trace being a set of points or lines sharing a style: for each class, one trace for its markers and one for its
 spokes, then one trace for the addresses.
 
@@ -34,7 +34,8 @@ script can do that, since the Python side cannot see the theme of the notebook.
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from functools import partial
 from typing import Any, NamedTuple, TYPE_CHECKING
 
 import numpy as np
@@ -292,18 +293,42 @@ def _layout(
     return pos[:n], {cls: pos[start[cls] : start[cls] + hes.n_obj] for cls, hes in classes.items()}
 
 
-def _shades(values: np.ndarray, low: float, high: float, theme: Theme, default: str) -> tuple[np.ndarray, list[str], dict]:
-    """Color ``values`` through the theme's colormap, ``low`` and ``high`` being its ends.
+def _fill(shade: np.ndarray, colors: list[str]) -> dict:
+    """The marker properties that make plotly draw each point in ``colors[shade]``.
 
+    Sending plotly the shades and a short list of colors, rather than one color per point, keeps big figures light.
+    """
+    last = len(colors) - 1
+    return dict(color=shade, cmin=0, cmax=last, colorscale=[[i / last, color] for i, color in enumerate(colors)])
+
+
+def _shades(
+    values: np.ndarray, default: str, *, low: float, high: float, colorscale: list
+) -> tuple[np.ndarray, list[str], dict]:
+    """Color ``values`` through a continuous colormap, ``low`` and ``high`` being its ends.
+
+    :param colorscale: The colormap, as plotly takes it: colors from low to high, or ``[position, color]`` pairs.
     :return: The shade of each value, as an index into the list of colors returned next: ``N_SHADES`` colors
         from low to high, then ``default``, the color of the NaN values. Last, the marker properties that make
-        plotly draw these colors: sending it the shades rather than one color per point keeps big figures light.
+        plotly draw these colors (:func:`_fill`).
     """
-    colors = sample_colorscale(list(theme.sequential), np.linspace(0.0, 1.0, N_SHADES)) + [default]
+    colors = sample_colorscale(colorscale, np.linspace(0.0, 1.0, N_SHADES)) + [default]
     unit = (values - low) / (high - low) if high > low else np.full(len(values), 0.5)  # 0 at low, 1 at high
-    shade = np.where(np.isnan(values), N_SHADES, np.rint(np.nan_to_num(unit) * (N_SHADES - 1))).astype(int)
-    colorscale = [[i / N_SHADES, color] for i, color in enumerate(colors)]
-    return shade, colors, dict(color=shade, cmin=0, cmax=N_SHADES, colorscale=colorscale)
+    unit = np.clip(np.nan_to_num(unit), 0.0, 1.0)  # the values beyond an end take its color
+    shade = np.where(np.isnan(values), N_SHADES, np.rint(unit * (N_SHADES - 1))).astype(int)
+    return shade, colors, _fill(shade, colors)
+
+
+def _categories(values: np.ndarray, default: str, *, colors: dict[float, str]) -> tuple[np.ndarray, list[str], dict]:
+    """Color ``values`` by category, ``colors`` giving the color of each of the values that is a category.
+
+    :return: As :func:`_shades`, with one shade per category, then ``default``, the color of every other value.
+    """
+    # the features are stored in single precision: a value of 0.1 is not exactly the 0.1 that names its category
+    match = np.isclose(values[:, None], np.array(list(colors), dtype=float)[None, :], rtol=1e-5)  # (n_values, n_categories)
+    shade = np.where(match.any(axis=1), match.argmax(axis=1), len(colors))
+    shades = [*colors.values(), default]
+    return shade, shades, _fill(shade, shades)
 
 
 def _range(values: np.ndarray, what: str) -> tuple[float, float]:
@@ -313,13 +338,73 @@ def _range(values: np.ndarray, what: str) -> tuple[float, float]:
     return float(np.nanmin(values)), float(np.nanmax(values))
 
 
-def _colorbar(title: str, low: float, high: float, theme: Theme, column: int) -> dict:
-    """The legend of a colormap: an empty trace, there for its colorbar only (plotly ties a colorbar to a trace)."""
+def _value_colors(
+    values: np.ndarray,
+    values_to_colors: dict[float, str] | None,
+    values_to_categories: dict[float, str] | None,
+    theme: Theme,
+    what: str,
+) -> tuple[Callable[[np.ndarray, str], tuple[np.ndarray, list[str], dict]], dict[str, Any]]:
+    """How the values of the hyper-edges, or of the addresses, are turned into colors, from the choices of the user.
+
+    - By default, a continuous colormap: the one of the theme, from the lowest to the highest of ``values``.
+    - With ``values_to_colors`` alone, a continuous colormap that goes through the given colors at the given values.
+    - With ``values_to_categories``, categories: one color per labeled value, taken from ``values_to_colors`` or,
+      failing it, from the palette of the theme.
+
+    :param what: The name of the argument that ``values`` come from, for the error messages.
+    :return: The function that colors the values of a class (:func:`_shades` or :func:`_categories`, to be
+        called with the values and the color of those without one), and the arguments of :func:`_colorbar`.
+    :raises ValueError: If ``values`` are NaN everywhere, on an invalid ``values_to_colors`` or ``values_to_categories``,
+        or if none of ``values`` has a label.
+    """
+    low, high = _range(values, what)
+    if values_to_categories is not None:
+        if not values_to_categories:
+            raise ValueError("values_to_categories is empty: it must give a label to at least one value.")
+        colors = {value: theme.palette[i % len(theme.palette)] for i, value in enumerate(values_to_categories)}
+        if values_to_colors is not None:
+            missing = [value for value in values_to_categories if value not in values_to_colors]
+            if missing:
+                raise ValueError(f"values_to_colors gives no color to the labeled values {missing}.")
+            colors = {value: values_to_colors[value] for value in values_to_categories}
+        if (_categories(values, "", colors=colors)[0] == len(colors)).all():  # most likely the wrong feature
+            raise ValueError(
+                f"{what} hold none of the values labeled by values_to_categories ({list(values_to_categories)}): "
+                f"they range from {low:.5g} to {high:.5g}."
+            )
+        # one band per category, from bottom to top, with its label in front of its middle
+        k = len(colors)
+        bands = [[(i + end) / k, color] for i, color in enumerate(colors.values()) for end in (0, 1)]
+        ticks = dict(tickvals=[i + 0.5 for i in range(k)], ticktext=[str(label) for label in values_to_categories.values()])
+        return partial(_categories, colors=colors), dict(low=0.0, high=float(k), colorscale=bands, ticks=ticks)
+    colorscale = list(theme.sequential)
+    if values_to_colors is not None:
+        stops = sorted((float(value), color) for value, color in values_to_colors.items())
+        low, high = (stops[0][0], stops[-1][0]) if stops else (0.0, 0.0)
+        if not high > low:
+            raise ValueError("values_to_colors must give a color to at least two different values.")
+        colorscale = [[(value - low) / (high - low), color] for value, color in stops]
+        try:  # the colors in between are computed here, which named colors ("red") do not allow
+            sample_colorscale(colorscale, [0.5])
+        except Exception as exc:
+            raise ValueError(
+                f"values_to_colors must hold '#rrggbb' or 'rgb(r, g, b)' colors; got {[color for _, color in stops]}."
+            ) from exc
+    return partial(_shades, low=low, high=high, colorscale=colorscale), dict(low=low, high=high, colorscale=colorscale)
+
+
+def _colorbar(title: str, column: int, *, low: float, high: float, colorscale: list, ticks: dict | None = None) -> dict:
+    """The legend of a colormap: an empty trace, there for its colorbar only (plotly ties a colorbar to a trace).
+
+    :param colorscale: The colormap, as plotly takes it, ``low`` and ``high`` being its ends.
+    :param ticks: Optional ``tickvals`` and ``ticktext``, the labels written along the colorbar instead of the values.
+    """
     if high == low:  # a constant value is in the middle of the colormap
         low, high = low - 0.5, high + 0.5
     colorbar = dict(title=dict(text=title, side="right"), thickness=12, len=0.6, x=1.02 + 0.14 * column)
-    colorbar.update(outlinewidth=0, ticks="")  # no frame and no tick marks, which would not follow the theme
-    marker = dict(color=[low, high], cmin=low, cmax=high, colorscale=list(theme.sequential), colorbar=colorbar, showscale=True)
+    colorbar.update(outlinewidth=0, ticks="", **(ticks or {}))  # no frame, no tick marks: they would not follow the theme
+    marker = dict(color=[low, high], cmin=low, cmax=high, colorscale=colorscale, colorbar=colorbar, showscale=True)
     return dict(type="scatter", x=[None], y=[None], mode="markers", marker=marker, showlegend=False, hoverinfo="skip")
 
 
@@ -336,8 +421,7 @@ def _hyper_edge_traces(
     classes: dict[str, HyperEdgeSet],
     style: Theme,
     values: dict[str, np.ndarray],
-    low: float,
-    high: float,
+    shades_of: Callable[[np.ndarray, str], tuple[np.ndarray, list[str], dict]] | None,
     markers: dict[str, np.ndarray],
     addresses: np.ndarray,
     kind: str,
@@ -352,8 +436,8 @@ def _hyper_edge_traces(
         n_ports = ports.shape[1]
         own = style.neutral if values or hyper_edge_colors is False else style.palette[k % len(style.palette)]
         shade, shades, fill = np.zeros(hes.n_obj, dtype=int), [own], dict(color=own)
-        if cls in values:
-            shade, shades, fill = _shades(values[cls], low, high, style, own)
+        if cls in values and shades_of is not None:
+            shade, shades, fill = shades_of(values[cls], own)
         # one spoke per port: the marker, the address, and a NaN that ends the line -> (n_obj, n_ports, 3, 2)
         spokes = np.full((hes.n_obj, n_ports, 3, 2), np.nan, dtype=np.float32)
         spokes[:, :, 0], spokes[:, :, 1] = markers[cls][:, None], addresses[ports]
@@ -401,6 +485,8 @@ def _address_traces(
     style: Theme,
     labels: np.ndarray | None,
     address_colors: Any,
+    values_to_colors: dict[float, str] | None,
+    values_to_categories: dict[float, str] | None,
     has_hyper_edge_colorbar: bool,
     addresses: np.ndarray,
     radius_px: float,
@@ -416,11 +502,11 @@ def _address_traces(
         address_values = np.asarray(address_colors, dtype=float)
         if address_values.shape != (n,):
             raise ValueError(f"address_colors must have shape {(n,)}; got {address_values.shape}.")
-        low, high = _range(address_values, "address_colors")
-        fill = _shades(address_values, low, high, style, style.surface)[2]
+        shades_of, colorbar = _value_colors(address_values, values_to_colors, values_to_categories, style, "address_colors")
+        fill = shades_of(address_values, style.surface)[2]
         tip.append(f"value = %{{customdata[{len(columns)}]:.5~g}}")
         columns.append(address_values)
-        traces.append(_colorbar("addresses", low, high, style, column=int(has_hyper_edge_colorbar)))
+        traces.append(_colorbar("addresses", column=int(has_hyper_edge_colorbar), **colorbar))
 
     x, y = addresses.T
     font_size = (
@@ -469,6 +555,8 @@ def plot_graph(
     address_labels: Sequence[str | None] | None = None,
     address_colors: Any = None,
     hyper_edge_colors: dict[str, str] | bool | None = None,
+    values_to_colors: dict[float, str] | None = None,
+    values_to_categories: dict[float, str] | None = None,
     repulsion_coeff: float = 1.0,
     pull_coeff: float = 1.0,
     iterations: int = 150,
@@ -510,6 +598,20 @@ def plot_graph(
         those classes by that feature, on a color scale shared by every listed class; every other class is
         then drawn in the neutral gray, so that only these colors carry a meaning. A NaN keeps that neutral
         color.
+    :param values_to_colors: Optional ``{value: color}``, the colors of the values that ``hyper_edge_colors``
+        and ``address_colors`` display, instead of the colormap of the theme: a hyper-edge or an address with
+        one of these values is drawn in its color, the colors in between are interpolated, and the values
+        beyond the lowest or the highest take its color. For instance,
+        ``{0.9: "#2166ac", 1.0: "#f7f7f7", 1.1: "#b2182b"}`` centers a diverging colormap on 1. The colors are
+        ``"#rrggbb"`` or ``"rgb(r, g, b)"`` strings, the same in the light and the dark themes. When both the
+        hyper-edges and the addresses are colored, these colors apply to both.
+    :param values_to_categories: Optional ``{value: label}``, for values that are categories: the values that
+        ``hyper_edge_colors`` and ``address_colors`` display are then colored by category, with no color in
+        between, and the colorbar shows one band per category with its label, in the order of the dict from
+        bottom to top. The colors are those of ``values_to_colors``, which must then give one to every labeled
+        value (any color that plotly knows, ``"red"`` included), or by default the colors of the theme. A
+        value without label is left as a NaN is: in the neutral color for a hyper-edge, uncolored for an
+        address.
     :param repulsion_coeff: Coefficient for the repulsion between non-connected elements, default to 1.0.
     :param pull_coeff: Coefficient for the pull between connected elements, default to 1.0.
     :param iterations: Number of layout relaxation steps (unused when everything has a position).
@@ -520,7 +622,9 @@ def plot_graph(
         its own theme, light or dark, and follows its changes.
     :return: The figure.
     :raises ValueError: If the graph is not single, if ``theme`` is invalid, if an array has a wrong shape,
-        if there is not one label per address, or if a value to display or the given coordinates are NaN everywhere.
+        if there is not one label per address, if a value to display or the given coordinates are NaN everywhere,
+        if ``values_to_colors`` or ``values_to_categories`` is invalid or given without any value to color,
+        or if none of the values to display has a label in ``values_to_categories``.
     :raises KeyError: If ``hyper_edge_positions`` or ``hyper_edge_colors`` names a class that is not drawn
         or a feature that it does not have.
     """
@@ -551,16 +655,33 @@ def plot_graph(
     traces = []
     by_feature = hyper_edge_colors if isinstance(hyper_edge_colors, dict) else {}
     values = {cls: (classes[cls].feature_dict or {})[feature].astype(float) for cls, feature in by_feature.items()}
-    low, high = 0.0, 0.0
+    shades_of = None
     if values:
-        low, high = _range(np.concatenate(list(values.values())), "hyper_edge_colors")
+        every_value = np.concatenate(list(values.values()))
+        shades_of, colorbar = _value_colors(every_value, values_to_colors, values_to_categories, style, "hyper_edge_colors")
         title = ", ".join(f"{cls}.{feature}" for cls, feature in by_feature.items())
-        traces.append(_colorbar(title, low, high, style, column=0))
+        traces.append(_colorbar(title, column=0, **colorbar))
+    elif address_colors is None and (values_to_colors is not None or values_to_categories is not None):
+        raise ValueError(
+            "values_to_colors and values_to_categories need values to color: hyper_edge_colors or address_colors."
+        )
 
     traces += _hyper_edge_traces(
-        classes, style, values, low, high, markers, addresses, kind, labels, radius_px, marker_size, hyper_edge_colors
+        classes, style, values, shades_of, markers, addresses, kind, labels, radius_px, marker_size, hyper_edge_colors
     )
-    traces += _address_traces(n, style, labels, address_colors, bool(values), addresses, radius_px, marker_size, kind)
+    traces += _address_traces(
+        n,
+        style,
+        labels,
+        address_colors,
+        values_to_colors,
+        values_to_categories,
+        bool(values),
+        addresses,
+        radius_px,
+        marker_size,
+        kind,
+    )
 
     layout = _make_layout(size, style)
     figure = GraphFigure(dict(data=traces, layout=layout))

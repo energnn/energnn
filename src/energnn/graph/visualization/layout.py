@@ -39,7 +39,14 @@ _WINDOW = 48
 
 
 def spring_layout(
-    n_nodes: int, edges: np.ndarray, *, iterations: int = 150, seed: int = 0, fixed: np.ndarray | None = None
+    n_nodes: int,
+    edges: np.ndarray,
+    *,
+    iterations: int = 150,
+    seed: int = 0,
+    fixed: np.ndarray | None = None,
+    repulsion_coeff: float = 1.0,
+    pull_coeff: float = 1.0,
 ) -> np.ndarray:
     """
     Compute a Fruchterman-Reingold force-directed layout.
@@ -65,6 +72,8 @@ def spring_layout(
     :param iterations: Number of relaxation steps.
     :param seed: Seed for the random initial positions.
     :param fixed: Optional positions of shape ``(n_nodes, 2)``: the nodes whose row has no NaN stay there.
+    :param repulsion_coeff: Factor on the repulsion between every pair of nodes: above 1, the nodes spread more.
+    :param pull_coeff: Factor on the attraction between neighbors: above 1, the neighbors stay closer.
     :return: Positions array of shape ``(n_nodes, 2)``, scaled to ``[-1, 1]`` when no node is fixed.
     """
     rng = np.random.default_rng(seed)
@@ -111,6 +120,8 @@ def spring_layout(
         jnp.asarray(iterations),
         jnp.asarray(k, dtype=jnp.float32),
         depth=depth,
+        repulsion_coeff=repulsion_coeff,
+        pull_coeff=pull_coeff,
     )
     pos = np.asarray(pos[:n_nodes], dtype=float)
     if known.any():
@@ -143,6 +154,8 @@ def _relax(
     k: jax.Array,
     *,
     depth: int,
+    repulsion_coeff: float,
+    pull_coeff: float,
 ) -> jax.Array:
     """Run the iterations of :func:`spring_layout` on padded arrays.
 
@@ -161,9 +174,11 @@ def _relax(
     cooling = temperature / (iterations + 1)
 
     def step(i: jax.Array, pos: jax.Array) -> jax.Array:
-        displacement = k * k * _repulsion(pos, real, _MIN_DISTANCE * k, depth=depth)  # for all pairs: k² / dist
+        displacement = (
+            repulsion_coeff * k * k * _repulsion(pos, real, _MIN_DISTANCE * k, depth=depth)
+        )  # for all pairs: k² / dist
         delta = pos[a] - pos[b]
-        pull = delta * jnp.linalg.norm(delta, axis=-1, keepdims=True) / k  # attraction for neighbors: dist² / k
+        pull = pull_coeff * delta * jnp.linalg.norm(delta, axis=-1, keepdims=True) / k  # attraction for neighbors: dist² / k
         displacement += jax.ops.segment_sum(pull, b, n) - jax.ops.segment_sum(pull, a, n)
         center = jnp.sum(pos * real[:, None], axis=0) / n_real
         displacement -= _GRAVITY * (pos - center)
