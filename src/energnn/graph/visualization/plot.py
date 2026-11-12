@@ -413,7 +413,9 @@ def _address_traces(
         traces.append(_colorbar("addresses", low, high, style, column=int(has_hyper_edge_colorbar)))
 
     x, y = addresses.T
-    font_size = radius_px / max(LABEL_MARGIN + CHAR_HALF_WIDTH * max((len(label) for label in text), default=1), 1.05)
+    font_size = (
+        radius_px * marker_size / max(LABEL_MARGIN + CHAR_HALF_WIDTH * max((len(label) for label in text), default=1), 1.05)
+    )
     traces.append(
         dict(
             type=kind,
