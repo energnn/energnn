@@ -35,7 +35,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Any, NamedTuple
+from typing import Any, NamedTuple, TYPE_CHECKING
 
 import numpy as np
 
@@ -333,6 +333,7 @@ def _hyper_edge_traces(
     kind: str,
     labels: np.ndarray | None,
     radius_px: float,
+    marker_size: float,
     hyper_edge_colors: dict[str, str] | bool | None,
 ) -> list[dict[str, Any]]:
     traces = []
@@ -370,7 +371,10 @@ def _hyper_edge_traces(
                 y=y,
                 mode="markers",
                 marker=dict(
-                    symbol=symbol, size=2.0 * MARKER_RATIO * radius_px, line=dict(color=style.surface, width=1), **fill
+                    symbol=symbol,
+                    size=2.0 * MARKER_RATIO * radius_px * marker_size,
+                    line=dict(color=style.surface, width=1),
+                    **fill,
                 ),
                 customdata=np.column_stack([np.arange(hes.n_obj), ports, *features.values()]).astype(np.float32),
                 text=None if labels is None else _port_lines(port_names, ports, labels),
@@ -390,6 +394,7 @@ def _address_traces(
     has_hyper_edge_colorbar: bool,
     addresses: np.ndarray,
     radius_px: float,
+    marker_size: float,
     kind: str,
 ) -> list[dict[str, Any]]:
     # the tooltip of an address: its label and number, then its value if any, the two last from customdata
@@ -415,7 +420,7 @@ def _address_traces(
             x=x,
             y=y,
             mode="markers+text",
-            marker=dict(size=2.0 * radius_px, line=dict(color=style.ink, width=1.2), **fill),
+            marker=dict(size=2.0 * radius_px * marker_size, line=dict(color=style.ink, width=1.2), **fill),
             text=text,  # strings: plotly fails to draw numbers here
             textfont=dict(size=max(font_size, 7.0), color=style.ink),
             customdata=np.column_stack(columns) if columns else None,
@@ -455,6 +460,7 @@ def plot_graph(
     iterations: int = 150,
     seed: int = 0,
     size: int = 640,
+    marker_size: float = 1.0,
     theme: str = "auto",
 ) -> GraphFigure:
     """
@@ -493,6 +499,7 @@ def plot_graph(
     :param iterations: Number of layout relaxation steps (unused when everything has a position).
     :param seed: Seed for the layout's random initial positions.
     :param size: Width and height of the figure, in pixels.
+    :param marker_size: Size of address and hyper edge markers, default is 1.0.
     :param theme: ``"light"``, ``"dark"``, or ``"auto"``: the figure is light, but a notebook displays it in
         its own theme, light or dark, and follows its changes.
     :return: The figure.
@@ -533,9 +540,9 @@ def plot_graph(
         traces.append(_colorbar(title, low, high, style, column=0))
 
     traces += _hyper_edge_traces(
-        classes, style, values, low, high, markers, addresses, kind, labels, radius_px, hyper_edge_colors
+        classes, style, values, low, high, markers, addresses, kind, labels, radius_px, marker_size, hyper_edge_colors
     )
-    traces += _address_traces(n, style, labels, address_colors, bool(values), addresses, radius_px, kind)
+    traces += _address_traces(n, style, labels, address_colors, bool(values), addresses, radius_px, marker_size, kind)
 
     layout = _make_layout(size, style)
     figure = GraphFigure(dict(data=traces, layout=layout))
