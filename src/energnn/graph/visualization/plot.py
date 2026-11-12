@@ -235,6 +235,8 @@ def _layout(
     hyper_edge_positions: dict[str, list[str]],
     iterations: int,
     seed: int,
+    repulsion_coeff: float,
+    pull_coeff: float,
 ) -> tuple[np.ndarray, dict[str, np.ndarray]]:
     """Place the ``n`` addresses and every hyper-edge in the ``[-1, 1]`` box, with one force-directed layout.
 
@@ -278,7 +280,15 @@ def _layout(
             np.stack([np.repeat(start[cls] + np.arange(hes.n_obj), hes.port_array.shape[1]), hes.port_array.ravel()], -1)
             for cls, hes in classes.items()
         ]
-        pos = spring_layout(len(fixed), np.concatenate(edges), iterations=iterations, seed=seed, fixed=fixed)
+        pos = spring_layout(
+            len(fixed),
+            np.concatenate(edges),
+            iterations=iterations,
+            seed=seed,
+            fixed=fixed,
+            repulsion_coeff=repulsion_coeff,
+            pull_coeff=pull_coeff,
+        )
     return pos[:n], {cls: pos[start[cls] : start[cls] + hes.n_obj] for cls, hes in classes.items()}
 
 
@@ -459,6 +469,8 @@ def plot_graph(
     address_labels: Sequence[str | None] | None = None,
     address_colors: Any = None,
     hyper_edge_colors: dict[str, str] | bool | None = None,
+    repulsion_coeff: float = 1.0,
+    pull_coeff: float = 1.0,
     iterations: int = 150,
     seed: int = 0,
     size: int = 640,
@@ -498,6 +510,8 @@ def plot_graph(
         those classes by that feature, on a color scale shared by every listed class; every other class is
         then drawn in the neutral gray, so that only these colors carry a meaning. A NaN keeps that neutral
         color.
+    :param repulsion_coeff: Coefficient for the repulsion between non-connected elements, default to 1.0.
+    :param pull_coeff: Coefficient for the pull between connected elements, default to 1.0.
     :param iterations: Number of layout relaxation steps (unused when everything has a position).
     :param seed: Seed for the layout's random initial positions.
     :param size: Width and height of the figure, in pixels.
@@ -527,7 +541,9 @@ def plot_graph(
     # Symbols have the same size in pixels whatever the graph, and plotly keeps it under zoom: a big graph is
     # an overview at first, and reads like a small one once zoomed in.
     radius_px = ADDRESS_RADIUS * size / 640.0
-    addresses, markers = _layout(classes, n, address_positions, hyper_edge_positions or {}, iterations, seed)
+    addresses, markers = _layout(
+        classes, n, address_positions, hyper_edge_positions or {}, iterations, seed, repulsion_coeff, pull_coeff
+    )
     # single precision is plenty for a drawing, and halves what is sent to the browser
     addresses, markers = addresses.astype(np.float32), {cls: xy.astype(np.float32) for cls, xy in markers.items()}
 
