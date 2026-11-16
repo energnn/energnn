@@ -378,7 +378,7 @@ def _value_colors(
         bands = [[(i + end) / k, color] for i, color in enumerate(colors.values()) for end in (0, 1)]
         ticks = dict(tickvals=[i + 0.5 for i in range(k)], ticktext=[str(label) for label in values_to_categories.values()])
         return partial(_categories, colors=colors), dict(low=0.0, high=float(k), colorscale=bands, ticks=ticks)
-    colorscale = list(theme.sequential)
+    colorscale: list = list(theme.sequential)  # colors, or [position, color] pairs
     if values_to_colors is not None:
         stops = sorted((float(value), color) for value, color in values_to_colors.items())
         low, high = (stops[0][0], stops[-1][0]) if stops else (0.0, 0.0)
