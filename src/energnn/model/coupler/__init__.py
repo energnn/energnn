@@ -8,6 +8,7 @@ from .coupler import Coupler
 from .message_passing import (
     IdentityMessagePassingFunction,
     GATv2MessagePassingFunction,
+    GlobalAggregationMessagePassingFunction,
     LocalSumMessagePassingFunction,
     MessagePassingFunction,
     NODECoupler,
@@ -19,6 +20,7 @@ __all__ = [
     "NODECoupler",
     "IdentityMessagePassingFunction",
     "GATv2MessagePassingFunction",
+    "GlobalAggregationMessagePassingFunction",
     "LocalSumMessagePassingFunction",
     "MessagePassingFunction",
     "RecurrentCoupler",

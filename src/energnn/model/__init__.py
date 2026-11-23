@@ -4,7 +4,14 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 # SPDX-License-Identifier: MPL-2.0
 
-from .coupler import Coupler, GATv2MessagePassingFunction, LocalSumMessagePassingFunction, NODECoupler, RecurrentCoupler
+from .coupler import (
+    Coupler,
+    GATv2MessagePassingFunction,
+    GlobalAggregationMessagePassingFunction,
+    LocalSumMessagePassingFunction,
+    NODECoupler,
+    RecurrentCoupler,
+)
 from .decoder import Decoder, EquivariantDecoder, InvariantDecoder, MLPEquivariantDecoder
 from .encoder import Encoder, IdentityEncoder, MLPEncoder
 from .gnn import GNN
@@ -25,6 +32,7 @@ __all__ = [
     "CenterReduceNormalizer",
     "NODECoupler",
     "GATv2MessagePassingFunction",
+    "GlobalAggregationMessagePassingFunction",
     "LocalSumMessagePassingFunction",
     "MLPEquivariantDecoder",
     "MLP",
