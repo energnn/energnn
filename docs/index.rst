@@ -91,6 +91,23 @@ User guides
 
 -------------
 
+Webinar
+=======
+
+EnerGNN was presented in a webinar on 18 November 2026: a hands-on overview of the data format, the problem
+interface, the model library and the training, on a voltage-control use case (the 1354-bus PEGASE network).
+
+- `Recording <https://youtu.be/g6Ub_gZYslQ?t=40>`_ of the webinar (YouTube);
+- :download:`Slides <../communication/2026-11-18-webinar/energnn_webinar.pdf>` (PDF);
+- Notebook of the hands-on session:
+
+.. toctree::
+    :maxdepth: 1
+
+    hands_on_overview
+
+-------------
+
 API Reference
 =============
 
