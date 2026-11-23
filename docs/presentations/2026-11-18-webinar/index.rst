@@ -1,6 +1,6 @@
-=============================================
-Webinar: hands-on overview (18 November 2026)
-=============================================
+========================
+18.11.2026 - LFE Webinar
+========================
 
 A hands-on overview of EnerGNN: the data format, the problem interface, the model library and the training, on a
 voltage-control use case (the 1354-bus PEGASE network, with the gradient of the objective computed through the
@@ -63,7 +63,7 @@ execute it from the command line:
 
 .. code-block:: bash
 
-    cd docs/communication/2026-11-18-webinar
+    cd docs/presentations/2026-11-18-webinar
     JAX_PLATFORMS=cpu ../../../.venv-webinar/bin/python -m nbconvert --to notebook --execute --inplace hands_on_overview.ipynb
 
 The whole notebook runs in about five minutes on CPU.

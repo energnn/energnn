@@ -106,18 +106,18 @@ pygments_style = "sphinx"  # light mode
 pygments_dark_style = "native"  # dark mode (works well with Furo)
 
 
-# -- Communication material ---------------------------------------------------
-# The PDF files of docs/communication (slides, posters) are copied next to the pages that embed or link them.
+# -- Presentation material ---------------------------------------------------
+# The PDF files of docs/presentations (slides, posters) are copied next to the pages that embed or link them.
 
 
-def _copy_communication_pdfs(app, exception):
+def _copy_presentation_pdfs(app, exception):
     if exception is not None or app.builder.format != "html":
         return
-    for pdf in Path(app.srcdir, "communication").rglob("*.pdf"):
+    for pdf in Path(app.srcdir, "presentations").rglob("*.pdf"):
         target = Path(app.outdir, pdf.relative_to(app.srcdir))
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(pdf, target)
 
 
 def setup(app):
-    app.connect("build-finished", _copy_communication_pdfs)
+    app.connect("build-finished", _copy_presentation_pdfs)

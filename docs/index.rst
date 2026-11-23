@@ -91,7 +91,7 @@ User guides
 
 -------------
 
-Communication
+Presentations
 =============
 
 Webinars, talks and posters about EnerGNN. The latest one is the webinar of 18 November 2026, a hands-on overview
@@ -100,7 +100,7 @@ of the library with its recording, slides and notebook.
 .. toctree::
     :maxdepth: 2
 
-    communication/index
+    presentations/index
 
 -------------
 
