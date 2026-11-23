@@ -30,7 +30,12 @@ Slides
 Notebook
 ========
 
-The notebook of the hands-on session is shown with the outputs it was saved with: the documentation does not run it.
+Two notebooks were showcased during the webinar:
+
+- a notebook on the contingency screening use case, on full-scale RTE data: it is not open source, as it contains
+  proprietary data;
+- a hands-on overview notebook, available below. It is shown with the outputs it was saved with: the documentation
+  does not run it.
 
 .. toctree::
     :maxdepth: 1
