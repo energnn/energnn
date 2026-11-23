@@ -36,15 +36,19 @@ def _make_qkv(n_heads=1, out_size=8, seed=0, **kwargs):
     )
 
 
-def test_mlp_tree_fuses_keys_and_values():
+@pytest.mark.parametrize("key_size", [None, 12])
+def test_mlp_tree_fuses_keys_and_values(key_size):
     n_heads, out_size = 2, 8
-    mf = _make_qkv(n_heads=n_heads, out_size=out_size, seed=0)
+    mf = _make_qkv(n_heads=n_heads, out_size=out_size, key_size=key_size, seed=0)
+    expected_key_size = out_size if key_size is None else key_size
     assert set(mf.mlp_tree.keys()) == set(pb_loader.context_structure.hyper_edge_sets.keys())
     for edge_key in mf.mlp_tree:
         for mlp in mf.mlp_tree[edge_key].values():
-            # Fused output is out_size key channels plus out_size value channels.
-            assert mlp.sequential.layers[-1].out_features == 2 * out_size
-    assert mf.query_mlp.sequential.layers[-1].out_features == out_size
+            # Fused output is key_size key channels plus out_size value channels.
+            assert mlp.sequential.layers[-1].out_features == expected_key_size + out_size
+    assert mf.query_mlp.sequential.layers[-1].out_features == expected_key_size
+    out, _ = mf(graph=jax_context, coordinates=coordinates)
+    assert out.shape == (10, out_size)
 
 
 @pytest.mark.parametrize("use_softmax", [True, False])
@@ -57,11 +61,11 @@ def test_forward_shape_and_finite(n_heads, use_softmax):
     assert info == {}
 
 
-@pytest.mark.parametrize("n_heads", [0, -2, 3])
-def test_invalid_n_heads_raises(n_heads):
-    # n_heads must be at least 1 and divide out_size.
+@pytest.mark.parametrize("n_heads, key_size", [(0, None), (-2, None), (3, None), (2, 7)])
+def test_invalid_n_heads_raises(n_heads, key_size):
+    # n_heads must be at least 1 and divide out_size and key_size.
     with pytest.raises(ValueError):
-        _make_qkv(n_heads=n_heads, out_size=8, seed=0)
+        _make_qkv(n_heads=n_heads, out_size=8, key_size=key_size, seed=0)
 
 
 def test_deterministic_with_seed():
@@ -82,7 +86,7 @@ def test_attention_weights_sum_to_one():
     class _ConstantMLP:
         def __call__(self, x):
             n_edges = x.shape[0]
-            key = jnp.zeros((n_edges, mf.out_size))
+            key = jnp.zeros((n_edges, mf.key_size))
             value = jnp.full((n_edges, mf.out_size), constant)
             return jnp.concatenate([key, value], axis=-1)
 

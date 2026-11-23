@@ -12,7 +12,7 @@ from flax import nnx
 from flax.nnx import initializers
 from flax.typing import Dtype, Initializer
 
-from energnn.graph import GraphStructure, Graph
+from energnn.graph import GraphStructure, Graph, HyperEdgeSet
 from energnn.model.utils import Activation, MLP, gather, scatter_add, scatter_max
 
 
@@ -131,7 +131,9 @@ def _build_address_mlp(
     )
 
 
-def _masked_edge_input(hyper_edge_set, coordinates: jax.Array, dtype: Dtype | None = None) -> tuple[jax.Array, jax.Array]:
+def _masked_edge_input(
+    hyper_edge_set: HyperEdgeSet, coordinates: jax.Array, dtype: Dtype | None = None
+) -> tuple[jax.Array, jax.Array]:
     """
     Concatenates the features and the port coordinates of each hyper-edge, masked if fictitious.
     If ``dtype`` is provided, the features and the mask are cast to it.
@@ -140,7 +142,7 @@ def _masked_edge_input(hyper_edge_set, coordinates: jax.Array, dtype: Dtype | No
     if hyper_edge_set.feature_names is not None and len(hyper_edge_set.feature_names) > 0:
         feature_array = hyper_edge_set.feature_array
         input_array.append(feature_array if dtype is None else feature_array.astype(dtype))
-    for port_array in hyper_edge_set.port_dict.values():
+    for port_array in (hyper_edge_set.port_dict or {}).values():
         input_array.append(gather(coordinates=coordinates, addresses=port_array))
     non_fictitious_mask = jnp.expand_dims(hyper_edge_set.non_fictitious, -1)
     if dtype is not None:
@@ -148,30 +150,37 @@ def _masked_edge_input(hyper_edge_set, coordinates: jax.Array, dtype: Dtype | No
     return jnp.concatenate(input_array, axis=-1) * non_fictitious_mask, non_fictitious_mask
 
 
-def _softmax_aggregation(edge_terms: dict, n_addresses: int, out_size: int, n_heads: int, eps: float) -> jax.Array:
+def _softmax_aggregation(
+    scored_messages: dict[str, dict[str, tuple[jax.Array, jax.Array, jax.Array]]],
+    n_addresses: int,
+    out_size: int,
+    n_heads: int,
+    eps: float,
+) -> jax.Array:
     """
     Sums the values received by each address, weighted per head by the softmax of their scores.
-    ``edge_terms`` maps each hyper-edge class and port to a tuple (score, value, port_array).
+    ``scored_messages[class_key][port_name]`` is the tuple (score, value, port_array) of the hyper-edges
+    of this class through this port, of shapes (n_edges, n_heads), (n_edges, n_heads, head_size) and (n_edges,).
     """
     head_size = out_size // n_heads
     neg_inf = jnp.float32(-1.0e30)
 
-    def max_over_ports(accumulator, term):
+    def max_over_ports(accumulator, port_messages):
         """Accumulates the per-receiver, per-head maximum score over one port."""
-        score, _, port_array = term
+        score, _, port_array = port_messages
         return scatter_max(accumulator=accumulator, increment=score, addresses=port_array)
 
     max_scores = jax.tree.reduce(
         max_over_ports,
-        edge_terms,
+        scored_messages,
         initializer=jnp.full((n_addresses, n_heads), neg_inf),
         is_leaf=lambda x: isinstance(x, tuple),
     )
 
-    def weight_over_ports(accumulator, term):
+    def weight_over_ports(accumulator, port_messages):
         """Accumulates the softmax-weighted value sum and weight sum over one port."""
         value_accumulator, weight_accumulator = accumulator
-        score, value, port_array = term
+        score, value, port_array = port_messages
         weight = jnp.exp(score - gather(coordinates=max_scores, addresses=port_array))
         weighted_value = (weight[:, :, None] * value).reshape(-1, out_size)
         value_accumulator = scatter_add(accumulator=value_accumulator, increment=weighted_value, addresses=port_array)
@@ -180,7 +189,7 @@ def _softmax_aggregation(edge_terms: dict, n_addresses: int, out_size: int, n_he
 
     value_sum, weight_sum = jax.tree.reduce(
         weight_over_ports,
-        edge_terms,
+        scored_messages,
         initializer=(jnp.zeros((n_addresses, out_size)), jnp.zeros((n_addresses, n_heads))),
         is_leaf=lambda x: isinstance(x, tuple),
     )
@@ -458,13 +467,13 @@ class GATv2MessagePassingFunction(MessagePassingFunction):
                 port_name: score_and_value(mlp, hyper_edge_set.port_dict[port_name]) for port_name, mlp in mlp_dict.items()
             }
 
-        edge_terms = {
+        scored_messages = {
             key: scores_and_values(hyper_edge_set, self.mlp_tree[key])
             for key, hyper_edge_set in graph.hyper_edge_sets.items()
             if key in self.mlp_tree
         }
 
-        output = _softmax_aggregation(edge_terms, n_addresses, self.out_size, self.n_heads, self.eps)
+        output = _softmax_aggregation(scored_messages, n_addresses, self.out_size, self.n_heads, self.eps)
         return self.outer_activation(output), {}
 
 
@@ -473,7 +482,7 @@ class MultiHeadQKVMessagePassingFunction(MessagePassingFunction):
     Multi-head query-key-value attention message function module for GNN message passing.
 
     This module aggregates messages from each address's local neighborhood with
-    query-key-value attention. A shared linear map produces, for each head, a query
+    query-key-value attention. A shared MLP produces, for each head, a query
     from the coordinates of the receiving address, and a class- and port-specific MLP
     produces, for each head, a key and a value from the hyper-edge input :math:`(h_e, x_e)`.
     Each value is weighted by the dot product of its key with the query of the
@@ -490,9 +499,9 @@ class MultiHeadQKVMessagePassingFunction(MessagePassingFunction):
             \xi^{c,o,i}_\theta(h_e, x_e)
         \right),
 
-    where :math:`q^{i}_\theta` is the query head of a shared linear map,
+    where :math:`q^{i}_\theta` is the query head of a shared MLP,
     :math:`k^{c,o,i}_\theta` and :math:`\xi^{c,o,i}_\theta` are the key and value heads
-    of a shared class- and port-specific MLP, :math:`d` is the size of a head, :math:`H`
+    of a shared class- and port-specific MLP, :math:`d` is the size of a query or key head, :math:`H`
     is the number of heads, :math:`\bigoplus` is concatenation over heads, :math:`\sigma`
     is an element-wise activation function, :math:`h_e := (h_{o(e)})_{o \in {\mathcal{O}^c}}`
     is the concatenation of port coordinates of hyper-edge :math:`e`, and :math:`x_e` are
@@ -503,9 +512,10 @@ class MultiHeadQKVMessagePassingFunction(MessagePassingFunction):
     :param in_graph_structure: Input graph structure.
     :param in_array_size: Size of the input coordinate arrays.
     :param hidden_sizes: Hidden sizes of the MLPs.
-    :param n_heads: Number of attention heads; ``out_size`` must be divisible by it.
+    :param n_heads: Number of attention heads; ``out_size`` and ``key_size`` must be divisible by it.
     :param activation: Activation function for the MLPs.
-    :param out_size: Output size per address, concatenated over heads.
+    :param out_size: Output size per address, concatenated over heads, which is also the size of the values.
+    :param key_size: Size of the queries and keys, concatenated over heads; ``out_size`` if None.
     :param use_bias: Whether to use bias in the MLPs.
     :param kernel_init: Kernel initializer for the MLPs.
     :param bias_init: Bias initializer for the MLPs.
@@ -526,6 +536,7 @@ class MultiHeadQKVMessagePassingFunction(MessagePassingFunction):
         n_heads: int = 1,
         activation: Activation = nnx.leaky_relu,
         out_size: int = 1,
+        key_size: int | None = None,
         use_bias: bool = True,
         kernel_init: Initializer = initializers.lecun_normal(),
         bias_init: Initializer = initializers.zeros_init(),
@@ -543,27 +554,34 @@ class MultiHeadQKVMessagePassingFunction(MessagePassingFunction):
             raise ValueError(f"n_heads ({n_heads}) must be at least 1.")
         if out_size % n_heads != 0:
             raise ValueError(f"out_size ({out_size}) must be divisible by n_heads ({n_heads}).")
+        if key_size is None:
+            key_size = out_size
+        if key_size % n_heads != 0:
+            raise ValueError(f"key_size ({key_size}) must be divisible by n_heads ({n_heads}).")
         self.n_heads = n_heads
         self.out_size = out_size
+        self.key_size = key_size
         self.outer_activation = outer_activation
         self.use_softmax = use_softmax
         self.eps = eps
         self.query_mlp = _build_address_mlp(
             in_array_size=in_array_size,
-            hidden_sizes=[],
-            out_size=out_size,
+            hidden_sizes=hidden_sizes,
+            out_size=key_size,
             rngs=rngs,
+            activation=activation,
             use_bias=use_bias,
             kernel_init=kernel_init,
             bias_init=bias_init,
+            final_activation=final_activation,
         )
-        # A shared MLP per (class, port) outputs out_size key channels and out_size value channels.
+        # A shared MLP per (class, port) outputs key_size key channels and out_size value channels.
         self.mlp_tree = _build_hyper_edge_mlps(
             in_graph_structure=in_graph_structure,
             scatter_ports=_build_scatter_ports(in_graph_structure, port_scatter_blacklist or {}),
             in_array_size=in_array_size,
             hidden_sizes=hidden_sizes,
-            out_size=2 * out_size,
+            out_size=key_size + out_size,
             rngs=rngs,
             activation=activation,
             use_bias=use_bias,
@@ -575,9 +593,10 @@ class MultiHeadQKVMessagePassingFunction(MessagePassingFunction):
 
     def __call__(self, *, graph: Graph, coordinates: jax.Array, step_with_metrics: bool = False) -> tuple[jax.Array, dict]:
         n_addresses = coordinates.shape[0]
-        head_size = self.out_size // self.n_heads
+        key_head_size = self.key_size // self.n_heads
+        value_head_size = self.out_size // self.n_heads
         neg_inf = jnp.float32(-1.0e30)
-        queries = self.query_mlp(coordinates).reshape(n_addresses, self.n_heads, head_size)
+        queries = self.query_mlp(coordinates).reshape(n_addresses, self.n_heads, key_head_size)
 
         def scores_and_values(hyper_edge_set, mlp_dict):
             """Evaluates the shared MLP once per port, returning scores and masked values per edge."""
@@ -586,39 +605,38 @@ class MultiHeadQKVMessagePassingFunction(MessagePassingFunction):
             def score_and_value(mlp, port_array):
                 """Evaluates the fused MLP for one port, returning its score and its masked value."""
                 output = mlp(masked_input)
-                attention_key = output[:, : self.out_size].reshape(-1, self.n_heads, head_size)
-                value = output[:, self.out_size :].reshape(-1, self.n_heads, head_size) * non_fictitious_mask[:, :, None]
+                attention_key = output[:, : self.key_size].reshape(-1, self.n_heads, key_head_size)
+                value = output[:, self.key_size :].reshape(-1, self.n_heads, value_head_size)
+                value = value * non_fictitious_mask[:, :, None]
                 query = gather(coordinates=queries, addresses=port_array)
                 score = jnp.sum(query * attention_key, axis=-1)
                 if self.use_softmax:
-                    score = jnp.where(non_fictitious_mask, score / jnp.sqrt(head_size), neg_inf)
+                    score = jnp.where(non_fictitious_mask, score / jnp.sqrt(key_head_size), neg_inf)
                 return score, value, port_array
 
             return {
                 port_name: score_and_value(mlp, hyper_edge_set.port_dict[port_name]) for port_name, mlp in mlp_dict.items()
             }
 
-        edge_terms = {
+        scored_messages = {
             key: scores_and_values(hyper_edge_set, self.mlp_tree[key])
             for key, hyper_edge_set in graph.hyper_edge_sets.items()
             if key in self.mlp_tree
         }
 
         if self.use_softmax:
-            return (
-                self.outer_activation(_softmax_aggregation(edge_terms, n_addresses, self.out_size, self.n_heads, self.eps)),
-                {},
-            )
+            output = _softmax_aggregation(scored_messages, n_addresses, self.out_size, self.n_heads, self.eps)
+            return self.outer_activation(output), {}
 
-        def dot_product_over_ports(accumulator, term):
+        def dot_product_over_ports(accumulator, port_messages):
             """Accumulates the dot-product-weighted value sum over one port."""
-            score, value, port_array = term
+            score, value, port_array = port_messages
             weighted_value = (score[:, :, None] * value).reshape(-1, self.out_size)
             return scatter_add(accumulator=accumulator, increment=weighted_value, addresses=port_array)
 
         value_sum = jax.tree.reduce(
             dot_product_over_ports,
-            edge_terms,
+            scored_messages,
             initializer=jnp.zeros((n_addresses, self.out_size)),
             is_leaf=lambda x: isinstance(x, tuple),
         )
