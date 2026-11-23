@@ -11,7 +11,9 @@
 # documentation root, use os.path.abspath to make it absolute, like shown here.
 #
 import os
+import shutil
 import sys
+from pathlib import Path
 
 print(sys.executable)
 source_path = os.path.abspath("..")
@@ -102,3 +104,20 @@ highlight_language = "python"
 # See https://www.sphinx-doc.org/en/master/usage/configuration.html#confval-pygments_style
 pygments_style = "sphinx"  # light mode
 pygments_dark_style = "native"  # dark mode (works well with Furo)
+
+
+# -- Communication material ---------------------------------------------------
+# The PDF files of docs/communication (slides, posters) are copied next to the pages that embed or link them.
+
+
+def _copy_communication_pdfs(app, exception):
+    if exception is not None or app.builder.format != "html":
+        return
+    for pdf in Path(app.srcdir, "communication").rglob("*.pdf"):
+        target = Path(app.outdir, pdf.relative_to(app.srcdir))
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(pdf, target)
+
+
+def setup(app):
+    app.connect("build-finished", _copy_communication_pdfs)
