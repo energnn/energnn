@@ -11,6 +11,7 @@ from .message_passing import (
     GlobalAggregationMessagePassingFunction,
     LocalSumMessagePassingFunction,
     MessagePassingFunction,
+    MultiHeadQKVMessagePassingFunction,
     NODECoupler,
     RecurrentCoupler,
 )
@@ -23,5 +24,6 @@ __all__ = [
     "GlobalAggregationMessagePassingFunction",
     "LocalSumMessagePassingFunction",
     "MessagePassingFunction",
+    "MultiHeadQKVMessagePassingFunction",
     "RecurrentCoupler",
 ]

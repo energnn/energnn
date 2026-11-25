@@ -9,6 +9,7 @@ from .coupler import (
     GATv2MessagePassingFunction,
     GlobalAggregationMessagePassingFunction,
     LocalSumMessagePassingFunction,
+    MultiHeadQKVMessagePassingFunction,
     NODECoupler,
     RecurrentCoupler,
 )
@@ -34,6 +35,7 @@ __all__ = [
     "GATv2MessagePassingFunction",
     "GlobalAggregationMessagePassingFunction",
     "LocalSumMessagePassingFunction",
+    "MultiHeadQKVMessagePassingFunction",
     "MLPEquivariantDecoder",
     "MLP",
     "RecurrentCoupler",

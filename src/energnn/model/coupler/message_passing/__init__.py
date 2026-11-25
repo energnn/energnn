@@ -10,6 +10,7 @@ from .message_passing_function import (
     IdentityMessagePassingFunction,
     LocalSumMessagePassingFunction,
     MessagePassingFunction,
+    MultiHeadQKVMessagePassingFunction,
 )
 from .node_coupler import NODECoupler
 from .recurrent_coupler import RecurrentCoupler
@@ -21,5 +22,6 @@ __all__ = [
     "LocalSumMessagePassingFunction",
     "IdentityMessagePassingFunction",
     "MessagePassingFunction",
+    "MultiHeadQKVMessagePassingFunction",
     "RecurrentCoupler",
 ]
