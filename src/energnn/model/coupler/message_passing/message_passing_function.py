@@ -5,7 +5,7 @@
 # SPDX-License-Identifier: MPL-2.0
 
 from abc import ABC, abstractmethod
-from typing import Literal
+from typing import Literal, get_args
 
 import jax
 import jax.numpy as jnp
@@ -644,6 +644,9 @@ class MultiHeadQKVMessagePassingFunction(MessagePassingFunction):
         return self.outer_activation(value_sum), {}
 
 
+Aggregation = Literal["mean", "sum", "max", "min", "attention"]
+
+
 class GlobalAggregationMessagePassingFunction(MessagePassingFunction):
     r"""
     Global aggregation message function module for GNN message passing.
@@ -678,8 +681,8 @@ class GlobalAggregationMessagePassingFunction(MessagePassingFunction):
     :param hidden_sizes: Hidden sizes of the MLP.
     :param aggregation: Aggregation over the addresses, one of ``"mean"``, ``"sum"``, ``"max"``,
         ``"min"`` or ``"attention"``.
-    :param n_heads: Number of attention heads, only used with ``aggregation="attention"``;
-        ``out_size`` must be divisible by it.
+    :param n_heads: Number of attention heads with ``aggregation="attention"``, which ``out_size`` must be
+        divisible by; must be 1 for the other aggregations.
     :param activation: Activation function for the MLP.
     :param out_size: Output size per address.
     :param use_bias: Whether to use bias in the MLP.
@@ -695,7 +698,7 @@ class GlobalAggregationMessagePassingFunction(MessagePassingFunction):
         self,
         in_array_size: int,
         hidden_sizes: list[int],
-        aggregation: Literal["mean", "sum", "max", "min", "attention"] = "mean",
+        aggregation: Aggregation = "mean",
         n_heads: int = 1,
         activation: Activation = nnx.relu,
         out_size: int = 1,
@@ -708,7 +711,7 @@ class GlobalAggregationMessagePassingFunction(MessagePassingFunction):
         seed: int | None = None,
         rngs: nnx.Rngs | None = None,
     ):
-        if aggregation not in ("mean", "sum", "max", "min", "attention"):
+        if aggregation not in get_args(Aggregation):
             raise ValueError(f"Unknown aggregation '{aggregation}'.")
         if n_heads < 1:
             raise ValueError(f"n_heads ({n_heads}) must be at least 1.")
@@ -716,61 +719,49 @@ class GlobalAggregationMessagePassingFunction(MessagePassingFunction):
             raise ValueError("n_heads is only used with aggregation='attention'.")
         if out_size % n_heads != 0:
             raise ValueError(f"out_size ({out_size}) must be divisible by n_heads ({n_heads}).")
-        if rngs is None:
-            if seed is None:
-                raise ValueError("Either seed or rngs must be provided.")
-            rngs = nnx.Rngs(seed)
-        elif seed is not None:
-            raise ValueError("Seed must be None when rngs are provided.")
-        self.in_array_size = in_array_size
-        self.hidden_sizes = hidden_sizes
         self.aggregation = aggregation
         self.n_heads = n_heads
-        self.activation = activation
         self.out_size = out_size
-        self.use_bias = use_bias
-        self.kernel_init = kernel_init
-        self.bias_init = bias_init
-        self.final_activation = final_activation
         self.outer_activation = outer_activation
         self.eps = eps
-
         # With attention, the MLP outputs n_heads scores before the out_size value channels.
-        self.mlp = MLP(
-            in_size=in_array_size,
+        self.mlp = _build_address_mlp(
+            in_array_size=in_array_size,
             hidden_sizes=hidden_sizes,
-            activation=activation,
             out_size=out_size + n_heads if aggregation == "attention" else out_size,
+            rngs=_resolve_rngs(seed, rngs),
+            activation=activation,
             use_bias=use_bias,
             kernel_init=kernel_init,
             bias_init=bias_init,
             final_activation=final_activation,
-            rngs=rngs,
         )
 
     def __call__(self, *, graph: Graph, coordinates: jax.Array, step_with_metrics: bool = False) -> tuple[jax.Array, dict]:
         n_addresses = coordinates.shape[0]
-        mask = jnp.expand_dims(graph.non_fictitious_addresses, -1)
-        output = self.mlp(coordinates * mask)
+        neg_inf = jnp.float32(-1.0e30)
+        non_fictitious_mask = jnp.expand_dims(graph.non_fictitious_addresses, -1)
+        mlp_output = self.mlp(coordinates * non_fictitious_mask)
 
+        # The initial values of the max and min reductions keep them defined on a graph without addresses.
         if self.aggregation == "attention":
             value_size = self.out_size // self.n_heads
-            score = jnp.where(mask, output[:, : self.n_heads], -1.0e30)
-            value = output[:, self.n_heads :].reshape(n_addresses, self.n_heads, value_size)
-            weight = jnp.exp(score - jnp.max(score, axis=0)) * mask
+            score = jnp.where(non_fictitious_mask, mlp_output[:, : self.n_heads], neg_inf)
+            value = mlp_output[:, self.n_heads :].reshape(n_addresses, self.n_heads, value_size)
+            weight = jnp.exp(score - jnp.max(score, axis=0, initial=neg_inf)) * non_fictitious_mask
             value_sum = jnp.sum(weight[:, :, None] * value, axis=0)
             message = (value_sum / (jnp.sum(weight, axis=0)[:, None] + self.eps)).reshape(self.out_size)
         elif self.aggregation == "max":
-            message = jnp.max(jnp.where(mask, output, -1.0e30), axis=0)
+            message = jnp.max(jnp.where(non_fictitious_mask, mlp_output, neg_inf), axis=0, initial=neg_inf)
         elif self.aggregation == "min":
-            message = jnp.min(jnp.where(mask, output, 1.0e30), axis=0)
+            message = jnp.min(jnp.where(non_fictitious_mask, mlp_output, -neg_inf), axis=0, initial=-neg_inf)
         elif self.aggregation == "sum":
-            message = jnp.sum(output * mask, axis=0)
+            message = jnp.sum(mlp_output * non_fictitious_mask, axis=0)
         else:
-            message = jnp.sum(output * mask, axis=0) / (jnp.sum(mask) + self.eps)
+            message = jnp.sum(mlp_output * non_fictitious_mask, axis=0) / (jnp.sum(non_fictitious_mask) + self.eps)
 
         # Every non-fictitious address receives the same message.
-        return self.outer_activation(message * mask), {}
+        return self.outer_activation(message * non_fictitious_mask), {}
 
 
 class IdentityMessagePassingFunction(MessagePassingFunction):

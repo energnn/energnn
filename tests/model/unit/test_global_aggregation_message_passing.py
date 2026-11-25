@@ -26,6 +26,17 @@ coordinates_batch = jnp.array(np.random.uniform(size=(4, 10, 7)))
 AGGREGATIONS = ["mean", "sum", "max", "min", "attention"]
 
 
+def _with_address_mask(non_fictitious_addresses):
+    """Returns the test context graph with another mask of non-fictitious addresses."""
+    return type(jax_context)(
+        backend=jax_context._backend,
+        hyper_edge_sets=jax_context.hyper_edge_sets,
+        non_fictitious_addresses=non_fictitious_addresses,
+        true_shape=jax_context.true_shape,
+        current_shape=jax_context.current_shape,
+    )
+
+
 def _make_global(aggregation="mean", n_heads=1, out_size=8, seed=0, **kwargs):
     return GlobalAggregationMessagePassingFunction(
         in_array_size=coordinates.shape[1],
@@ -64,6 +75,7 @@ def test_forward_shape_and_finite(aggregation):
         ({"aggregation": "attention", "n_heads": 0}, "at least 1"),
         ({"aggregation": "attention", "n_heads": 3}, "divisible"),
         ({"seed": None}, "Either seed or rngs"),
+        ({"rngs": nnx.Rngs(0)}, "Seed must be None"),
     ],
 )
 def test_invalid_arguments_raise(kwargs, match):
@@ -71,9 +83,10 @@ def test_invalid_arguments_raise(kwargs, match):
         _make_global(**kwargs)
 
 
-def test_deterministic_with_seed():
+@pytest.mark.parametrize("init", [{"seed": 5}, {"seed": None, "rngs": nnx.Rngs(5)}])
+def test_deterministic_with_seed(init):
     out_a, _ = _make_global(aggregation="attention", n_heads=2, seed=5)(graph=jax_context, coordinates=coordinates)
-    out_b, _ = _make_global(aggregation="attention", n_heads=2, seed=5)(graph=jax_context, coordinates=coordinates)
+    out_b, _ = _make_global(aggregation="attention", n_heads=2, **init)(graph=jax_context, coordinates=coordinates)
     chex.assert_trees_all_close(out_a, out_b, atol=1e-6)
 
 
@@ -127,44 +140,41 @@ def test_permutation_equivariance(aggregation):
     out, _ = mf(graph=jax_context, coordinates=coordinates)
 
     perm = jnp.array(np.random.RandomState(0).permutation(10))
-    permuted_graph = type(jax_context)(
-        backend=jax_context._backend,
-        hyper_edge_sets=jax_context.hyper_edge_sets,
-        non_fictitious_addresses=jax_context.non_fictitious_addresses[perm],
-        true_shape=jax_context.true_shape,
-        current_shape=jax_context.current_shape,
-    )
+    permuted_graph = _with_address_mask(jax_context.non_fictitious_addresses[perm])
     out_permuted, _ = mf(graph=permuted_graph, coordinates=coordinates[perm])
     chex.assert_trees_all_close(out_permuted, out[perm], atol=1e-5)
 
 
 @pytest.mark.parametrize("aggregation", AGGREGATIONS)
-def test_extreme_inputs_are_finite(aggregation):
-    # Large coordinates, and a graph where every address is fictitious, give finite outputs and gradients.
+@pytest.mark.parametrize("case", ["large_coordinates", "all_fictitious", "no_address"])
+def test_extreme_inputs_are_finite(aggregation, case):
+    # Large coordinates, a graph where every address is fictitious and a graph without addresses
+    # give finite outputs and gradients; without non-fictitious address, the output is zero.
     n_heads = 2 if aggregation == "attention" else 1
     mf = _make_global(aggregation=aggregation, n_heads=n_heads, out_size=4, outer_activation=nnx.identity, seed=0)
-    empty_graph = type(jax_context)(
-        backend=jax_context._backend,
-        hyper_edge_sets=jax_context.hyper_edge_sets,
-        non_fictitious_addresses=jnp.zeros_like(jax_context.non_fictitious_addresses),
-        true_shape=jax_context.true_shape,
-        current_shape=jax_context.current_shape,
-    )
+    graph, coords = {
+        "large_coordinates": (jax_context, coordinates * 1.0e3),
+        "all_fictitious": (_with_address_mask(jnp.zeros_like(jax_context.non_fictitious_addresses)), coordinates),
+        "no_address": (_with_address_mask(jnp.zeros((0,))), coordinates[:0]),
+    }[case]
     graphdef, params = nnx.split(mf)
 
     def loss(params, graph, coords):
         return jnp.sum(nnx.merge(graphdef, params)(graph=graph, coordinates=coords)[0] ** 2)
 
-    for graph, coords in [(jax_context, coordinates * 1.0e3), (empty_graph, coordinates)]:
-        out, _ = mf(graph=graph, coordinates=coords)
-        grads = jax.grad(loss)(params, graph, coords)
-        assert bool(jnp.all(jnp.isfinite(out)))
-        assert all(bool(jnp.all(jnp.isfinite(g))) for g in jax.tree.leaves(grads))
-    chex.assert_trees_all_close(out, jnp.zeros_like(out))
+    out, _ = mf(graph=graph, coordinates=coords)
+    grads = jax.grad(loss)(params, graph, coords)
+    assert out.shape == (coords.shape[0], 4)
+    assert bool(jnp.all(jnp.isfinite(out)))
+    assert all(bool(jnp.all(jnp.isfinite(g))) for g in jax.tree.leaves(grads))
+    if case != "large_coordinates":
+        chex.assert_trees_all_close(out, jnp.zeros_like(out))
 
 
-def test_vmap_jit_safety():
-    mf = _make_global(aggregation="attention", n_heads=2, out_size=8, seed=1)
+@pytest.mark.parametrize("aggregation", AGGREGATIONS)
+def test_vmap_jit_safety(aggregation):
+    n_heads = 2 if aggregation == "attention" else 1
+    mf = _make_global(aggregation=aggregation, n_heads=n_heads, out_size=8, seed=1)
 
     def forward(message_function, graph, coords):
         return message_function(graph=graph, coordinates=coords, step_with_metrics=False)[0]
