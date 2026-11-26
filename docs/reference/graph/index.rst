@@ -152,6 +152,13 @@ Visualization
 
 .. currentmodule:: energnn.graph.visualization
 
+.. warning::
+    **Experimental, best-effort support.** :mod:`energnn.graph.visualization` is a convenience tool for
+    inspecting graphs. Visualization is outside the core scope of energnn: its API may change or be removed in
+    any minor release without a deprecation cycle, and feature requests are unlikely to be addressed by the core
+    team. Bug-fix contributions are welcome. For custom rendering, build on the public
+    :class:`~energnn.graph.Graph` API.
+
 The :mod:`energnn.graph.visualization` module draws a single :class:`~energnn.graph.Graph` as an interactive
 `plotly <https://plotly.com/python/>`_ figure with tooltips, zoom and pan, displayed inline by notebooks. It
 requires the ``viz`` extra: ``pip install energnn[viz]``.

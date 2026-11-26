@@ -42,6 +42,9 @@ The graph plots of `energnn.graph.visualization` need plotly, provided by the `v
 pip install energnn[viz]
 ```
 
+> **Note:** the visualization module is experimental and supported on a best-effort basis. It is outside the
+> core scope of energnn, so its API may change or be removed in any minor release without a deprecation cycle.
+
 ## Quick Start
 
 This example shows how to train a small GNN to solve a linear system (DC Power Flow) modeled as a graph.

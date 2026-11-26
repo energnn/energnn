@@ -44,7 +44,7 @@ def _xy(trace):
 def _placed(graph, address_positions=None, hyper_edge_positions=None):
     """The addresses and the markers of a graph, as ``plot_graph`` places them."""
     classes = {name: hes for name, hes in sorted(graph.hyper_edge_sets.items()) if hes.port_dict}
-    return _layout(classes, graph.n_addresses, address_positions, hyper_edge_positions or {}, 150, 0)
+    return _layout(classes, graph.n_addresses, address_positions, hyper_edge_positions or {}, 150, 0, 1.0, 1.0)
 
 
 def _nearest(points, addresses):
@@ -309,6 +309,86 @@ def test_hyper_edge_colors_share_one_scale_over_the_listed_classes(located_graph
     ]
     assert [t.line.color for t in _trace(figure, "line", "lines")] == [lines.marker.colorscale[N_SHADES - 1][1], neutral]
     assert [len(t.x) for t in _trace(figure, "line", "lines")] == [2 * 3, 2 * 3]
+
+
+def test_values_to_colors_sets_the_colormap_of_the_hyper_edges(located_graph):
+    stops = {3.0: "#0000ff", 1.0: "#ff0000", 2.0: "#ffffff"}  # in any order
+    figure = plot_graph(located_graph, hyper_edge_colors={"bus": "load", "line": "flow"}, values_to_colors=stops)
+    colorbar = next(t for t in figure.data if t.marker.showscale)
+    assert (colorbar.marker.cmin, colorbar.marker.cmax) == (1.0, 3.0)  # the ends are the given values, not the data's
+    assert colorbar.marker.colorscale == ((0.0, "#ff0000"), (0.5, "#ffffff"), (1.0, "#0000ff"))
+    buses, lines = _trace(figure, "bus"), _trace(figure, "line")
+    assert list(buses.marker.color) == [0, round((N_SHADES - 1) / 2), N_SHADES - 1]
+    assert buses.marker.colorscale[0][1] == "rgb(255, 0, 0)" and buses.marker.colorscale[N_SHADES - 1][1] == "rgb(0, 0, 255)"
+    assert list(lines.marker.color) == [N_SHADES - 1, N_SHADES]  # a flow of 10 is beyond the end, and takes its color
+    assert _trace(figure, "bus", "lines")[0].line.color == "rgb(255, 0, 0)"
+    # the addresses are colored the same way, each on its own colorbar
+    both = plot_graph(located_graph, hyper_edge_colors={"bus": "load"}, values_to_colors=stops, address_colors=np.arange(4.0))
+    assert [t.marker.colorscale for t in both.data if t.marker.showscale] == [colorbar.marker.colorscale] * 2
+    addresses = _trace(both, "addresses")
+    assert list(addresses.marker.color) == [0, 0, round((N_SHADES - 1) / 2), N_SHADES - 1]  # 0 is below the low end
+    assert addresses.marker.colorscale[N_SHADES - 1][1] == "rgb(0, 0, 255)"
+
+
+def test_categories_match_the_values_stored_in_single_precision(located_graph):
+    located_graph.bus.load = np.array([0.1, 0.2, 0.3], dtype=np.float32)
+    figure = plot_graph(located_graph, hyper_edge_colors={"bus": "load"}, values_to_categories={0.1: "a", 0.3: "c"})
+    assert list(_trace(figure, "bus").marker.color) == [0, 2, 1]
+
+
+def test_values_to_categories_colors_the_addresses_by_category(mixed_order_graph):
+    figure = plot_graph(
+        mixed_order_graph,
+        address_colors=np.array([0.0, 1.0, 2.0, np.nan]),
+        values_to_categories={0: "PQ", 1: "PV"},
+        values_to_colors={0: "gray", 1: "green"},
+    )
+    addresses = _trace(figure, "addresses")
+    assert list(addresses.marker.color) == [0, 1, 2, 2]  # without label or missing: uncolored
+    assert [color for _, color in addresses.marker.colorscale] == ["gray", "green", THEMES["light"].surface]
+    colorbar = next(t for t in figure.data if t.marker.showscale).marker.colorbar
+    assert colorbar.title.text == "addresses" and colorbar.ticktext == ("PQ", "PV")
+
+
+def test_values_to_categories_colors_by_category(located_graph):
+    labels = {3.0: "slack", 1.0: "PQ"}
+    figure = plot_graph(located_graph, hyper_edge_colors={"bus": "load"}, values_to_categories=labels)
+    first, second, neutral = *THEMES["light"].palette[:2], THEMES["light"].neutral
+    colorbar = next(t for t in figure.data if t.marker.showscale)
+    assert (colorbar.marker.cmin, colorbar.marker.cmax) == (0.0, 2.0)
+    assert colorbar.marker.colorscale == ((0.0, first), (0.5, first), (0.5, second), (1.0, second))  # one band each
+    assert colorbar.marker.colorbar.tickvals == (0.5, 1.5) and colorbar.marker.colorbar.ticktext == ("slack", "PQ")
+    buses = _trace(figure, "bus")
+    assert list(buses.marker.color) == [1, 2, 0]  # the load of 2 has no label
+    assert [color for _, color in buses.marker.colorscale] == [first, second, neutral]
+    assert [t.line.color for t in _trace(figure, "bus", "lines")] == [first, second, neutral]
+    chosen = plot_graph(
+        located_graph,
+        hyper_edge_colors={"bus": "load"},
+        values_to_categories=labels,
+        values_to_colors={1.0: "red", 2.0: "green", 3.0: "blue"},
+    )
+    assert [color for _, color in _trace(chosen, "bus").marker.colorscale] == ["blue", "red", neutral]
+
+
+@pytest.mark.parametrize(
+    "kwargs, match",
+    [
+        (dict(values_to_colors={1.0: "#ff0000"}), "two different values"),
+        (dict(values_to_colors={}), "two different values"),
+        (dict(values_to_colors={1.0: "red", 2.0: "blue"}), "#rrggbb"),
+        (dict(values_to_categories={}), "empty"),
+        (dict(values_to_categories={7.0: "a", 8.0: "b"}), "none of the values labeled"),
+        (dict(values_to_categories={1.0: "a", 2.0: "b"}, values_to_colors={1.0: "red"}), "no color"),
+    ],
+)
+def test_values_to_colors_and_labels_errors(located_graph, kwargs, match):
+    with pytest.raises(ValueError, match=match):
+        plot_graph(located_graph, hyper_edge_colors={"bus": "load"}, **kwargs)
+    with pytest.raises(ValueError, match=match):
+        plot_graph(located_graph, address_colors=np.arange(4.0), **kwargs)
+    with pytest.raises(ValueError, match="need values to color"):
+        plot_graph(located_graph, **kwargs)
 
 
 def test_classes_not_colored_by_a_value_turn_neutral(located_graph):
