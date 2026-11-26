@@ -10,6 +10,12 @@
 as an interactive `plotly <https://plotly.com/python/>`_ figure, with tooltips, zoom and pan, displayed inline
 by notebooks. It needs the ``viz`` extra: ``pip install energnn[viz]``.
 
+.. warning::
+    **Experimental, best-effort support.** This module is a convenience tool for inspecting graphs.
+    Visualization is outside the core scope of energnn: its API may change or be removed in any minor release
+    without a deprecation cycle, and feature requests are unlikely to be addressed by the core team.
+    Bug-fix contributions are welcome. For custom rendering, build on the public :class:`energnn.graph.Graph` API.
+
 Things are placed by ``address_positions`` (an array, one row per address) or ``hyper_edge_positions``
 (``{class: [x_feature, y_feature]}``), and colored by ``address_colors`` (an array, one value per address) or
 ``hyper_edge_colors`` (``{class: feature}``, or ``False`` for no color at all). The addresses show their number,
