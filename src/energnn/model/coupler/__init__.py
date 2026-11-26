@@ -10,6 +10,7 @@ from .message_passing import (
     GATv2MessagePassingFunction,
     LocalSumMessagePassingFunction,
     MessagePassingFunction,
+    MultiHeadQKVMessagePassingFunction,
     NODECoupler,
     RecurrentCoupler,
 )
@@ -21,5 +22,6 @@ __all__ = [
     "GATv2MessagePassingFunction",
     "LocalSumMessagePassingFunction",
     "MessagePassingFunction",
+    "MultiHeadQKVMessagePassingFunction",
     "RecurrentCoupler",
 ]
