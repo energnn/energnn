@@ -5,6 +5,7 @@
 # SPDX-License-Identifier: MPL-2.0
 
 from abc import ABC, abstractmethod
+from typing import Literal, get_args
 
 import jax
 import jax.numpy as jnp
@@ -641,6 +642,126 @@ class MultiHeadQKVMessagePassingFunction(MessagePassingFunction):
             is_leaf=lambda x: isinstance(x, tuple),
         )
         return self.outer_activation(value_sum), {}
+
+
+Aggregation = Literal["mean", "sum", "max", "min", "attention"]
+
+
+class GlobalAggregationMessagePassingFunction(MessagePassingFunction):
+    r"""
+    Global aggregation message function module for GNN message passing.
+
+    This module does not use the hyper-edges: an MLP :math:`\xi_\theta` is applied to the
+    coordinates of each address, and the results are aggregated over all the addresses of the
+    graph, so that every non-fictitious address receives the same message.
+
+    For each address :math:`a`, the output is defined as:
+
+    .. math::
+        \psi_\theta(h,x)_a = \sigma \left( \frac{1}{\vert \mathcal{A}_x \vert}
+            \sum_{a' \in \mathcal{A}_x} \xi_\theta(h_{a'}) \right),
+
+    where :math:`\mathcal{A}_x` is the set of non-fictitious addresses and :math:`\sigma` is an
+    element-wise activation function. The mean can be replaced by a sum, or by an element-wise
+    maximum or minimum over the addresses.
+
+    With ``aggregation="attention"``, the MLP also outputs one score per head, and the mean is
+    replaced by a softmax-weighted sum over the addresses, concatenated across heads:
+
+    .. math::
+        \alpha^{i}_{a'} = \operatorname*{softmax}_{a' \in \mathcal{A}_x} s^{i}_\theta(h_{a'}), \qquad
+        \psi_\theta(h,x)_a = \sigma\!\left(
+            \bigoplus_{i=1}^{H} \sum_{a' \in \mathcal{A}_x} \alpha^{i}_{a'}\, \xi^{i}_\theta(h_{a'})
+        \right),
+
+    where :math:`s^{i}_\theta` and :math:`\xi^{i}_\theta` are the score and value heads of the
+    MLP, :math:`H` is the number of heads and :math:`\bigoplus` is concatenation over heads.
+
+    :param in_array_size: Size of the input coordinate arrays.
+    :param hidden_sizes: Hidden sizes of the MLP.
+    :param aggregation: Aggregation over the addresses, one of ``"mean"``, ``"sum"``, ``"max"``,
+        ``"min"`` or ``"attention"``.
+    :param n_heads: Number of attention heads with ``aggregation="attention"``, which ``out_size`` must be
+        divisible by; must be 1 for the other aggregations.
+    :param activation: Activation function for the MLP.
+    :param out_size: Output size per address.
+    :param use_bias: Whether to use bias in the MLP.
+    :param kernel_init: Kernel initializer for the MLP.
+    :param bias_init: Bias initializer for the MLP.
+    :param final_activation: Final activation function for the MLP.
+    :param outer_activation: Activation function :math:`\sigma` applied over the output.
+    :param eps: Numerical stability term in the mean and softmax denominators.
+    :param seed: Seed for RNG streams for weight initialization.
+    """
+
+    def __init__(
+        self,
+        in_array_size: int,
+        hidden_sizes: list[int],
+        aggregation: Aggregation = "mean",
+        n_heads: int = 1,
+        activation: Activation = nnx.relu,
+        out_size: int = 1,
+        use_bias: bool = True,
+        kernel_init: Initializer = initializers.lecun_normal(),
+        bias_init: Initializer = initializers.zeros_init(),
+        final_activation: Activation | None = None,
+        outer_activation: Activation = nnx.tanh,
+        eps: float = 1e-9,
+        seed: int | None = None,
+        rngs: nnx.Rngs | None = None,
+    ):
+        if aggregation not in get_args(Aggregation):
+            raise ValueError(f"Unknown aggregation '{aggregation}'.")
+        if n_heads < 1:
+            raise ValueError(f"n_heads ({n_heads}) must be at least 1.")
+        if aggregation != "attention" and n_heads != 1:
+            raise ValueError("n_heads is only used with aggregation='attention'.")
+        if out_size % n_heads != 0:
+            raise ValueError(f"out_size ({out_size}) must be divisible by n_heads ({n_heads}).")
+        self.aggregation = aggregation
+        self.n_heads = n_heads
+        self.out_size = out_size
+        self.outer_activation = outer_activation
+        self.eps = eps
+        # With attention, the MLP outputs n_heads scores before the out_size value channels.
+        self.mlp = _build_address_mlp(
+            in_array_size=in_array_size,
+            hidden_sizes=hidden_sizes,
+            out_size=out_size + n_heads if aggregation == "attention" else out_size,
+            rngs=_resolve_rngs(seed, rngs),
+            activation=activation,
+            use_bias=use_bias,
+            kernel_init=kernel_init,
+            bias_init=bias_init,
+            final_activation=final_activation,
+        )
+
+    def __call__(self, *, graph: Graph, coordinates: jax.Array, step_with_metrics: bool = False) -> tuple[jax.Array, dict]:
+        n_addresses = coordinates.shape[0]
+        neg_inf = jnp.float32(-1.0e30)
+        non_fictitious_mask = jnp.expand_dims(graph.non_fictitious_addresses, -1)
+        mlp_output = self.mlp(coordinates * non_fictitious_mask)
+
+        # The initial values of the max and min reductions keep them defined on a graph without addresses.
+        if self.aggregation == "attention":
+            value_size = self.out_size // self.n_heads
+            score = jnp.where(non_fictitious_mask, mlp_output[:, : self.n_heads], neg_inf)
+            value = mlp_output[:, self.n_heads :].reshape(n_addresses, self.n_heads, value_size)
+            weight = jnp.exp(score - jnp.max(score, axis=0, initial=neg_inf)) * non_fictitious_mask
+            value_sum = jnp.sum(weight[:, :, None] * value, axis=0)
+            message = (value_sum / (jnp.sum(weight, axis=0)[:, None] + self.eps)).reshape(self.out_size)
+        elif self.aggregation == "max":
+            message = jnp.max(jnp.where(non_fictitious_mask, mlp_output, neg_inf), axis=0, initial=neg_inf)
+        elif self.aggregation == "min":
+            message = jnp.min(jnp.where(non_fictitious_mask, mlp_output, -neg_inf), axis=0, initial=-neg_inf)
+        elif self.aggregation == "sum":
+            message = jnp.sum(mlp_output * non_fictitious_mask, axis=0)
+        else:
+            message = jnp.sum(mlp_output * non_fictitious_mask, axis=0) / (jnp.sum(non_fictitious_mask) + self.eps)
+
+        # Every non-fictitious address receives the same message.
+        return self.outer_activation(message * non_fictitious_mask), {}
 
 
 class IdentityMessagePassingFunction(MessagePassingFunction):

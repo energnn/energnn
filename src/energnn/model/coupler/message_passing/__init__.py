@@ -6,6 +6,7 @@
 
 from .message_passing_function import (
     GATv2MessagePassingFunction,
+    GlobalAggregationMessagePassingFunction,
     IdentityMessagePassingFunction,
     LocalSumMessagePassingFunction,
     MessagePassingFunction,
@@ -17,6 +18,7 @@ from .recurrent_coupler import RecurrentCoupler
 __all__ = [
     "NODECoupler",
     "GATv2MessagePassingFunction",
+    "GlobalAggregationMessagePassingFunction",
     "LocalSumMessagePassingFunction",
     "IdentityMessagePassingFunction",
     "MessagePassingFunction",

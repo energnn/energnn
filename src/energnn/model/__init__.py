@@ -7,6 +7,7 @@
 from .coupler import (
     Coupler,
     GATv2MessagePassingFunction,
+    GlobalAggregationMessagePassingFunction,
     LocalSumMessagePassingFunction,
     MultiHeadQKVMessagePassingFunction,
     NODECoupler,
@@ -32,6 +33,7 @@ __all__ = [
     "CenterReduceNormalizer",
     "NODECoupler",
     "GATv2MessagePassingFunction",
+    "GlobalAggregationMessagePassingFunction",
     "LocalSumMessagePassingFunction",
     "MultiHeadQKVMessagePassingFunction",
     "MLPEquivariantDecoder",
