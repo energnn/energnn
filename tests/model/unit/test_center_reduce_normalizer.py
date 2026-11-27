@@ -103,14 +103,9 @@ def test_hyper_edge_set_center_reduce_normalizer_normalization_range():
     # Single update is enough with beta=0
     module(data, mask)
 
-    # In the module, bias correction is applied:
-    # mean_hat = self.mean / (1 - beta_1**updates + epsilon)
-    # var_hat = self.var / (1 - beta_2**updates + epsilon)
-    # With beta=0 and updates=1, mean_hat = self.mean / (1 - 0 + epsilon) approx self.mean
-
-    # Let's verify what the module actually uses for normalization
-    emp_mean = module.mean[0] / (1 - module.beta_1 ** module.updates[0] + module.epsilon)
-    emp_var = module.var[0] / (1 - module.beta_2 ** module.updates[0] + module.epsilon)
+    # Verify the running statistics match the empirical mean and std
+    emp_mean = module.mean[0]
+    emp_var = module.var[0]
     emp_std = jnp.sqrt(emp_var)
 
     # Switch to inference mode to test normalization without updating statistics further
@@ -126,6 +121,35 @@ def test_hyper_edge_set_center_reduce_normalizer_normalization_range():
     assert jnp.allclose(norm_out[1, 0], 1.0, atol=1e-5)
     # -1 std should be -1.0
     assert jnp.allclose(norm_out[2, 0], -1.0, atol=1e-5)
+
+
+def test_hyper_edge_set_center_reduce_normalizer_default_betas():
+    """Default EMA decay rates should not inflate already-unbiased mean and variance."""
+    module = HyperEdgeSetCenterReduceNormalizer(n_features=1, update_limit=10)
+    data = jnp.array([[3.0], [7.0]])  # mean=5.0, var=4.0, std=2.0
+    mask = jnp.ones((2, 1))
+
+    # First update sets mean=5.0 and var=4.0 directly, so output should be [-1.0, 1.0].
+    out_step1 = module(data, mask)
+    assert jnp.allclose(out_step1, jnp.array([[-1.0], [1.0]]), atol=1e-5)
+
+    # Subsequent updates on identical data should keep the same normalization.
+    for _ in range(9):
+        out = module(data, mask)
+    assert jnp.allclose(out, jnp.array([[-1.0], [1.0]]), atol=1e-5)
+
+    # Inference mode after hitting update_limit should preserve unit normalization.
+    module.use_running_average = True
+    eval_out = module(jnp.array([[5.0], [7.0], [3.0]]), jnp.ones((3, 1)))
+    assert jnp.allclose(eval_out, jnp.array([[0.0], [1.0], [-1.0]]), atol=1e-5)
+
+
+def test_hyper_edge_set_center_reduce_normalizer_zero_updates_identity():
+    """Before any update (updates == 0), eval mode should normalize with initial mean=0, var=1."""
+    module = HyperEdgeSetCenterReduceNormalizer(n_features=1, update_limit=10, use_running_average=True)
+    data = jnp.array([[2.0], [-3.0]])
+    out = module(data, jnp.ones((2, 1)))
+    assert jnp.allclose(out, data, atol=1e-5)
 
 
 def test_hyper_edge_set_center_reduce_normalizer_inference_mode():
