@@ -463,7 +463,7 @@ class TDigestModule(nnx.Module):
 
         return out * non_fictitious
 
-    def _sync_update_state(self, flat_array: jax.Array, flat_mask: jax.Array, is_training: bool, should_update: bool):
+    def _sync_update_state(self, flat_array: jax.Array, flat_mask: jax.Array, is_training: bool, should_update: jax.Array):
         def update_fn(a, m):
             new_digest, new_xp, new_sl = self._update_digest(a, m)
             return new_digest, new_xp, new_sl, jnp.array(True)
