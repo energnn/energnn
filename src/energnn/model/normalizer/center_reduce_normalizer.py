@@ -88,12 +88,7 @@ class HyperEdgeSetCenterReduceNormalizer(nnx.Module):
 
         self._update_stats(x, mask, is_batched, is_training)
 
-        # Correct bias
-        # We add epsilon to denominator to avoid division by zero when updates is 0
-        mean_hat = self.mean / (1 - self.beta_1**self.updates + self.epsilon)
-        var_hat = self.var / (1 - self.beta_2**self.updates + self.epsilon)
-
-        out = (x - mean_hat) / (jnp.sqrt(var_hat) + self.epsilon)
+        out = (x - self.mean[...]) / (jnp.sqrt(self.var[...]) + self.epsilon)
 
         if self.saturation_strategy is not None:
             out = self._apply_saturation(out)
